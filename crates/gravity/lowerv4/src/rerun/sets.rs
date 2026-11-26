@@ -52,14 +52,17 @@ use gravity_program::protos::{Proto, ProtoKind, SUBHASH_LAZY};
 use mcx::{CollectIn, PgVec};
 use types_nodes::jointype::JoinType;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::kinds::KindId;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 /// Registered with no maker of its own: the owners (nest/inner.rs, nest.subplan) declare their set through `declare`.
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestRerun, &Owned)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::NestRerun, &Owned)],
+    ..crate::ops::NONE
+};
 
 /// `nest.rerun`'s registry row: a kind its owners' makers use, never made alone.
 pub(crate) struct Owned;
@@ -84,7 +87,12 @@ pub(crate) struct Rerun {
 /// handle. Every read of a slot a member produces is `k`'s or a later member's (RT-2e: only the owner opens over a set
 /// that has not run yet), else a Shape by name. A member another rerun set also runs refuses by D_RERUN_SHARED (`shared`).
 pub(crate) fn declare(px: &mut Px<'_, '_>, k: usize, node_id: i32, plan_id: i32) -> Option<Rerun> {
-    let set = px.gx.graph.reruns.iter().position(|r| r.node_id == node_id && r.plan_id == plan_id)?;
+    let set = px
+        .gx
+        .graph
+        .reruns
+        .iter()
+        .position(|r| r.node_id == node_id && r.plan_id == plan_id)?;
     Some(Rerun::declare(px, k, set))
 }
 
@@ -95,22 +103,55 @@ impl Rerun {
     pub(crate) fn declare(px: &mut Px<'_, '_>, k: usize, set: usize) -> Rerun {
         let gx = px.gx;
         let node_id = gx.graph.reruns[set].node_id;
-        if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::Rerun && gravity_program::lifetime::rerun_set_of(p.arg) == set as u64) {
+        if let Some(p) = px.protos.iter().find(|p| {
+            p.kind == ProtoKind::Rerun
+                && gravity_program::lifetime::rerun_set_of(p.arg) == set as u64
+        }) {
             let h = p.words.base;
-            return Rerun { set, h, resets: px.lifetimes.owner_run(set as u16), runs: true };
+            return Rerun {
+                set,
+                h,
+                resets: px.lifetimes.owner_run(set as u16),
+                runs: true,
+            };
         }
-        let members: PgVec<'_, usize> = gx.graph.reruns[set].pipelines.iter().map(|&q| q as usize).collect_in(px.mcx());
+        let members: PgVec<'_, usize> = gx.graph.reruns[set]
+            .pipelines
+            .iter()
+            .map(|&q| q as usize)
+            .collect_in(px.mcx());
         let ps = &gx.graph.pipelines;
         // by life, not slot number: a slot an earlier pipeline's life left (an InitPlan's aggregate inside the inner) may be
         // refilled by a member, and that pipeline's read is of its own life
-        let made = |q: usize, s: u8| gx.life_of(q, s).is_some_and(|l| members.contains(&(l.0 as usize)));
+        let made = |q: usize, s: u8| {
+            gx.life_of(q, s)
+                .is_some_and(|l| members.contains(&(l.0 as usize)))
+        };
         // D2034: a recursive union's pulled seed fills its working table, which the union's term set (same owner, the driver)
         // reads; the driver starts the first generation only once the seed set ended (setop/recursive.rs `seed_pull`)
-        let term = (gx.graph.reruns[set].plan_id == RECURSIVE_SEED_SET).then(|| gx.graph.reruns.iter().find(|r| r.node_id == node_id && r.plan_id == RECURSIVE_SET)).flatten();
+        let term = (gx.graph.reruns[set].plan_id == RECURSIVE_SEED_SET)
+            .then(|| {
+                gx.graph
+                    .reruns
+                    .iter()
+                    .find(|r| r.node_id == node_id && r.plan_id == RECURSIVE_SET)
+            })
+            .flatten();
         let term_reads = |q: usize| term.is_some_and(|r| r.pipelines.contains(&(q as u16)));
         // a graph pipeline embedding `k` (the root of a nest whose inner holds a SubPlan owner) lists `k`'s reads as its own
-        if (0..ps.len()).any(|q| q != k && !members.contains(&q) && !term_reads(q) && !embeds(gx, q, k) && ps[q].desc.consumes.iter().any(|&s| made(q, s))) {
-            crate::refuse!(node_id, Reason::Shape { why: ShapeWhy("a rerun set's slot read outside its owner and its members") });
+        if (0..ps.len()).any(|q| {
+            q != k
+                && !members.contains(&q)
+                && !term_reads(q)
+                && !embeds(gx, q, k)
+                && ps[q].desc.consumes.iter().any(|&s| made(q, s))
+        }) {
+            crate::refuse!(
+                node_id,
+                Reason::Shape {
+                    why: ShapeWhy("a rerun set's slot read outside its owner and its members")
+                }
+            );
         }
         // D1654 / D1700: a lazy build (D824: a VOLATILE build side on PG's outer-first path) runs at its probe's first row at
         // every re-run (driver `run_nested`), PG's rescan of a LEFT / ANTI hash join (HJ_FILL_OUTER fetches the outer's first
@@ -119,19 +160,34 @@ impl Rerun {
         // inherit#404: a build and probe both in `graph.kept` (the fill of a hashed Agg PG keeps, decompose `kept_hashed`) run
         // at the set's first run only (exec `again` skips them): PG's first ExecAgg runs the join once, outer first, never
         // rescanned (ExecReScanAgg keeps the table and does not rescan its input), so no D1701 rescan exists to differ.
-        let lazy_slot = |s: u8, q: usize| px.lazy.iter().any(|&(b, p)| p == q && ps[b].desc.produces() == Some(s));
+        let lazy_slot = |s: u8, q: usize| {
+            px.lazy
+                .iter()
+                .any(|&(b, p)| p == q && ps[b].desc.produces() == Some(s))
+        };
         let fill = |jt: &JoinType| matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI);
-        let cost = |q: usize| ps[q].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { jointype, slot, outer_first: true, .. }) if lazy_slot(*slot, q) && !fill(jointype)));
+        let cost = |q: usize| {
+            ps[q].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { jointype, slot, outer_first: true, .. }) if lazy_slot(*slot, q) && !fill(jointype)))
+        };
         let once = |p: usize| gx.graph.kept.contains(&(p as u16));
         // D3374: D1701 cannot show where the probe's outer side holds the same rows at every call (`steady`): PG then builds
         // at every call or at none, the lazy build at each call's first row or never, and a quiet outer side shows no order
-        if members.iter().any(|&m| px.lazy.iter().any(|&(b, q)| b == m && cost(q) && !(once(b) && once(q)) && !steady(gx, b, q))) {
+        if members.iter().any(|&m| {
+            px.lazy
+                .iter()
+                .any(|&(b, q)| b == m && cost(q) && !(once(b) && once(q)) && !steady(gx, b, q))
+        }) {
             crate::refuse!(node_id, Reason::Shape { why: ShapeWhy("a lazy hash build (a VOLATILE build side on PG's outer-first path, D824) in a rerun set (D1654)") });
         }
         // D1337 row B, D2300: a member another rerun set also runs (membership only, for every owner) would run under that set's
         // `m8_rerun` before this owner wrote the parameters it reads; checked after the set's own Shapes above, which keep their names
         if shared_at(gx, Some(set), &gx.graph.reruns[set].pipelines) {
-            crate::refuse!(node_id, Reason::Shape { why: ShapeWhy(D_RERUN_SHARED) });
+            crate::refuse!(
+                node_id,
+                Reason::Shape {
+                    why: ShapeWhy(D_RERUN_SHARED)
+                }
+            );
         }
         let (h, owner) = (px.proto_words(1), px.ident(k) as u16);
         // setop_rec-0043: a member of a CTE the set re-arms (`rearmed`) that another set runs (a recursive union's term, which
@@ -141,17 +197,41 @@ impl Rerun {
         // D2300 (three recursive levels): a set holding every member of this one and more (the outer union's term set around
         // this middle one) re-arms the middle union's CTE and runs none of this set's members: it is no other runner here, so
         // the inner CTE this set re-arms (`rearming_set`) and its pulled seed keep their protos, as an outer term's do
-        let outer = |i: usize| gx.graph.reruns[i].pipelines.len() > set_ms.len() && set_ms.iter().all(|m| gx.graph.reruns[i].pipelines.contains(m));
-        let other = |q: usize| gx.graph.reruns.iter().enumerate().any(|(i, r)| i != set && r.pipelines.contains(&(q as u16)) && !outer(i));
+        let outer = |i: usize| {
+            gx.graph.reruns[i].pipelines.len() > set_ms.len()
+                && set_ms
+                    .iter()
+                    .all(|m| gx.graph.reruns[i].pipelines.contains(m))
+        };
+        let other = |q: usize| {
+            gx.graph
+                .reruns
+                .iter()
+                .enumerate()
+                .any(|(i, r)| i != set && r.pipelines.contains(&(q as u16)) && !outer(i))
+        };
         let mut runs = false;
         #[allow(clippy::nonminimal_bool)]
-        for q in members.into_iter().filter(|&q| !(rearmed(gx, set_ms, q) && other(q)) && !nested_away(gx, set, q as u16)) {
+        for q in members
+            .into_iter()
+            .filter(|&q| !(rearmed(gx, set_ms, q) && other(q)) && !nested_away(gx, set, q as u16))
+        {
             // D1018 item 9 (b): a member PG keeps (graph.kept) runs at the set's first run only
             let kept = gx.graph.kept.contains(&(q as u16));
-            px.declare_proto(Proto::new(ProtoKind::Rerun, q as u16).peer(owner).words(h, 1).arg(gravity_program::lifetime::rerun_arg(set, kept)));
+            px.declare_proto(
+                Proto::new(ProtoKind::Rerun, q as u16)
+                    .peer(owner)
+                    .words(h, 1)
+                    .arg(gravity_program::lifetime::rerun_arg(set, kept)),
+            );
             runs = true;
         }
-        Rerun { set, h, resets: px.lifetimes.owner_run(set as u16), runs }
+        Rerun {
+            set,
+            h,
+            resets: px.lifetimes.owner_run(set as u16),
+            runs,
+        }
     }
 }
 
@@ -159,7 +239,10 @@ impl Rerun {
 /// `inits_of` reads the same membership from the Init protos).
 pub(crate) fn holds_init(gx: &crate::graph::Gx<'_, '_>, set: usize) -> bool {
     let ps = &gx.graph.reruns[set].pipelines;
-    gx.graph.init_plans.iter().any(|i| !matches!(i.link, SubLink::Cte) && ps.contains(&i.pipeline))
+    gx.graph
+        .init_plans
+        .iter()
+        .any(|i| !matches!(i.link, SubLink::Cte) && ps.contains(&i.pipeline))
 }
 
 /// D1337(A): whether every member of a nested SubPlan's rerun set `set` (owner `k`) is re-run by a proven road: each reader
@@ -189,7 +272,10 @@ pub(crate) fn members_close(gx: &crate::graph::Gx<'_, '_>, k: usize, set: &[u16]
     while let Some(i) = call.checked_sub(ps.len()) {
         call = ins[i].0 .0;
     }
-    let drain = ps[call].ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Drain { .. })));
+    let drain = ps[call]
+        .ops
+        .iter()
+        .any(|o| matches!(o, Op::Join(JoinDesc::Drain { .. })));
     let own = own_of(gx, k, set);
     // `q` is a member of `set` or an inner one embeds (its op, or an inner it embeds)
     let in_member = |mut q: usize| loop {
@@ -340,15 +426,26 @@ pub(crate) fn run_region(px: &Px<'_, '_>, k: usize, slot: u8) -> Option<usize> {
     let run = px.ident(k);
     // D2743: the running call's index, past the LAZY hashed SubPlan sets frame/program.rs drops from the list (`Px::consumed`,
     // D2325; `Pipes::consumed_at`'s index there made a sort run's RunEmit read another region and crash)
-    let Some(t) = px.tails.iter().find(|t| t.ident == run) else { return px.consumed(k, slot) };
+    let Some(t) = px.tails.iter().find(|t| t.ident == run) else {
+        return px.consumed(k, slot);
+    };
     let at = t.consumes.iter().position(|&s| s == slot)?;
     let lazy = |s: u8| {
         let life = px.gx.life_of(run, s).map(|l| l.0 as usize);
-        px.protos.iter().any(|p| p.kind == ProtoKind::SubHash && p.arg & SUBHASH_LAZY != 0 && Some(p.pipeline as usize) == life)
+        px.protos.iter().any(|p| {
+            p.kind == ProtoKind::SubHash
+                && p.arg & SUBHASH_LAZY != 0
+                && Some(p.pipeline as usize) == life
+        })
     };
     // a pass's virtual id (frame/program.rs `pass_id`) names no graph pipeline: its call's regions are not proven here
     if run >= ps.end() || t.consumes[..at].iter().any(|&s| lazy(s)) {
-        crate::refuse!(ps[k].node_id, Reason::Shape { why: ShapeWhy(D_RERUN_EMIT) })
+        crate::refuse!(
+            ps[k].node_id,
+            Reason::Shape {
+                why: ShapeWhy(D_RERUN_EMIT)
+            }
+        )
     }
     Some(at)
 }
@@ -356,9 +453,17 @@ pub(crate) fn run_region(px: &Px<'_, '_>, k: usize, slot: u8) -> Option<usize> {
 /// Whether pipeline `q` reads slot `s` as a group of the set operation it emits (its first op, over its left group), both
 /// groups filled by members of `set`.
 fn set_op_side(gx: &crate::graph::Gx<'_, '_>, q: usize, s: u8, set: &[u16]) -> bool {
-    let Some(Op::SetOp(gravity_decompose::ops::shared::setop::SetDesc::Set { left, right, .. })) = gx.pipelines().get(q).and_then(|p| p.ops.first()) else { return false };
+    let Some(Op::SetOp(gravity_decompose::ops::shared::setop::SetDesc::Set {
+        left, right, ..
+    })) = gx.pipelines().get(q).and_then(|p| p.ops.first())
+    else {
+        return false;
+    };
     let member = |t: u8| gx.life_of(q, t).is_some_and(|l| set.contains(&l.0));
-    (s == *left || s == *right) && matches!(gx.pipelines()[q].source, Source::Breaker { slot } if slot == *left) && member(*left) && member(*right)
+    (s == *left || s == *right)
+        && matches!(gx.pipelines()[q].source, Source::Breaker { slot } if slot == *left)
+        && member(*left)
+        && member(*right)
 }
 
 /// D1339 (M8-NEST): a rerun set's breaker emit other than a plain aggregate's on the owner's first region (its emits' region and resume reads are the owner's).
@@ -383,12 +488,16 @@ pub(crate) fn emit_ok(px: &Px<'_, '_>, (k, ik): (usize, usize), kind: KindId) ->
         // D1339 row D (ported, proto4): any region the graph pipeline at the root of the owner's chain consumes the slot at
         // (`Pipes::consumed_at`, an inner owner's too: sp-0123; fold/plain_drain.rs `region`, which refuses by this name where
         // the running call's list differs)
-        KindId::FoldPlain => ps[k].desc.consumes.first() == Some(&slot) || ps.consumed_at(k, slot).is_some(),
+        KindId::FoldPlain => {
+            ps[k].desc.consumes.first() == Some(&slot) || ps.consumed_at(k, slot).is_some()
+        }
         // the run's producer is a member of an owner's set, so its run holds rows (no form-G group sort, `in_owner_set`);
         // a top-N's run (runs.topk_rows) is read by the same RunEmit at the owner's region, its bound per open (D1634), a set
         // member never takes the late fetch (ops/sort/strategies/fetch.rs `of`), nor code.heads (D3844: dict/strategies/heads.rs `key`); a MergeAppend's
         // merged run (D1483: runs.mergeappend, its arms the set's) is read by the same RunEmit
-        KindId::RunsSort | KindId::RunsTopkRows | KindId::RunsMergeappend => gx.life_of(ik, slot).is_some_and(|l| in_owner_set(gx, l.0 as usize)),
+        KindId::RunsSort | KindId::RunsTopkRows | KindId::RunsMergeappend => gx
+            .life_of(ik, slot)
+            .is_some_and(|l| in_owner_set(gx, l.0 as usize)),
         // D1339 row C (ported, proto4): keyed/emit_group.rs `at`; under an owner a set re-runs too (a nested set's inner,
         // decorrelate-014): its array's cache is a statement pin (kernels table/emit.rs `kept_array`, `PIN_STATEMENT`),
         // never that set's, so the set's next run does not unpin it under the cache word. A sorted group's or Unique's
@@ -397,15 +506,21 @@ pub(crate) fn emit_ok(px: &Px<'_, '_>, (k, ik): (usize, usize), kind: KindId) ->
         // table/emit_group.rs gathers at `run_region`'s index (D3545: a spooled drain's tail at its declared list's); outside
         // a tail that is `Pipes::consumed_at`'s, never past a LAZY hashed SubPlan's set, whose slot leaves the call's list
         // after lowering (`Px::consumed` skips it; D2743: it raised XX000 there)
-        KindId::KeyedEmitGroup | KindId::RunsGroup | KindId::RunsUnique => ps.consumed_at(ik, slot).is_some_and(|at| px.consumed(ik, slot) == Some(at)),
+        KindId::KeyedEmitGroup | KindId::RunsGroup | KindId::RunsUnique => ps
+            .consumed_at(ik, slot)
+            .is_some_and(|at| px.consumed(ik, slot) == Some(at)),
         // a count(DISTINCT) emit (ops/group/distinct_plain.rs): its gather reads consumed[0] with the resume word NONE around
         // the call (fresh at every open), or an inner's later region by index (`at`: two SubPlans in one select list), as
         // row D's plain record
-        KindId::KeyedDistinctPlain => ps[k].desc.consumes.first() == Some(&slot) || ps.consumed_at(k, slot).is_some(),
+        KindId::KeyedDistinctPlain => {
+            ps[k].desc.consumes.first() == Some(&slot) || ps.consumed_at(k, slot).is_some()
+        }
         KindId::JoinDrain => true,
         // material W-INNER: a WindowAgg inner reads its partition buffer through the window object (ops/window/rows.rs), never
         // a region; its fill a member of an owner's set, each open of either restarts the object (D2346)
-        KindId::WindowAgg => gx.life_of(ik, slot).is_some_and(|l| in_owner_set(gx, l.0 as usize)),
+        KindId::WindowAgg => gx
+            .life_of(ik, slot)
+            .is_some_and(|l| in_owner_set(gx, l.0 as usize)),
         _ => false,
     };
     // the rows D / C arms (not v4's first-region record); a set member holding a window op re-runs over a window object
@@ -425,7 +540,12 @@ pub(crate) fn emit_ok(px: &Px<'_, '_>, (k, ik): (usize, usize), kind: KindId) ->
     // the gathered array is a statement pin, and the parked call keeps its arena window (D3244). The resumed emit reads
     // the same groups, as PostgreSQL's CteScan resumes the CTE's plan inside the reader's fetch
     if !ok {
-        crate::refuse!(ps[ik].node_id, Reason::Shape { why: ShapeWhy(D_RERUN_EMIT) });
+        crate::refuse!(
+            ps[ik].node_id,
+            Reason::Shape {
+                why: ShapeWhy(D_RERUN_EMIT)
+            }
+        );
     }
     kind
 }
@@ -434,13 +554,19 @@ pub(crate) fn emit_ok(px: &Px<'_, '_>, (k, ik): (usize, usize), kind: KindId) ->
 /// set, `RECURSIVE_SET`): such a member re-runs alone, so it takes no HAVING split (ops/sort/topn/strategies/twopass.rs: a
 /// remade pass-2 pipeline no Rerun proto re-runs) and no form-G group sort (ops/sort/shapes.rs).
 pub(crate) fn in_owner_set(gx: &crate::graph::Gx<'_, '_>, k: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.plan_id != gravity_decompose::ops::shared::setop::RECURSIVE_SET && r.pipelines.contains(&(k as u16)))
+    gx.graph.reruns.iter().any(|r| {
+        r.plan_id != gravity_decompose::ops::shared::setop::RECURSIVE_SET
+            && r.pipelines.contains(&(k as u16))
+    })
 }
 
 /// D2615: whether pipeline `k` is a member of a recursive union's term set (`RECURSIVE_SET`: the driver re-runs it per
 /// generation, ops/setop/recursive.rs), the complement of `in_owner_set`'s sets.
 pub(crate) fn in_term_set(gx: &crate::graph::Gx<'_, '_>, k: usize) -> bool {
-    gx.graph.reruns.iter().any(|r| r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET && r.pipelines.contains(&(k as u16)))
+    gx.graph.reruns.iter().any(|r| {
+        r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET
+            && r.pipelines.contains(&(k as u16))
+    })
 }
 
 /// The graph pipeline embedding pipeline `q` (`q` itself when it is one).
@@ -477,9 +603,17 @@ fn steady(gx: &crate::graph::Gx<'_, '_>, b: usize, q: usize) -> bool {
     let ps = gx.pipelines();
     let p = &ps[q];
     let Some(j) = p.ops.iter().position(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if ps[b].desc.produces() == Some(*slot))) else { return false };
-    matches!(p.source, Source::Range { .. } | Source::Index { .. } | Source::Const)
-        && p.ops[..j].iter().all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))
-        && p.desc.consumes.iter().all(|s| p.ops[j..].iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s)))
+    matches!(
+        p.source,
+        Source::Range { .. } | Source::Index { .. } | Source::Const
+    ) && p.ops[..j]
+        .iter()
+        .all(|o| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Project(_)))
+        && p.desc.consumes.iter().all(|s| {
+            p.ops[j..]
+                .iter()
+                .any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s))
+        })
         && !crate::ops::hashjoin::probe::reads_param(gx, q, j)
         && side_by(gx, q, j, false) == Side::Safe
         && side_by(gx, b, usize::MAX, false) != Side::UserFn
@@ -488,14 +622,27 @@ fn steady(gx: &crate::graph::Gx<'_, '_>, b: usize, q: usize) -> bool {
 
 /// D1337(H): the rerun set of the nested SubPlan whose embedded inner is `ik` (`sub_set_at`, as `owner_set` keys it;
 /// ops/hashjoin/probe.rs restates it for its prefix_safe: keep the two equal).
-pub(crate) fn sub_set<'g>(gx: &crate::graph::Gx<'g, '_>, ik: usize) -> Option<&'g gravity_decompose::graph::Rerun> {
-    let ((k, j), _) = *gx.pipelines().inners().get(ik.checked_sub(gx.pipelines().len())?)?;
-    let Some(Op::SubPlan(d)) = gx.pipelines()[k].ops.get(j) else { return None };
+pub(crate) fn sub_set<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    ik: usize,
+) -> Option<&'g gravity_decompose::graph::Rerun> {
+    let ((k, j), _) = *gx
+        .pipelines()
+        .inners()
+        .get(ik.checked_sub(gx.pipelines().len())?)?;
+    let Some(Op::SubPlan(d)) = gx.pipelines()[k].ops.get(j) else {
+        return None;
+    };
     sub_set_at(gx, k, j, d.plan_id)
 }
 
 /// The rerun set of SubPlan op `j` of pipeline `k` (plan `plan_id`): `sub_set_index`'s entry.
-pub(crate) fn sub_set_at<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, plan_id: i32) -> Option<&'g gravity_decompose::graph::Rerun> {
+pub(crate) fn sub_set_at<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    k: usize,
+    j: usize,
+    plan_id: i32,
+) -> Option<&'g gravity_decompose::graph::Rerun> {
     sub_set_index(gx, k, j, plan_id).map(|i| &gx.graph.reruns[i])
 }
 
@@ -507,13 +654,34 @@ pub(crate) fn sub_set_at<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, j: usize, 
 /// set at the op's node whose member produces a slot the op's embedded inner reads (by life: its source breaker, a
 /// probe's build), else any copy the inner reads, else its own InitPlan copy (`init_copy`), else the set at the op's
 /// node, else the plan's first (one place, the node of the op elsewhere).
-pub(crate) fn sub_set_index(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, plan_id: i32) -> Option<usize> {
+pub(crate) fn sub_set_index(
+    gx: &crate::graph::Gx<'_, '_>,
+    k: usize,
+    j: usize,
+    plan_id: i32,
+) -> Option<usize> {
     let ps = gx.pipelines();
     let node = crate::rerun::inner::op_node(&ps[k], j);
     let ik = ps.inner_of(k, j);
-    let reads = |r: &gravity_decompose::graph::Rerun| ik.is_some_and(|ik| ps[ik].desc.consumes.iter().any(|&s| gx.life_of(ik, s).is_some_and(|l| r.pipelines.contains(&l.0))));
-    let of = |f: &dyn Fn(&gravity_decompose::graph::Rerun) -> bool| gx.graph.reruns.iter().position(|r| r.plan_id == plan_id && f(r));
-    of(&|r| r.node_id == node && reads(r)).or_else(|| of(&reads)).or_else(|| init_copy(gx, ik?, node, plan_id)).or_else(|| of(&|r| r.node_id == node)).or_else(|| of(&|_| true))
+    let reads = |r: &gravity_decompose::graph::Rerun| {
+        ik.is_some_and(|ik| {
+            ps[ik].desc.consumes.iter().any(|&s| {
+                gx.life_of(ik, s)
+                    .is_some_and(|l| r.pipelines.contains(&l.0))
+            })
+        })
+    };
+    let of = |f: &dyn Fn(&gravity_decompose::graph::Rerun) -> bool| {
+        gx.graph
+            .reruns
+            .iter()
+            .position(|r| r.plan_id == plan_id && f(r))
+    };
+    of(&|r| r.node_id == node && reads(r))
+        .or_else(|| of(&reads))
+        .or_else(|| init_copy(gx, ik?, node, plan_id))
+        .or_else(|| of(&|r| r.node_id == node))
+        .or_else(|| of(&|_| true))
 }
 
 /// `sub_set_index` for copies at one node no slot read tells apart: each copy's members are all an InitPlan's (its
@@ -524,11 +692,40 @@ pub(crate) fn sub_set_index(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, p
 /// other count of copies and references: none.
 fn init_copy(gx: &crate::graph::Gx<'_, '_>, ik: usize, node: i32, plan_id: i32) -> Option<usize> {
     let ps = gx.pipelines();
-    let init = |r: &gravity_decompose::graph::Rerun| !r.pipelines.is_empty() && r.pipelines.iter().all(|&q| crate::ops::subplan::initplan::lower::member(gx, q as usize));
-    let copies: PgVec<'_, usize> = gx.graph.reruns.iter().enumerate().filter(|(_, r)| r.plan_id == plan_id && r.node_id == node && init(r)).map(|(i, _)| i).collect_in(gx.mcx);
-    let at = |&(q, i): &(usize, usize)| matches!(ps[q].ops.get(i), Some(Op::SubPlan(d)) if d.plan_id == plan_id) && crate::rerun::inner::op_node(&ps[q], i) == node;
-    let refs: PgVec<'_, usize> = ps.inners().iter().enumerate().filter(|(_, x)| at(&x.0)).map(|(e, _)| ps.len() + e).collect_in(gx.mcx);
-    if copies.len() != refs.len() || gx.graph.reruns.iter().filter(|r| r.plan_id == plan_id && r.node_id == node).count() != copies.len() {
+    let init = |r: &gravity_decompose::graph::Rerun| {
+        !r.pipelines.is_empty()
+            && r.pipelines
+                .iter()
+                .all(|&q| crate::ops::subplan::initplan::lower::member(gx, q as usize))
+    };
+    let copies: PgVec<'_, usize> = gx
+        .graph
+        .reruns
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.plan_id == plan_id && r.node_id == node && init(r))
+        .map(|(i, _)| i)
+        .collect_in(gx.mcx);
+    let at = |&(q, i): &(usize, usize)| {
+        matches!(ps[q].ops.get(i), Some(Op::SubPlan(d)) if d.plan_id == plan_id)
+            && crate::rerun::inner::op_node(&ps[q], i) == node
+    };
+    let refs: PgVec<'_, usize> = ps
+        .inners()
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| at(&x.0))
+        .map(|(e, _)| ps.len() + e)
+        .collect_in(gx.mcx);
+    if copies.len() != refs.len()
+        || gx
+            .graph
+            .reruns
+            .iter()
+            .filter(|r| r.plan_id == plan_id && r.node_id == node)
+            .count()
+            != copies.len()
+    {
         return None;
     }
     copies.get(refs.iter().position(|&e| e == ik)?).copied()
@@ -555,15 +752,32 @@ pub(crate) fn nest_set_index(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize) 
     let ps = gx.pipelines();
     let node = crate::rerun::inner::op_node(&ps[k], j);
     let ik = ps.inner_of(k, j);
-    let reads = |r: &gravity_decompose::graph::Rerun| ik.is_some_and(|ik| ps[ik].desc.consumes.iter().any(|&s| gx.life_of(ik, s).is_some_and(|l| r.pipelines.contains(&l.0))));
+    let reads = |r: &gravity_decompose::graph::Rerun| {
+        ik.is_some_and(|ik| {
+            ps[ik].desc.consumes.iter().any(|&s| {
+                gx.life_of(ik, s)
+                    .is_some_and(|l| r.pipelines.contains(&l.0))
+            })
+        })
+    };
     let at = |r: &gravity_decompose::graph::Rerun| r.plan_id == 0 && r.node_id == node;
-    gx.graph.reruns.iter().position(|r| at(r) && reads(r)).or_else(|| gx.graph.reruns.iter().position(at))
+    gx.graph
+        .reruns
+        .iter()
+        .position(|r| at(r) && reads(r))
+        .or_else(|| gx.graph.reruns.iter().position(at))
 }
 
 /// D1018 (a nest's own set): the rerun set of the nest whose inner is `ik` (plan 0, keyed by the nest's node as `owner_set`
 /// keys it, `nest_set_index`; ops/hashjoin/probe.rs reads it for its prefix_safe).
-pub(crate) fn nest_set<'g>(gx: &crate::graph::Gx<'g, '_>, ik: usize) -> Option<&'g gravity_decompose::graph::Rerun> {
-    let ((k, j), _) = *gx.pipelines().inners().get(ik.checked_sub(gx.pipelines().len())?)?;
+pub(crate) fn nest_set<'g>(
+    gx: &crate::graph::Gx<'g, '_>,
+    ik: usize,
+) -> Option<&'g gravity_decompose::graph::Rerun> {
+    let ((k, j), _) = *gx
+        .pipelines()
+        .inners()
+        .get(ik.checked_sub(gx.pipelines().len())?)?;
     let p = &gx.pipelines()[k];
     if matches!(p.ops.get(j), Some(Op::SubPlan(_))) {
         return None;
@@ -585,7 +799,11 @@ pub(crate) fn owner_set(gx: &crate::graph::Gx<'_, '_>, ik: usize) -> Option<(i32
     // rangefuncs#223: a merge join's run the set refills (ops/mergejoin/nest_refill.rs) reads as a probe's build does
     let probe = |o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { slot, .. } | JoinDesc::Merge { slot, .. }) if gx.life_of(ik, *slot).is_some_and(|l| r.pipelines.contains(&l.0)));
     // D1262: a set holding an InitPlan's members re-arms it at every re-open, whatever the inner reads
-    let init = || r.pipelines.iter().any(|&m| crate::ops::subplan::initplan::lower::member(gx, m as usize));
+    let init = || {
+        r.pipelines
+            .iter()
+            .any(|&m| crate::ops::subplan::initplan::lower::member(gx, m as usize))
+    };
     // D1107 (material): a plan Material the set refills, read by a nest inner embedded under `ik` (the reader two or more
     // levels below the set's nest, join#782; or anywhere in a nested SubPlan's own inner, the psql trigger list's parent
     // SubPlan): the re-open or call runs the set before the inner that embeds the reader opens
@@ -598,7 +816,11 @@ pub(crate) fn owner_set(gx: &crate::graph::Gx<'_, '_>, ik: usize) -> Option<(i32
 
 /// D1107: an inner embedded under inner `ik` at any depth reads, as nest.spool's reader, a breaker of `slots` (a plan
 /// Material's spool a rerun set refills).
-fn deep_spool(gx: &crate::graph::Gx<'_, '_>, ik: usize, slots: &gravity_decompose::graph::SlotSet) -> bool {
+fn deep_spool(
+    gx: &crate::graph::Gx<'_, '_>,
+    ik: usize,
+    slots: &gravity_decompose::graph::SlotSet,
+) -> bool {
     let ps = gx.pipelines();
     let n = ps.len();
     let under = |mut q: usize| {
@@ -627,7 +849,9 @@ pub(crate) const D_RERUN_SHARED: &str = "a rerun set whose member another rerun 
 /// D_RERUN_SHARED, row B's text).
 pub(crate) fn owner_refusal(px: &Px<'_, '_>, k: usize, set: &[u16]) -> Option<&'static str> {
     let gx = px.gx;
-    let build = set.iter().any(|&m| crate::frame::iface::end_breaker(gx, m as usize) == Some(BreakerKind::HashBuild));
+    let build = set
+        .iter()
+        .any(|&m| crate::frame::iface::end_breaker(gx, m as usize) == Some(BreakerKind::HashBuild));
     (build && shared_at(gx, own_of(gx, k, set), set)).then_some(D_RERUN_SHARED)
 }
 
@@ -637,7 +861,10 @@ pub(crate) fn owner_refusal(px: &Px<'_, '_>, k: usize, set: &[u16]) -> Option<&'
 fn own_of(gx: &crate::graph::Gx<'_, '_>, k: usize, set: &[u16]) -> Option<usize> {
     let rs = &gx.graph.reruns;
     let equal = |i: &usize| rs[*i].pipelines[..] == *set;
-    (0..rs.len()).filter(equal).find(|&i| owner_op(gx, i).is_some_and(|(q, _)| q == k)).or_else(|| (0..rs.len()).find(equal))
+    (0..rs.len())
+        .filter(equal)
+        .find(|&i| owner_op(gx, i).is_some_and(|(q, _)| q == k))
+        .or_else(|| (0..rs.len()).find(equal))
 }
 
 /// D2300: a member of `set` is also a member of another graph.reruns entry (membership only, Row B's structural test, order
@@ -652,7 +879,12 @@ fn shared_at(gx: &crate::graph::Gx<'_, '_>, own: Option<usize>, set: &[u16]) -> 
     // (`nested`) by the nested set's alone: no shared run
     let run = |s: &[u16], q: u16| !rearm_only(gx, s, q as usize);
     let apart = |i: usize, q: u16| own.is_some_and(|o| nested(gx, i, o, q) || nested(gx, o, i, q));
-    rs.iter().enumerate().any(|(i, r)| Some(i) != own && r.pipelines.iter().any(|&q| set.contains(&q) && run(set, q) && run(&r.pipelines, q) && !apart(i, q)))
+    rs.iter().enumerate().any(|(i, r)| {
+        Some(i) != own
+            && r.pipelines
+                .iter()
+                .any(|&q| set.contains(&q) && run(set, q) && run(&r.pipelines, q) && !apart(i, q))
+    })
 }
 
 /// Whether rerun set `set`'s run only re-arms member `q`, never runs it: an InitPlan's member (D1262: it runs again at the
@@ -675,8 +907,12 @@ pub(crate) fn rearming_set(gx: &crate::graph::Gx<'_, '_>, q: usize) -> Option<us
 /// inside it. The set's run re-arms the CTE (exec ops/ctescan/proto.rs `rearm`) and runs none of them, as it re-arms an
 /// InitPlan; the CTE's next pull runs them again, nested in its reader, as PG's ExecReScanCteScan re-runs the plan lazily.
 pub(crate) fn rearmed(gx: &crate::graph::Gx<'_, '_>, set: &[u16], q: usize) -> bool {
-    let ctes = set.iter().map(|&m| m as usize).filter(|&k| crate::ops::ctescan::lower::rearms(gx, k));
-    ctes.into_iter().any(|k| k == q || crate::ops::ctescan::lower::fed(gx, k).contains(&q))
+    let ctes = set
+        .iter()
+        .map(|&m| m as usize)
+        .filter(|&k| crate::ops::ctescan::lower::rearms(gx, k));
+    ctes.into_iter()
+        .any(|k| k == q || crate::ops::ctescan::lower::fed(gx, k).contains(&q))
 }
 
 /// Nested sets (D2300's exemption): rerun set `t` runs inside set `s`'s run when `t`'s owner is one of `s`'s members (a
@@ -695,18 +931,32 @@ fn nested(gx: &crate::graph::Gx<'_, '_>, t: usize, s: usize, q: u16) -> bool {
     if t == s || gx.graph.kept.contains(&q) || !rs[t].pipelines.contains(&q) {
         return false;
     }
-    if set_owner(gx, t).is_some_and(|o| ms(s).contains(&(o as u16)) && !ms(t).contains(&(o as u16))) {
+    if set_owner(gx, t).is_some_and(|o| ms(s).contains(&(o as u16)) && !ms(t).contains(&(o as u16)))
+    {
         return true;
     }
     let ps = gx.pipelines();
-    let fed_in_s = ps[q as usize].desc.produces().is_some_and(|sl| ms(s).iter().any(|&m| !ms(t).contains(&m) && ps.get(m as usize).is_some_and(|p| p.desc.consumes.contains(&sl))));
-    inside(gx, t, s) && !rearm_only(gx, ms(s), q as usize) && !rearm_only(gx, ms(t), q as usize) && !fed_in_s && read_under(gx, t, q as usize)
+    let fed_in_s = ps[q as usize].desc.produces().is_some_and(|sl| {
+        ms(s).iter().any(|&m| {
+            !ms(t).contains(&m)
+                && ps
+                    .get(m as usize)
+                    .is_some_and(|p| p.desc.consumes.contains(&sl))
+        })
+    });
+    inside(gx, t, s)
+        && !rearm_only(gx, ms(s), q as usize)
+        && !rearm_only(gx, ms(t), q as usize)
+        && !fed_in_s
+        && read_under(gx, t, q as usize)
 }
 
 /// Whether rerun set `t`'s owner op sits in the inner set `s`'s owner op re-opens after each run of `s` (`owner_inner`), or
 /// in an inner that one embeds.
 fn inside(gx: &crate::graph::Gx<'_, '_>, t: usize, s: usize) -> bool {
-    let (Some((h, _)), Some(i)) = (owner_op(gx, t), owner_inner(gx, s)) else { return false };
+    let (Some((h, _)), Some(i)) = (owner_op(gx, t), owner_inner(gx, s)) else {
+        return false;
+    };
     h == i || embeds(gx, i, h)
 }
 
@@ -715,15 +965,24 @@ fn inside(gx: &crate::graph::Gx<'_, '_>, t: usize, s: usize) -> bool {
 /// merge, drain or hashed SubPlan of its own over it): then `q`'s rows are read only after `t`'s run.
 fn read_under(gx: &crate::graph::Gx<'_, '_>, t: usize, q: usize) -> bool {
     let ps = gx.pipelines();
-    let (Some(sl), Some((h, _)), Some(i)) = (ps[q].desc.produces(), owner_op(gx, t), owner_inner(gx, t)) else { return false };
+    let (Some(sl), Some((h, _)), Some(i)) =
+        (ps[q].desc.produces(), owner_op(gx, t), owner_inner(gx, t))
+    else {
+        return false;
+    };
     let direct = |x: usize| {
         let p = &ps[x];
         matches!(p.source, Source::Breaker { slot } if slot == sl)
             || p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { slot, .. } | JoinDesc::Merge { slot, .. } | JoinDesc::Drain { matches: slot, .. }) if *slot == sl) || matches!(op, Op::SubPlan(d) if matches!(d.form, SubForm::Hashed { slot } if slot == sl)))
     };
-    (0..ps.end()).filter(|&x| ps.get(x).is_some_and(|p| p.desc.consumes.contains(&sl))).all(|x| {
-        gx.graph.reruns[t].pipelines.contains(&(x as u16)) || x == i || embeds(gx, i, x) || (x == h || embeds(gx, x, h)) && !direct(x)
-    })
+    (0..ps.end())
+        .filter(|&x| ps.get(x).is_some_and(|p| p.desc.consumes.contains(&sl)))
+        .all(|x| {
+            gx.graph.reruns[t].pipelines.contains(&(x as u16))
+                || x == i
+                || embeds(gx, i, x)
+                || (x == h || embeds(gx, x, h)) && !direct(x)
+        })
 }
 
 /// The inner rerun set `set`'s owner op re-opens after each run: the SubPlan's own inner, or the nest's (`Pipes::end`
@@ -731,13 +990,19 @@ fn read_under(gx: &crate::graph::Gx<'_, '_>, t: usize, q: usize) -> bool {
 fn owner_inner(gx: &crate::graph::Gx<'_, '_>, set: usize) -> Option<usize> {
     let at = owner_op(gx, set)?;
     let ps = gx.pipelines();
-    ps.inners().iter().position(|x| x.0 == at).map(|i| ps.len() + i)
+    ps.inners()
+        .iter()
+        .position(|x| x.0 == at)
+        .map(|i| ps.len() + i)
 }
 
 /// D3217: rerun set `r` is kept whole: every member in decompose `graph.kept` (D1018 item 9 (b): the fill of a hashed Agg
 /// or a Sort a nest inner reads, kept by PostgreSQL's rescan that changes no param), so the set runs its members once, at
 /// its first run (exec `again` skips them), as PostgreSQL runs them once.
-pub(crate) fn kept_whole(gx: &crate::graph::Gx<'_, '_>, r: &gravity_decompose::graph::Rerun) -> bool {
+pub(crate) fn kept_whole(
+    gx: &crate::graph::Gx<'_, '_>,
+    r: &gravity_decompose::graph::Rerun,
+) -> bool {
     r.pipelines.iter().all(|p| gx.graph.kept.contains(p))
 }
 
@@ -769,11 +1034,27 @@ fn owner_op(gx: &crate::graph::Gx<'_, '_>, set: usize) -> Option<(usize, usize)>
     let ps = gx.pipelines();
     let (n, inners) = (ps.len(), ps.inners());
     let at = |q: usize, p: &PipelineNode<'_>, j: usize, o: &Op<'_>| match o {
-        Op::SubPlan(d) => r.plan_id != 0 && d.plan_id == r.plan_id && sub_set_index(gx, q, j, d.plan_id) == Some(set),
-        _ => r.plan_id == 0 && inners.iter().any(|x| x.0 == (q, j)) && crate::rerun::inner::op_node(p, j) == r.node_id,
+        Op::SubPlan(d) => {
+            r.plan_id != 0
+                && d.plan_id == r.plan_id
+                && sub_set_index(gx, q, j, d.plan_id) == Some(set)
+        }
+        _ => {
+            r.plan_id == 0
+                && inners.iter().any(|x| x.0 == (q, j))
+                && crate::rerun::inner::op_node(p, j) == r.node_id
+        }
     };
-    let all = (0..n).map(|q| (q, &ps[q])).chain(inners.iter().enumerate().map(|(i, x)| (n + i, x.1)));
-    all.into_iter().find_map(|(q, p)| p.ops.iter().enumerate().position(|(j, o)| at(q, p, j, o)).map(|j| (q, j)))
+    let all = (0..n)
+        .map(|q| (q, &ps[q]))
+        .chain(inners.iter().enumerate().map(|(i, x)| (n + i, x.1)));
+    all.into_iter().find_map(|(q, p)| {
+        p.ops
+            .iter()
+            .enumerate()
+            .position(|(j, o)| at(q, p, j, o))
+            .map(|j| (q, j))
+    })
 }
 
 impl Rerun {
@@ -792,7 +1073,12 @@ impl Rerun {
     /// of the rescan.
     fn reset(&self, b: &mut FunctionBuilder<'_>, env: &Env) {
         if !self.resets.write(b, env.words, env.params) {
-            crate::refuse!(env.node, Reason::Bug { payload: "a rerun set's owner-run words without the words site" });
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "a rerun set's owner-run words without the words site"
+                }
+            );
         }
     }
 
@@ -802,15 +1088,32 @@ impl Rerun {
     /// after a passing gate re-arms nothing. A status below zero leaves by the raise exit with the host's stashed error.
     pub(crate) fn rearm(&self, b: &mut FunctionBuilder<'_>, env: &Env) {
         if self.runs {
-            self.call(b, env, "m8_rerun_rearm", gravity_kernels::contract::entry1::<RerunRearm> as *const () as usize);
+            self.call(
+                b,
+                env,
+                "m8_rerun_rearm",
+                gravity_kernels::contract::entry1::<RerunRearm> as *const () as usize,
+            );
         }
     }
 
     /// Host `name` at `addr` called over the set's handle; a status below zero leaves by the raise exit.
     fn call(&self, b: &mut FunctionBuilder<'_>, env: &Env, name: &str, addr: usize) {
         let hv = b.load(Type::I64, env.params, self.h as i32 * 8);
-        let f = b.declare_host_once(name, &[Type::Ptr, Type::I64], Some(Type::I64), addr, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-        let st = b.call_host(f, &[env.ctx, hv], Some(Type::I64)).unwrap_or(env.zero);
+        let f = b.declare_host_once(
+            name,
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            addr,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
+        let st = b
+            .call_host(f, &[env.ctx, hv], Some(Type::I64))
+            .unwrap_or(env.zero);
         let bad = b.icmp(IntCond::Slt, st, env.zero);
         let (l_bad, l_ok) = (b.create_block(&[]), b.create_block(&[]));
         b.mark_cold(l_bad);
@@ -829,15 +1132,32 @@ impl Rerun {
             return env.zero;
         }
         let hv = b.load(Type::I64, env.params, self.h as i32 * 8);
-        let f = b.declare_host_once("m8_rerun", &[Type::Ptr, Type::I64], Some(Type::I64), m8::m8_rerun as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-        b.call_host(f, &[env.ctx, hv], Some(Type::I64)).unwrap_or(env.zero)
+        let f = b.declare_host_once(
+            "m8_rerun",
+            &[Type::Ptr, Type::I64],
+            Some(Type::I64),
+            m8::m8_rerun as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
+        b.call_host(f, &[env.ctx, hv], Some(Type::I64))
+            .unwrap_or(env.zero)
     }
 
     /// D2034: a streamed recursive union's term set (its run the body alone) pulled on until the body's end took the rows
     /// its want word allows, `m8_rerun_pull(ctx, h, budget, first)` (kernels subplan/raw.rs `RerunPull`); at a generation's
     /// first pull (`first` nonzero) the owner-run words are stored first and the set is re-armed, as `status` re-runs it.
     /// The status: 1 the body ended, 0 it stopped, below zero with the host's error stashed (the owner keeps it).
-    pub(crate) fn pull(&self, b: &mut FunctionBuilder<'_>, env: &Env, budget: Value, first: Value) -> Value {
+    pub(crate) fn pull(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        budget: Value,
+        first: Value,
+    ) -> Value {
         let (l_reset, l_go) = (b.create_block(&[]), b.create_block(&[]));
         let is_first = b.icmp(IntCond::Ne, first, env.zero);
         b.cond_br(is_first, (l_reset, &[]), (l_go, &[]));
@@ -846,8 +1166,19 @@ impl Rerun {
         b.br(l_go, &[]);
         b.switch_to(l_go);
         let hv = b.load(Type::I64, env.params, self.h as i32 * 8);
-        let f = b.declare_host_once("m8_rerun_pull", &[Type::Ptr, Type::I64, Type::I64, Type::I64], Some(Type::I64), gravity_kernels::contract::entry3::<RerunPull> as *const () as usize, HostFlags { touches_memory: true, may_error: true, ..HostFlags::default() });
-        b.call_host(f, &[env.ctx, hv, budget, first], Some(Type::I64)).unwrap_or(env.zero)
+        let f = b.declare_host_once(
+            "m8_rerun_pull",
+            &[Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Some(Type::I64),
+            gravity_kernels::contract::entry3::<RerunPull> as *const () as usize,
+            HostFlags {
+                touches_memory: true,
+                may_error: true,
+                ..HostFlags::default()
+            },
+        );
+        b.call_host(f, &[env.ctx, hv, budget, first], Some(Type::I64))
+            .unwrap_or(env.zero)
     }
 }
 
@@ -863,16 +1194,24 @@ pub(crate) fn rearms_window_fill(gx: &crate::graph::Gx<'_, '_>, k: usize, fill: 
     let ps = gx.pipelines();
     let held = |q: usize| rs.iter().filter(move |r| r.pipelines.contains(&(q as u16)));
     let mut sets = held(fill);
-    let (Some(r), None) = (sets.next(), sets.next()) else { return false };
+    let (Some(r), None) = (sets.next(), sets.next()) else {
+        return false;
+    };
     if r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET {
         return false;
     }
     let only_r = |q: usize| held(q).count() == 1 && r.pipelines.contains(&(q as u16));
     let reader = match k < ps.len() {
         true => only_r(k),
-        false => owner_set(gx, k) == Some((r.node_id, r.plan_id)) && crate::ops::memoize::lower::at(&ps[k]).is_none(),
+        false => {
+            owner_set(gx, k) == Some((r.node_id, r.plan_id))
+                && crate::ops::memoize::lower::at(&ps[k]).is_none()
+        }
     };
-    reader && crate::ops::ctescan::lower::fed(gx, fill).into_iter().all(|q| only_r(q) && !gx.graph.kept.contains(&(q as u16)))
+    reader
+        && crate::ops::ctescan::lower::fed(gx, fill)
+            .into_iter()
+            .all(|q| only_r(q) && !gx.graph.kept.contains(&(q as u16)))
 }
 
 #[cfg(test)]
@@ -884,25 +1223,39 @@ mod tests {
     use gravity_program::protos::ProtoKind;
     use gravity_program::{Arena, ArenaVec, End, Pipeline};
 
-    use super::{declare, members_close, owner_set, owner_set_at, sub_set, sub_set_at, sub_set_index, Rerun};
+    use super::{
+        declare, members_close, owner_set, owner_set_at, sub_set, sub_set_at, sub_set_index, Rerun,
+    };
+    use crate::admit::refusal::Reason;
     use crate::frame::px::Px;
     use crate::graph::Gx;
-    use crate::admit::refusal::Reason;
 
     /// p0 fills slot 0 (a Sort, the set), p1 is the nest's pipeline reading it (the owner), and `extra` more pipelines read
     /// slot 0 too; the set of the nest at node 5.
     fn graph(a: gravity_program::ArenaRef, extra: usize) -> PipelineGraph<'static> {
         let mut g = PipelineGraph::new(a);
-        let sort = Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::Sort, 64).in_slot(0)), gravity_program::Reason::NoDrivingSite);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, sort));
+        let sort = Pipeline::serial(
+            -1,
+            End::Breaker(Breaker::sized(BreakerKind::Sort, 64).in_slot(0)),
+            gravity_program::Reason::NoDrivingSite,
+        );
+        g.pipelines
+            .push(PipelineNode::new(a, 7, Source::Const, sort));
         for _ in 0..1 + extra {
-            let read = Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite).consuming_one(0);
-            g.pipelines.push(PipelineNode::new(a, 5, Source::Breaker { slot: 0 }, read));
+            let read = Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite)
+                .consuming_one(0);
+            g.pipelines
+                .push(PipelineNode::new(a, 5, Source::Breaker { slot: 0 }, read));
         }
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(0u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 5, plan_id: 0, pipelines, slots });
+        g.reruns.push(SetDecl {
+            node_id: 5,
+            plan_id: 0,
+            pipelines,
+            slots,
+        });
         g
     }
 
@@ -911,15 +1264,34 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 16);
         let g = graph(arena.handle(), 0);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(arena.handle());
         let mut px = Px::new(arena.handle(), &gx, &mut plan);
         let r = declare(&mut px, 1, 5, 0).expect("the nest at node 5 has a set");
-        assert_eq!(declare(&mut px, 1, 5, 0), Some(r.clone()), "a second declaration is the same handle");
+        assert_eq!(
+            declare(&mut px, 1, 5, 0),
+            Some(r.clone()),
+            "a second declaration is the same handle"
+        );
         assert_eq!(declare(&mut px, 1, 5, 3), None, "no SubPlan 3 set there");
         assert_eq!(declare(&mut px, 1, 6, 0), None, "no set at node 6");
-        let ps: Vec<_> = px.protos.iter().filter(|p| p.kind == ProtoKind::Rerun).map(|p| (p.pipeline, p.peer, p.arg, p.words.base, p.words.n)).collect(); // alloc: Cold
-        assert_eq!(ps, [(0, 1, 0, r.h, 1)], "member 0, owner 1, set 0, one shared handle word");
+        let ps: Vec<_> = px
+            .protos
+            .iter()
+            .filter(|p| p.kind == ProtoKind::Rerun)
+            .map(|p| (p.pipeline, p.peer, p.arg, p.words.base, p.words.n))
+            .collect(); // alloc: Cold
+        assert_eq!(
+            ps,
+            [(0, 1, 0, r.h, 1)],
+            "member 0, owner 1, set 0, one shared handle word"
+        );
     }
 
     #[test]
@@ -927,11 +1299,21 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 16);
         let g = graph(arena.handle(), 1);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(arena.handle());
         let mut px = Px::new(arena.handle(), &gx, &mut plan);
-        let e = crate::catch(5, || drop(declare(&mut px, 1, 5, 0))).expect_err("pipeline 2 reads the set's slot");
-        assert!(matches!(e.reason, Reason::Shape { why } if why.0.contains("outside its owner")), "{e:?}");
+        let e = crate::catch(5, || drop(declare(&mut px, 1, 5, 0)))
+            .expect_err("pipeline 2 reads the set's slot");
+        assert!(
+            matches!(e.reason, Reason::Shape { why } if why.0.contains("outside its owner")),
+            "{e:?}"
+        );
     }
 
     /// Landing 12: an earlier life of the set's slot number (p0 fills slot 0, p1 reads it: an InitPlan's aggregate inside
@@ -943,19 +1325,44 @@ mod tests {
         let a = arena.handle();
         let mut g = PipelineGraph::new(a);
         for owner in [false, true] {
-            let sort = Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::Sort, 64).in_slot(0)), gravity_program::Reason::NoDrivingSite);
-            g.pipelines.push(PipelineNode::new(a, 7, Source::Const, sort));
-            let read = Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite).consuming_one(0);
-            g.pipelines.push(PipelineNode::new(a, if owner { 5 } else { 8 }, Source::Breaker { slot: 0 }, read));
+            let sort = Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::Sort, 64).in_slot(0)),
+                gravity_program::Reason::NoDrivingSite,
+            );
+            g.pipelines
+                .push(PipelineNode::new(a, 7, Source::Const, sort));
+            let read = Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite)
+                .consuming_one(0);
+            g.pipelines.push(PipelineNode::new(
+                a,
+                if owner { 5 } else { 8 },
+                Source::Breaker { slot: 0 },
+                read,
+            ));
         }
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(2u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 5, plan_id: 0, pipelines, slots });
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.reruns.push(SetDecl {
+            node_id: 5,
+            plan_id: 0,
+            pipelines,
+            slots,
+        });
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let mut plan = Sequential::new(arena.handle());
         let mut px = Px::new(arena.handle(), &gx, &mut plan);
-        assert!(declare(&mut px, 3, 5, 0).is_some(), "p1 reads p0's life, not the member's");
+        assert!(
+            declare(&mut px, 3, 5, 0).is_some(),
+            "p1 reads p0's life, not the member's"
+        );
     }
 
     /// D1337 row B, D2300: the nest's set and SubPlan 3's set at node 9 both holding p0 refuse at either owner's declaration
@@ -970,27 +1377,62 @@ mod tests {
             let mut g = graph(a, 0);
             let mut pipelines = ArenaVec::new_in(a);
             pipelines.extend_from_slice(members);
-            g.reruns.push(SetDecl { node_id: 9, plan_id: 3, pipelines, slots: [0u64; 4] });
+            g.reruns.push(SetDecl {
+                node_id: 9,
+                plan_id: 3,
+                pipelines,
+                slots: [0u64; 4],
+            });
             g
         };
         let declared = |g: &PipelineGraph<'_>, node_id: i32, plan_id: i32| {
-            let gx = Gx { graph: g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let mut plan = Sequential::new(a);
             let mut px = Px::new(a, &gx, &mut plan);
-            crate::catch(node_id, || declare(&mut px, 1, node_id, plan_id).is_some()).map_err(|e| e.reason)
+            crate::catch(node_id, || declare(&mut px, 1, node_id, plan_id).is_some())
+                .map_err(|e| e.reason)
         };
         let g = second(&[0]);
         for (node_id, plan_id) in [(5, 0), (9, 3)] {
             let e = declared(&g, node_id, plan_id).expect_err("p0 is in both sets");
-            assert!(matches!(e, Reason::Shape { why } if why.0 == D_RERUN_SHARED), "{e:?}");
+            assert!(
+                matches!(e, Reason::Shape { why } if why.0 == D_RERUN_SHARED),
+                "{e:?}"
+            );
         }
-        assert_eq!(declared(&second(&[1]), 5, 0).ok(), Some(true), "disjoint sets: the nest's set declares");
+        assert_eq!(
+            declared(&second(&[1]), 5, 0).ok(),
+            Some(true),
+            "disjoint sets: the nest's set declares"
+        );
         // join#784: p0 an InitPlan's pipeline, re-armed by either set, never run by one: both declare
         let mut g = second(&[0]);
-        let ints: &types_nodes::list::IntList<'_> = Box::leak(Box::new(types_nodes::list::IntList::nil())); // alloc: Cold
-        g.init_plans.push(gravity_decompose::graph::InitPlan { plan_id: 2, pipeline: 0, link: gravity_decompose::ops::shared::subplan::SubLink::Expr, param: 7, params: ints, slot: None, volatility: gravity_decompose::effects::Volatility::Immutable, raise_free: true, parallel_safe: true, attach: -1 });
+        let ints: &types_nodes::list::IntList<'_> =
+            Box::leak(Box::new(types_nodes::list::IntList::nil())); // alloc: Cold
+        g.init_plans.push(gravity_decompose::graph::InitPlan {
+            plan_id: 2,
+            pipeline: 0,
+            link: gravity_decompose::ops::shared::subplan::SubLink::Expr,
+            param: 7,
+            params: ints,
+            slot: None,
+            volatility: gravity_decompose::effects::Volatility::Immutable,
+            raise_free: true,
+            parallel_safe: true,
+            attach: -1,
+        });
         for (node_id, plan_id) in [(5, 0), (9, 3)] {
-            assert_eq!(declared(&g, node_id, plan_id).ok(), Some(true), "an InitPlan member shared by two sets");
+            assert_eq!(
+                declared(&g, node_id, plan_id).ok(),
+                Some(true),
+                "an InitPlan member shared by two sets"
+            );
         }
     }
 
@@ -1004,18 +1446,57 @@ mod tests {
         use types_nodes::list::NodeList;
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil()));
         let r = gravity_program::Reason::NoDrivingSite;
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 64).in_slot(slot)), r);
+        let into = |kind, slot| {
+            Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 64).in_slot(slot)), r)
+        };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, into(BreakerKind::HashBuild, 0)));
-        let mut p = PipelineNode::new(a, 6, Source::Const, into(BreakerKind::PlainAgg, 1).consuming_one(0));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            into(BreakerKind::HashBuild, 0),
+        ));
+        let mut p = PipelineNode::new(
+            a,
+            6,
+            Source::Const,
+            into(BreakerKind::PlainAgg, 1).consuming_one(0),
+        );
         if probe {
-            p.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 7, outer_first: false, catalog: false }));
+            p.push(Op::Join(JoinDesc::Probe {
+                slot: 0,
+                jointype: JoinType::JOIN_INNER,
+                clauses: nil,
+                keys: nil,
+                qual: nil,
+                unique: false,
+                marks: false,
+                decls: ArenaVec::new_in(a),
+                inner_node: 7,
+                outer_first: false,
+                catalog: false,
+            }));
         }
         g.pipelines.push(p);
-        g.pipelines.push(PipelineNode::new(a, 5, Source::Breaker { slot: 1 }, Pipeline::serial(-1, End::Sink, r).consuming_one(1)));
-        g.pipelines.push(PipelineNode::new(a, 4, Source::Const, Pipeline::serial(-1, End::Sink, r).consuming_one(1)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            5,
+            Source::Breaker { slot: 1 },
+            Pipeline::serial(-1, End::Sink, r).consuming_one(1),
+        ));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            4,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, r).consuming_one(1),
+        ));
         if drain {
-            g.pipelines.push(PipelineNode::new(a, 8, Source::Breaker { slot: 0 }, Pipeline::serial(-1, End::Sink, r).consuming_one(0)));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                8,
+                Source::Breaker { slot: 0 },
+                Pipeline::serial(-1, End::Sink, r).consuming_one(0),
+            ));
         }
         g
     }
@@ -1026,13 +1507,38 @@ mod tests {
         let arena = Arena::new(1 << 16);
         let close = |probe, drain, set: &[u16]| {
             let g = probed(arena.handle(), probe, drain);
-            members_close(&Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() }, 3, set)
+            members_close(
+                &Gx {
+                    graph: &g,
+                    facts: &NoFacts,
+                    catalog: &gravity_expr::PgCatalog,
+                    over: None,
+                    mcx: rig.mcx(),
+                },
+                3,
+                set,
+            )
         };
-        assert!(close(true, false, &[0, 1]), "a build its member probes, a plain aggregate its emit reads");
-        assert!(close(true, false, &[1]), "the plain aggregate alone (the build kept outside the set)");
-        assert!(!close(true, false, &[0]), "the probe outside the set reads the build once");
-        assert!(!close(true, true, &[0, 1]), "a reader of the build as its source that is no member drain");
-        assert!(!close(false, false, &[0, 1]), "a member reading the build through no probe op");
+        assert!(
+            close(true, false, &[0, 1]),
+            "a build its member probes, a plain aggregate its emit reads"
+        );
+        assert!(
+            close(true, false, &[1]),
+            "the plain aggregate alone (the build kept outside the set)"
+        );
+        assert!(
+            !close(true, false, &[0]),
+            "the probe outside the set reads the build once"
+        );
+        assert!(
+            !close(true, true, &[0, 1]),
+            "a reader of the build as its source that is no member drain"
+        );
+        assert!(
+            !close(false, false, &[0, 1]),
+            "a member reading the build through no probe op"
+        );
     }
 
     /// D1337: a Hash Right Join's members: p0 builds (slot 0), p1 probes it into its spool (slot 2), p2 drains the build's
@@ -1049,26 +1555,89 @@ mod tests {
         let a = arena.handle();
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil())); // alloc: Cold
         let r = gravity_program::Reason::NoDrivingSite;
-        let into = |kind, slot| Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 64).in_slot(slot)), r);
+        let into = |kind, slot| {
+            Pipeline::serial(-1, End::Breaker(Breaker::sized(kind, 64).in_slot(slot)), r)
+        };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, into(BreakerKind::HashBuild, 0)));
-        let mut probe = PipelineNode::new(a, 6, Source::Const, into(BreakerKind::Materialize, 2).consuming_one(0));
-        probe.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_RIGHT, clauses: nil, keys: nil, qual: nil, unique: false, marks: true, decls: ArenaVec::new_in(a), inner_node: 7, outer_first: false, catalog: false }));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            into(BreakerKind::HashBuild, 0),
+        ));
+        let mut probe = PipelineNode::new(
+            a,
+            6,
+            Source::Const,
+            into(BreakerKind::Materialize, 2).consuming_one(0),
+        );
+        probe.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_RIGHT,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: true,
+            decls: ArenaVec::new_in(a),
+            inner_node: 7,
+            outer_first: false,
+            catalog: false,
+        }));
         g.pipelines.push(probe);
-        let mut drain = PipelineNode::new(a, 6, Source::Breaker { slot: 0 }, into(BreakerKind::PlainAgg, 1).consuming_one(0).consuming_in(a, 2));
-        drain.push(Op::Join(JoinDesc::Drain { matches: 2, jointype: JoinType::JOIN_RIGHT }));
+        let mut drain = PipelineNode::new(
+            a,
+            6,
+            Source::Breaker { slot: 0 },
+            into(BreakerKind::PlainAgg, 1)
+                .consuming_one(0)
+                .consuming_in(a, 2),
+        );
+        drain.push(Op::Join(JoinDesc::Drain {
+            matches: 2,
+            jointype: JoinType::JOIN_RIGHT,
+        }));
         g.pipelines.push(drain);
-        g.pipelines.push(PipelineNode::new(a, 5, Source::Breaker { slot: 1 }, Pipeline::serial(-1, End::Sink, r).consuming_one(1)));
-        g.pipelines.push(PipelineNode::new(a, 4, Source::Const, Pipeline::serial(-1, End::Sink, r).consuming_one(1)));
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert!(members_close(&gx, 4, &[0, 1, 2]), "the build, its probe and its drain re-run together");
-        assert!(!members_close(&gx, 4, &[0, 1]), "the drain outside the set reads the build and the spool once");
-        assert!(members_close(&gx, 4, &[1, 2]), "D2592: over the build kept outside the set, its probe clears the marks at each open");
+        g.pipelines.push(PipelineNode::new(
+            a,
+            5,
+            Source::Breaker { slot: 1 },
+            Pipeline::serial(-1, End::Sink, r).consuming_one(1),
+        ));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            4,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, r).consuming_one(1),
+        ));
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert!(
+            members_close(&gx, 4, &[0, 1, 2]),
+            "the build, its probe and its drain re-run together"
+        );
+        assert!(
+            !members_close(&gx, 4, &[0, 1]),
+            "the drain outside the set reads the build and the spool once"
+        );
+        assert!(
+            members_close(&gx, 4, &[1, 2]),
+            "D2592: over the build kept outside the set, its probe clears the marks at each open"
+        );
     }
 
     /// D1337(H): p0 builds a hash table (slot 0) in the rerun set of plan `plan`; op 0 of p1 (the owner, node 5) is SubPlan 1,
     /// whose embedded inner (pipeline 2) probes the build (`outer_first`: on PG's outer-first path).
-    fn embedded(a: gravity_program::ArenaRef, plan: i32, outer_first: bool) -> PipelineGraph<'static> {
+    fn embedded(
+        a: gravity_program::ArenaRef,
+        plan: i32,
+        outer_first: bool,
+    ) -> PipelineGraph<'static> {
         use gravity_decompose::effects::Volatility;
         use gravity_decompose::join::JoinDesc;
         use gravity_decompose::ops::shared::subplan::{SubForm, SubLink, SubPlanDesc, SubSite};
@@ -1080,18 +1649,72 @@ mod tests {
         let ints: &IntList<'_> = Box::leak(Box::new(IntList::nil())); // alloc: Cold
         let r = gravity_program::Reason::NoDrivingSite;
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(0)), r)));
-        let mut inner = PipelineNode::new(a, 6, Source::Const, Pipeline::serial(-1, End::Sink, r).consuming_one(0));
-        inner.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 7, outer_first, catalog: false }));
-        let form = SubForm::Nested { inner: ArenaBox::new_in(inner, a) };
-        let d = SubPlanDesc { plan_id: 1, link: SubLink::Exists, test: None, args: nil, params: ints, sets: ints, ids: ints, site: SubSite::Row, conditional: false, volatility: Volatility::Immutable, raise_free: true, quiet_but_rows: true, invariant: false, unknown_eq_false: false, alternative: false, set_spool: false, stops: false, ahead: None, call: gravity_decompose::effects::found::Found::CLEAN, form };
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(0)),
+                r,
+            ),
+        ));
+        let mut inner = PipelineNode::new(
+            a,
+            6,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, r).consuming_one(0),
+        );
+        inner.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_INNER,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: false,
+            decls: ArenaVec::new_in(a),
+            inner_node: 7,
+            outer_first,
+            catalog: false,
+        }));
+        let form = SubForm::Nested {
+            inner: ArenaBox::new_in(inner, a),
+        };
+        let d = SubPlanDesc {
+            plan_id: 1,
+            link: SubLink::Exists,
+            test: None,
+            args: nil,
+            params: ints,
+            sets: ints,
+            ids: ints,
+            site: SubSite::Row,
+            conditional: false,
+            volatility: Volatility::Immutable,
+            raise_free: true,
+            quiet_but_rows: true,
+            invariant: false,
+            unknown_eq_false: false,
+            alternative: false,
+            set_spool: false,
+            stops: false,
+            ahead: None,
+            call: gravity_decompose::effects::found::Found::CLEAN,
+            form,
+        };
         let mut owner = PipelineNode::new(a, 5, Source::Const, Pipeline::serial(-1, End::Sink, r));
         owner.push(Op::SubPlan(d));
         g.pipelines.push(owner);
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(0u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 5, plan_id: plan, pipelines, slots });
+        g.reruns.push(SetDecl {
+            node_id: 5,
+            plan_id: plan,
+            pipelines,
+            slots,
+        });
         g
     }
 
@@ -1100,15 +1723,49 @@ mod tests {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let arena = Arena::new(1 << 16);
         let g = embedded(arena.handle(), 1, false);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!(sub_set(&gx, 2).map(|r| r.plan_id), Some(1), "the inner of SubPlan 1: that plan's set");
-        assert_eq!(sub_set(&gx, 1).map(|r| r.plan_id), None, "a graph pipeline is no embedded inner");
-        assert_eq!(owner_set(&gx, 2), Some((5, 1)), "its re-open runs the set: a probe of its build, the source no breaker");
-        assert!(members_close(&gx, 1, &[0]), "the build read by the SubPlan's own inner's probe closes");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            sub_set(&gx, 2).map(|r| r.plan_id),
+            Some(1),
+            "the inner of SubPlan 1: that plan's set"
+        );
+        assert_eq!(
+            sub_set(&gx, 1).map(|r| r.plan_id),
+            None,
+            "a graph pipeline is no embedded inner"
+        );
+        assert_eq!(
+            owner_set(&gx, 2),
+            Some((5, 1)),
+            "its re-open runs the set: a probe of its build, the source no breaker"
+        );
+        assert!(
+            members_close(&gx, 1, &[0]),
+            "the build read by the SubPlan's own inner's probe closes"
+        );
         let g = embedded(arena.handle(), 2, false);
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!(owner_set(&gx, 2), None, "the build is another plan's set's (does not apply)");
-        assert!(!members_close(&gx, 1, &[0]), "an inner outside the set reading its build once");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            owner_set(&gx, 2),
+            None,
+            "the build is another plan's set's (does not apply)"
+        );
+        assert!(
+            !members_close(&gx, 1, &[0]),
+            "an inner outside the set reading its build once"
+        );
     }
 
     /// D1337 (`sub_set_at`, mt-0353): a SubPlan mapped at two plan nodes has a set at each (one copy of its inner per leaf of
@@ -1124,15 +1781,48 @@ mod tests {
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(0u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 9, plan_id: 1, pipelines, slots });
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!(sub_set_at(&gx, 1, 0, 1).map(|r| r.node_id), Some(9), "the set at the SubPlan op's node, the plan's second");
-        assert_eq!(sub_set(&gx, 2).map(|r| r.node_id), Some(9), "its embedded inner keys the same set");
+        g.reruns.push(SetDecl {
+            node_id: 9,
+            plan_id: 1,
+            pipelines,
+            slots,
+        });
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            sub_set_at(&gx, 1, 0, 1).map(|r| r.node_id),
+            Some(9),
+            "the set at the SubPlan op's node, the plan's second"
+        );
+        assert_eq!(
+            sub_set(&gx, 2).map(|r| r.node_id),
+            Some(9),
+            "its embedded inner keys the same set"
+        );
         assert_eq!(owner_set(&gx, 2), Some((9, 1)), "the re-open runs that set");
         g.pipelines[1].node_id = 4;
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!(sub_set_at(&gx, 1, 0, 1).map(|r| r.node_id), Some(5), "no set at the op's node: the plan's first");
-        assert_eq!(sub_set_at(&gx, 1, 0, 2).map(|r| r.node_id), None, "a plan with no set");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            sub_set_at(&gx, 1, 0, 1).map(|r| r.node_id),
+            Some(5),
+            "no set at the op's node: the plan's first"
+        );
+        assert_eq!(
+            sub_set_at(&gx, 1, 0, 2).map(|r| r.node_id),
+            None,
+            "a plan with no set"
+        );
     }
 
     /// rr-0069 (`sub_set_index`, `owner_set_at`, `Rerun::declare`): SubPlan 1 mapped twice at one node (a grouping-sets
@@ -1146,24 +1836,65 @@ mod tests {
         let a = arena.handle();
         let mut g = embedded(a, 1, false);
         let r = gravity_program::Reason::NoDrivingSite;
-        g.pipelines.push(PipelineNode::new(a, 8, Source::Const, Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(1)), r)));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            8,
+            Source::Const,
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(1)),
+                r,
+            ),
+        ));
         g.reruns[0].pipelines[0] = 2;
         g.reruns[0].slots = [0u64; 4];
         slot_set(&mut g.reruns[0].slots, 1);
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(0u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 5, plan_id: 1, pipelines, slots });
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!(sub_set_index(&gx, 1, 0, 1), Some(1), "the copy whose member the op's inner reads");
-        assert_eq!(sub_set(&gx, 3).map(|r| r.pipelines.to_vec()), Some(vec![0]), "its embedded inner keys the same copy");
-        assert_eq!((owner_set(&gx, 3), owner_set_at(&gx, 3)), (Some((5, 1)), Some(1)), "the re-open runs entry 1, not the key's first");
+        g.reruns.push(SetDecl {
+            node_id: 5,
+            plan_id: 1,
+            pipelines,
+            slots,
+        });
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            sub_set_index(&gx, 1, 0, 1),
+            Some(1),
+            "the copy whose member the op's inner reads"
+        );
+        assert_eq!(
+            sub_set(&gx, 3).map(|r| r.pipelines.to_vec()),
+            Some(vec![0]),
+            "its embedded inner keys the same copy"
+        );
+        assert_eq!(
+            (owner_set(&gx, 3), owner_set_at(&gx, 3)),
+            (Some((5, 1)), Some(1)),
+            "the re-open runs entry 1, not the key's first"
+        );
         let mut plan = Sequential::new(a);
         let mut px = Px::new(a, &gx, &mut plan);
         let (ra, rb) = (Rerun::declare(&mut px, 1, 1), Rerun::declare(&mut px, 1, 0));
         assert_ne!(ra.h, rb.h, "one handle per copy");
-        assert_eq!(declare(&mut px, 1, 5, 1), Some(rb), "the key alone names its first entry");
-        let ps: Vec<_> = px.protos.iter().filter(|p| p.kind == ProtoKind::Rerun).map(|p| (p.pipeline, p.arg)).collect(); // alloc: Cold
+        assert_eq!(
+            declare(&mut px, 1, 5, 1),
+            Some(rb),
+            "the key alone names its first entry"
+        );
+        let ps: Vec<_> = px
+            .protos
+            .iter()
+            .filter(|p| p.kind == ProtoKind::Rerun)
+            .map(|p| (p.pipeline, p.arg))
+            .collect(); // alloc: Cold
         assert_eq!(ps, [(0, 1), (2, 0)], "member 0 on set 1, member 2 on set 0");
     }
 
@@ -1186,25 +1917,97 @@ mod tests {
         let r = gravity_program::Reason::NoDrivingSite;
         let mut g = PipelineGraph::new(a);
         for q in 0..3u16 {
-            g.pipelines.push(PipelineNode::new(a, 9, Source::Const, Pipeline::serial(-1, End::Sink, r)));
-            g.init_plans.push(InitPlan { plan_id: 1, pipeline: q, link: SubLink::Expr, param: 7, params: ints, slot: None, volatility: Volatility::Immutable, raise_free: true, parallel_safe: true, attach: -1 });
+            g.pipelines.push(PipelineNode::new(
+                a,
+                9,
+                Source::Const,
+                Pipeline::serial(-1, End::Sink, r),
+            ));
+            g.init_plans.push(InitPlan {
+                plan_id: 1,
+                pipeline: q,
+                link: SubLink::Expr,
+                param: 7,
+                params: ints,
+                slot: None,
+                volatility: Volatility::Immutable,
+                raise_free: true,
+                parallel_safe: true,
+                attach: -1,
+            });
             let mut pipelines = ArenaVec::new_in(a);
             pipelines.push(q);
-            g.reruns.push(SetDecl { node_id: 5, plan_id: 2, pipelines, slots: [0u64; 4] });
+            g.reruns.push(SetDecl {
+                node_id: 5,
+                plan_id: 2,
+                pipelines,
+                slots: [0u64; 4],
+            });
         }
         for _ in 0..2 {
-            let form = SubForm::Nested { inner: ArenaBox::new_in(PipelineNode::new(a, 6, Source::Const, Pipeline::serial(-1, End::Sink, r)), a) };
-            let d = SubPlanDesc { plan_id: 2, link: SubLink::Expr, test: None, args: nil, params: ints, sets: ints, ids: ints, site: SubSite::Row, conditional: false, volatility: Volatility::Immutable, raise_free: true, quiet_but_rows: true, invariant: false, unknown_eq_false: false, alternative: false, set_spool: false, stops: false, ahead: None, call: gravity_decompose::effects::found::Found::CLEAN, form };
-            let mut owner = PipelineNode::new(a, 5, Source::Const, Pipeline::serial(-1, End::Sink, r));
+            let form = SubForm::Nested {
+                inner: ArenaBox::new_in(
+                    PipelineNode::new(a, 6, Source::Const, Pipeline::serial(-1, End::Sink, r)),
+                    a,
+                ),
+            };
+            let d = SubPlanDesc {
+                plan_id: 2,
+                link: SubLink::Expr,
+                test: None,
+                args: nil,
+                params: ints,
+                sets: ints,
+                ids: ints,
+                site: SubSite::Row,
+                conditional: false,
+                volatility: Volatility::Immutable,
+                raise_free: true,
+                quiet_but_rows: true,
+                invariant: false,
+                unknown_eq_false: false,
+                alternative: false,
+                set_spool: false,
+                stops: false,
+                ahead: None,
+                call: gravity_decompose::effects::found::Found::CLEAN,
+                form,
+            };
+            let mut owner =
+                PipelineNode::new(a, 5, Source::Const, Pipeline::serial(-1, End::Sink, r));
             owner.push(Op::SubPlan(d));
             g.pipelines.push(owner);
         }
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!((sub_set_index(&gx, 3, 0, 2), sub_set_index(&gx, 4, 0, 2)), (Some(0), Some(0)), "three copies, two references: the first");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            (sub_set_index(&gx, 3, 0, 2), sub_set_index(&gx, 4, 0, 2)),
+            (Some(0), Some(0)),
+            "three copies, two references: the first"
+        );
         g.reruns.pop();
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
-        assert_eq!((sub_set_index(&gx, 3, 0, 2), sub_set_index(&gx, 4, 0, 2)), (Some(0), Some(1)), "each reference its own copy, in order");
-        assert_eq!((owner_set_at(&gx, 5), owner_set_at(&gx, 6)), (Some(0), Some(1)), "each inner's re-open re-arms its own copy");
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
+        assert_eq!(
+            (sub_set_index(&gx, 3, 0, 2), sub_set_index(&gx, 4, 0, 2)),
+            (Some(0), Some(1)),
+            "each reference its own copy, in order"
+        );
+        assert_eq!(
+            (owner_set_at(&gx, 5), owner_set_at(&gx, 6)),
+            (Some(0), Some(1)),
+            "each inner's re-open re-arms its own copy"
+        );
     }
 
     /// D1337 (`embeds`): SubPlan 2 sits in the embedded inner A of SubPlan 1 (op 0 of p1, the root); its own inner B probes
@@ -1226,28 +2029,111 @@ mod tests {
         let nil: &NodeList<'_> = Box::leak(Box::new(NodeList::nil())); // alloc: Cold
         let ints: &IntList<'_> = Box::leak(Box::new(IntList::nil())); // alloc: Cold
         let r = gravity_program::Reason::NoDrivingSite;
-        let sub = |plan_id: i32, inner: PipelineNode<'static>| SubPlanDesc { plan_id, link: SubLink::Exists, test: None, args: nil, params: ints, sets: ints, ids: ints, site: SubSite::Row, conditional: false, volatility: Volatility::Immutable, raise_free: true, quiet_but_rows: true, invariant: false, unknown_eq_false: false, alternative: false, set_spool: false, stops: false, ahead: None, call: gravity_decompose::effects::found::Found::CLEAN, form: SubForm::Nested { inner: ArenaBox::new_in(inner, a) } };
+        let sub = |plan_id: i32, inner: PipelineNode<'static>| SubPlanDesc {
+            plan_id,
+            link: SubLink::Exists,
+            test: None,
+            args: nil,
+            params: ints,
+            sets: ints,
+            ids: ints,
+            site: SubSite::Row,
+            conditional: false,
+            volatility: Volatility::Immutable,
+            raise_free: true,
+            quiet_but_rows: true,
+            invariant: false,
+            unknown_eq_false: false,
+            alternative: false,
+            set_spool: false,
+            stops: false,
+            ahead: None,
+            call: gravity_decompose::effects::found::Found::CLEAN,
+            form: SubForm::Nested {
+                inner: ArenaBox::new_in(inner, a),
+            },
+        };
         let mut g = PipelineGraph::new(a);
-        g.pipelines.push(PipelineNode::new(a, 7, Source::Const, Pipeline::serial(-1, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(0)), r)));
-        let mut b = PipelineNode::new(a, 6, Source::Const, Pipeline::serial(-1, End::Sink, r).consuming_one(0));
-        b.push(Op::Join(JoinDesc::Probe { slot: 0, jointype: JoinType::JOIN_INNER, clauses: nil, keys: nil, qual: nil, unique: false, marks: false, decls: ArenaVec::new_in(a), inner_node: 7, outer_first: false, catalog: false }));
-        let mut inner_a = PipelineNode::new(a, 8, Source::Const, Pipeline::serial(-1, End::Sink, r));
+        g.pipelines.push(PipelineNode::new(
+            a,
+            7,
+            Source::Const,
+            Pipeline::serial(
+                -1,
+                End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64).in_slot(0)),
+                r,
+            ),
+        ));
+        let mut b = PipelineNode::new(
+            a,
+            6,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, r).consuming_one(0),
+        );
+        b.push(Op::Join(JoinDesc::Probe {
+            slot: 0,
+            jointype: JoinType::JOIN_INNER,
+            clauses: nil,
+            keys: nil,
+            qual: nil,
+            unique: false,
+            marks: false,
+            decls: ArenaVec::new_in(a),
+            inner_node: 7,
+            outer_first: false,
+            catalog: false,
+        }));
+        let mut inner_a =
+            PipelineNode::new(a, 8, Source::Const, Pipeline::serial(-1, End::Sink, r));
         inner_a.push(Op::SubPlan(sub(2, b)));
-        let mut root = PipelineNode::new(a, 5, Source::Const, Pipeline::serial(-1, End::Sink, r).consuming_one(0));
+        let mut root = PipelineNode::new(
+            a,
+            5,
+            Source::Const,
+            Pipeline::serial(-1, End::Sink, r).consuming_one(0),
+        );
         root.push(Op::SubPlan(sub(1, inner_a)));
         g.pipelines.push(root);
         let (mut pipelines, mut slots) = (ArenaVec::new_in(a), [0u64; 4]);
         pipelines.push(0u16);
         slot_set(&mut slots, 0);
-        g.reruns.push(SetDecl { node_id: 8, plan_id: 2, pipelines, slots });
-        let gx = Gx { graph: &g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+        g.reruns.push(SetDecl {
+            node_id: 8,
+            plan_id: 2,
+            pipelines,
+            slots,
+        });
+        let gx = Gx {
+            graph: &g,
+            facts: &NoFacts,
+            catalog: &gravity_expr::PgCatalog,
+            over: None,
+            mcx: rig.mcx(),
+        };
         let (ps, ins) = (gx.pipelines(), gx.pipelines().inners());
-        let ia = ps.len() + ins.iter().position(|x| x.0 .0 == 1).expect("inner A of the root");
+        let ia = ps.len()
+            + ins
+                .iter()
+                .position(|x| x.0 .0 == 1)
+                .expect("inner A of the root");
         let ib = ps.len() + ins.iter().position(|x| x.0 .0 == ia).expect("inner B of A");
-        assert!(super::embeds(&gx, 1, ia) && super::embeds(&gx, 1, ib) && super::embeds(&gx, ia, ib), "the root embeds A and B, A embeds B");
-        assert!(!super::embeds(&gx, 1, 1) && !super::embeds(&gx, ib, ia) && !super::embeds(&gx, 0, ib), "never itself, an inner, or a pipeline off the chain");
-        assert_eq!(sub_set(&gx, ib).map(|r| r.plan_id), Some(2), "B is SubPlan 2's inner");
-        assert!(members_close(&gx, ia, &[0]), "the build read by SubPlan 2's own inner; the root lists that read as its own");
+        assert!(
+            super::embeds(&gx, 1, ia) && super::embeds(&gx, 1, ib) && super::embeds(&gx, ia, ib),
+            "the root embeds A and B, A embeds B"
+        );
+        assert!(
+            !super::embeds(&gx, 1, 1) && !super::embeds(&gx, ib, ia) && !super::embeds(&gx, 0, ib),
+            "never itself, an inner, or a pipeline off the chain"
+        );
+        assert_eq!(
+            sub_set(&gx, ib).map(|r| r.plan_id),
+            Some(2),
+            "B is SubPlan 2's inner"
+        );
+        assert!(
+            members_close(&gx, ia, &[0]),
+            "the build read by SubPlan 2's own inner; the root lists that read as its own"
+        );
     }
     /// D2300 (the r8 correctness lens, 16:27Z): a set holding a hash build whose member another rerun set also runs (a
     /// LATERAL nest's set) refuses by D2300's name; the set alone, a second set over other pipelines and a set without a hash
@@ -1256,15 +2142,32 @@ mod tests {
     fn a_hash_build_set_whose_member_another_set_runs_refuses_by_d2300() {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         use super::{owner_refusal, D_RERUN_SHARED};
-        fn add(g: &mut PipelineGraph<'_>, a: gravity_program::ArenaRef, node_id: i32, plan_id: i32, ms: &[u16]) {
+        fn add(
+            g: &mut PipelineGraph<'_>,
+            a: gravity_program::ArenaRef,
+            node_id: i32,
+            plan_id: i32,
+            ms: &[u16],
+        ) {
             let mut pipelines = ArenaVec::new_in(a);
             pipelines.extend_from_slice(ms);
-            g.reruns.push(SetDecl { node_id, plan_id, pipelines, slots: [0u64; 4] });
+            g.reruns.push(SetDecl {
+                node_id,
+                plan_id,
+                pipelines,
+                slots: [0u64; 4],
+            });
         }
         let arena = Arena::new(1 << 20);
         let a = arena.handle();
         let nw = |g: &PipelineGraph<'_>, set: &[u16]| {
-            let gx = Gx { graph: g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let mut plan = Sequential::new(a);
             let px = Px::new(a, &gx, &mut plan);
             owner_refusal(&px, 3, set)
@@ -1275,12 +2178,24 @@ mod tests {
         add(&mut g, a, 4, 0, &[2]);
         assert_eq!(nw(&g, &[0, 1]), None, "a second set over other pipelines");
         add(&mut g, a, 4, 0, &[0, 1, 2]);
-        assert_eq!(nw(&g, &[0, 1]), Some(D_RERUN_SHARED), "a nest's set also running the SubPlan's members");
+        assert_eq!(
+            nw(&g, &[0, 1]),
+            Some(D_RERUN_SHARED),
+            "a nest's set also running the SubPlan's members"
+        );
         let mut g = probed(a, true, false);
         add(&mut g, a, 6, 1, &[0, 1]);
         add(&mut g, a, 4, 0, &[0, 1]);
-        assert_eq!(nw(&g, &[0, 1]), Some(D_RERUN_SHARED), "a second set with the same members");
-        assert_eq!(nw(&g, &[1]), None, "no hash build in the set: not D1337(A)'s");
+        assert_eq!(
+            nw(&g, &[0, 1]),
+            Some(D_RERUN_SHARED),
+            "a second set with the same members"
+        );
+        assert_eq!(
+            nw(&g, &[1]),
+            None,
+            "no hash build in the set: not D1337(A)'s"
+        );
     }
 
     /// Nested sets (D2300's exemption; tour-subq subq-0257, regress-style decorrelate.sql's two nested aggregate SubPlans):
@@ -1295,29 +2210,62 @@ mod tests {
         let a = arena.handle();
         let nested = |outer: &[u16], kept: bool| {
             let mut g = embedded(a, 1, false);
-            g.pipelines.push(PipelineNode::new(a, 3, Source::Const, Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite)));
+            g.pipelines.push(PipelineNode::new(
+                a,
+                3,
+                Source::Const,
+                Pipeline::serial(-1, End::Sink, gravity_program::Reason::NoDrivingSite),
+            ));
             let mut pipelines = ArenaVec::new_in(a);
             pipelines.extend_from_slice(outer);
-            g.reruns.push(SetDecl { node_id: 3, plan_id: 4, pipelines, slots: [0u64; 4] });
+            g.reruns.push(SetDecl {
+                node_id: 3,
+                plan_id: 4,
+                pipelines,
+                slots: [0u64; 4],
+            });
             if kept {
                 g.kept.push(0);
             }
             g
         };
         let declared = |g: &PipelineGraph<'_>| {
-            let gx = Gx { graph: g, facts: &NoFacts, catalog: &gravity_expr::PgCatalog, over: None, mcx: rig.mcx() };
+            let gx = Gx {
+                graph: g,
+                facts: &NoFacts,
+                catalog: &gravity_expr::PgCatalog,
+                over: None,
+                mcx: rig.mcx(),
+            };
             let mut plan = Sequential::new(a);
             let mut px = Px::new(a, &gx, &mut plan);
             let r = crate::catch(5, || {
                 Rerun::declare(&mut px, 1, 0);
                 Rerun::declare(&mut px, 2, 1);
             });
-            r.map(|_| px.protos.iter().filter(|p| p.kind == ProtoKind::Rerun).map(|p| (p.pipeline, p.arg)).collect::<Vec<_>>()).map_err(|e| e.reason)
+            r.map(|_| {
+                px.protos
+                    .iter()
+                    .filter(|p| p.kind == ProtoKind::Rerun)
+                    .map(|p| (p.pipeline, p.arg))
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|e| e.reason)
         };
-        assert_eq!(declared(&nested(&[0, 1], false)).ok(), Some(vec![(0, 0), (1, 1)]), "p0 on SubPlan 1's set only, p1 on the outer set");
-        for (outer, kept, why) in [(&[0, 1][..], true, "p0 kept across SubPlan 1's calls"), (&[0][..], false, "SubPlan 1's owner outside the outer set")] {
+        assert_eq!(
+            declared(&nested(&[0, 1], false)).ok(),
+            Some(vec![(0, 0), (1, 1)]),
+            "p0 on SubPlan 1's set only, p1 on the outer set"
+        );
+        for (outer, kept, why) in [
+            (&[0, 1][..], true, "p0 kept across SubPlan 1's calls"),
+            (&[0][..], false, "SubPlan 1's owner outside the outer set"),
+        ] {
             let e = declared(&nested(outer, kept)).expect_err(why);
-            assert!(matches!(e, Reason::Shape { why } if why.0 == D_RERUN_SHARED), "{e:?}");
+            assert!(
+                matches!(e, Reason::Shape { why } if why.0 == D_RERUN_SHARED),
+                "{e:?}"
+            );
         }
     }
 }

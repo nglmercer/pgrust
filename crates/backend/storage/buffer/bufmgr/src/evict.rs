@@ -35,10 +35,7 @@ fn tag_matches_locator(tag: &buftag, rl: &RelFileLocator) -> bool {
 /// `EvictUnpinnedBufferInternal` (bufmgr.c): caller holds the buffer header
 /// lock (the `buf_state` word from `LockBufHdr`). Returns
 /// (evicted, buffer_flushed). The header lock is always released.
-fn evict_unpinned_buffer_internal(
-    desc: &BufferDesc,
-    buf_state: u32,
-) -> PgResult<(bool, bool)> {
+fn evict_unpinned_buffer_internal(desc: &BufferDesc, buf_state: u32) -> PgResult<(bool, bool)> {
     let mut buffer_flushed = false;
 
     if buf_state & BM_VALID == 0 {
@@ -139,9 +136,7 @@ pub fn EvictRelUnpinnedBuffers(rlocator: &RelFileLocator) -> PgResult<EvictCount
         // `&desc->tag` precheck; the authoritative test is re-done under the
         // lock below.
         let buf_state = desc.state.load(Ordering::Relaxed);
-        if buf_state & BM_VALID == 0
-            || !tag_matches_locator(&desc.tag_racy_snapshot(), rlocator)
-        {
+        if buf_state & BM_VALID == 0 || !tag_matches_locator(&desc.tag_racy_snapshot(), rlocator) {
             continue;
         }
 

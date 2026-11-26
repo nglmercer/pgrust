@@ -11,7 +11,12 @@ use super::*;
 ///
 /// # Safety
 /// `region` is a finished breaker region of at least the build header's bytes.
-pub(super) unsafe fn domain_keys(region: *const u8, words: &[u64], _owner: Option<gravity_fn::arena::Owner>, emit: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
+pub(super) unsafe fn domain_keys(
+    region: *const u8,
+    words: &[u64],
+    _owner: Option<gravity_fn::arena::Owner>,
+    emit: &mut dyn FnMut(u64, u64, u64),
+) -> Option<usize> {
     let d = region as *mut u8;
     if rd::<u8>(d, 15) != KIND || rd::<u8>(d, PHASE) != 2 || rd::<u8>(d, FORM) == FAILED {
         return None;
@@ -27,7 +32,8 @@ pub(super) unsafe fn domain_keys(region: *const u8, words: &[u64], _owner: Optio
     if rd::<u8>(d, FORM) == DBITS {
         // the bits form's records may stay the workers' (build_part.rs): its unique keys from the exist bitmap
         let (dir, lo) = (rd::<u64>(d, DIR) as usize, rd::<i64>(d, LO));
-        let set = (0..=(rd::<i64>(d, HI) - lo) as usize).filter(|&k| rd::<u64>(d, dir + 8 * (k >> 6)) >> (k & 63) & 1 != 0);
+        let set = (0..=(rd::<i64>(d, HI) - lo) as usize)
+            .filter(|&k| rd::<u64>(d, dir + 8 * (k >> 6)) >> (k & 63) & 1 != 0);
         set.for_each(|k| emit((lo + k as i64) as u64, 0, 1));
     } else {
         (0..t.n).for_each(|i| emit(t.key(i) as u64, 0, 1));
@@ -38,7 +44,9 @@ pub(super) unsafe fn domain_keys(region: *const u8, words: &[u64], _owner: Optio
 #[cfg(test)]
 mod tests {
     use super::domain_keys;
-    use crate::ops::hashjoin::build::{FAILED, FLAGS, FORM, F_COMPACT, F_RANGE0, HDR, HI, KIND, LO, N, PHASE, REC, WORDS};
+    use crate::ops::hashjoin::build::{
+        FAILED, FLAGS, FORM, F_COMPACT, F_RANGE0, HDR, HI, KIND, LO, N, PHASE, REC, WORDS,
+    };
     use crate::ops::hashjoin::rt::wr;
 
     /// A laid-out (phase 2) build region of `keys` as two-word records (`[key, 1000 + i]`: a key of two parts), flags
@@ -47,9 +55,19 @@ mod tests {
         let mut buf = vec![0u64; (HDR + 24 * keys.len()) / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` holds the header and the 24-byte records.
-        unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 0);
-wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
-            for (i, k) in keys.iter().enumerate() {wr::<i64>(d.add(HDR + 24 * i), 0, *k); wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64);
+        unsafe {
+            wr::<u8>(d, 15, KIND);
+            wr::<u8>(d, PHASE, 2);
+            wr::<u8>(d, FLAGS, flags);
+            wr::<u8>(d, WORDS, 2);
+            wr::<u32>(d, REC, 24);
+            crate::ops::hashjoin::layout::set_pay(d, 0);
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0));
+            wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
+            for (i, k) in keys.iter().enumerate() {
+                wr::<i64>(d.add(HDR + 24 * i), 0, *k);
+                wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64);
             }
         }
         buf
@@ -58,7 +76,14 @@ wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().
     fn items(buf: &[u64], cap: u64) -> (Option<usize>, Vec<(u64, u64, u64)>) {
         let mut v = Vec::new();
         // SAFETY: `buf` is a finished region of at least the header's bytes.
-        let n = unsafe { domain_keys(buf.as_ptr() as *const u8, &[0, cap], None, &mut |a, b, c| v.push((a, b, c))) };
+        let n = unsafe {
+            domain_keys(
+                buf.as_ptr() as *const u8,
+                &[0, cap],
+                None,
+                &mut |a, b, c| v.push((a, b, c)),
+            )
+        };
         (n, v)
     }
 
@@ -67,14 +92,25 @@ wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().
     #[test]
     fn a_build_gives_each_records_part_0_word() {
         let (n, v) = items(&region(&[7, -3, 0], F_RANGE0), 16);
-        assert_eq!((n, v), (Some(3), vec![(7, 0, 1), ((-3i64) as u64, 0, 1), (0, 0, 1)]));
-        assert_eq!(items(&region(&[], F_RANGE0), 16), (Some(0), vec![]), "an empty build");
+        assert_eq!(
+            (n, v),
+            (Some(3), vec![(7, 0, 1), ((-3i64) as u64, 0, 1), (0, 0, 1)])
+        );
+        assert_eq!(
+            items(&region(&[], F_RANGE0), 16),
+            (Some(0), vec![]),
+            "an empty build"
+        );
     }
 
     /// Past the cap, op 14's held error and a region not laid out give no set (every key admitted), never an empty one.
     #[test]
     fn no_set_past_the_cap_over_a_held_error_or_a_region_not_laid_out() {
-        assert_eq!(items(&region(&[1, 2, 3], 0), 2), (None, vec![]), "three records over a cap of two");
+        assert_eq!(
+            items(&region(&[1, 2, 3], 0), 2),
+            (None, vec![]),
+            "three records over a cap of two"
+        );
         let mut buf = region(&[], 0);
         // SAFETY: `buf` holds the header.
         unsafe { wr::<u8>(buf.as_mut_ptr() as *mut u8, FORM, FAILED) };
@@ -91,10 +127,20 @@ wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().
         let mut buf = vec![0u64; (HDR + 16) / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` holds the header and two 8-byte records.
-        unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, F_COMPACT); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 8); crate::ops::hashjoin::layout::set_pay(d, 0);
+        unsafe {
+            wr::<u8>(d, 15, KIND);
+            wr::<u8>(d, PHASE, 2);
+            wr::<u8>(d, FLAGS, F_COMPACT);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 8);
+            crate::ops::hashjoin::layout::set_pay(d, 0);
             wr::<u64>(d, N, 2);
-            wr::<i32>(d.add(HDR), 0, -5); wr::<i32>(d.add(HDR + 8), 0, 9);
+            wr::<i32>(d.add(HDR), 0, -5);
+            wr::<i32>(d.add(HDR + 8), 0, 9);
         }
-        assert_eq!(items(&buf, 16), (Some(2), vec![((-5i64) as u64, 0, 1), (9, 0, 1)]));
+        assert_eq!(
+            items(&buf, 16),
+            (Some(2), vec![((-5i64) as u64, 0, 1), (9, 0, 1)])
+        );
     }
 }

@@ -73,7 +73,10 @@ fn main() {
         .expect("cannot write encoder semantic manifest");
     std::fs::write(
         out.join("build_directory.rs"),
-        format!("pub const BUILD_DIRECTORY: &str = {:?};\n", out.display().to_string()),
+        format!(
+            "pub const BUILD_DIRECTORY: &str = {:?};\n",
+            out.display().to_string()
+        ),
     )
     .expect("cannot write build directory constant");
 }

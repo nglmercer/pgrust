@@ -42,7 +42,6 @@ pub fn fc_float8send(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     Ok(varlena_result(pqformat::pq_endtypsend(b)))
 }
 
-
 fn in_arg<'a>(fcinfo: &'a Fcinfo) -> Cow<'a, str> {
     // SAFETY: catalog arg 0 of the in-functions is cstring (typlen -2).
     let s = unsafe { fcinfo.arg_cstring(0) };
@@ -57,7 +56,9 @@ pub fn fc_float4in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     let raw = unsafe { fcinfo.arg_cstring(0) }.to_bytes();
     // SAFETY: context, if set, rides per the ErrorSaveNode contract for this call.
     let esc = unsafe { fcinfo.soft_error_context() };
-    Ok(Datum::from_f32(crate::float4in_internal(&num, None, "real", raw, esc)?))
+    Ok(Datum::from_f32(crate::float4in_internal(
+        &num, None, "real", raw, esc,
+    )?))
 }
 
 pub fn fc_float8in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -77,12 +78,16 @@ pub fn fc_float8in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
 
 pub fn fc_float4out(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let v = fcinfo.args_n::<1>()[0].value.as_f32();
-    ::types_fmgr::out_cstring(fcinfo, crate::MAXDOUBLEWIDTH + 1, |buf| crate::float4out(v, buf))
+    ::types_fmgr::out_cstring(fcinfo, crate::MAXDOUBLEWIDTH + 1, |buf| {
+        crate::float4out(v, buf)
+    })
 }
 
 pub fn fc_float8out(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let v = fcinfo.args_n::<1>()[0].value.as_f64();
-    ::types_fmgr::out_cstring(fcinfo, crate::MAXDOUBLEWIDTH + 1, |buf| crate::float8out(v, buf))
+    ::types_fmgr::out_cstring(fcinfo, crate::MAXDOUBLEWIDTH + 1, |buf| {
+        crate::float8out(v, buf)
+    })
 }
 
 pub fn fc_dpi(_flinfo: Option<&mut FmgrInfo>, _fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -292,17 +297,25 @@ pub fn fc_hashfloat4(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     if key == 0.0 {
         return Ok(Datum::from_u32(0));
     }
-    Ok(Datum::from_u32(::hashfn::hash_bytes(&float8_hash_image(key as f64))))
+    Ok(Datum::from_u32(::hashfn::hash_bytes(&float8_hash_image(
+        key as f64,
+    ))))
 }
 
-pub fn fc_hashfloat4extended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_hashfloat4extended(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let [a, seed] = fcinfo.args_n::<2>();
     let key = a.value.as_f32();
     let seed = seed.value.as_i64() as u64;
     if key == 0.0 {
         return Ok(Datum::from_u64(seed));
     }
-    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(&float8_hash_image(key as f64), seed)))
+    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(
+        &float8_hash_image(key as f64),
+        seed,
+    )))
 }
 
 pub fn fc_hashfloat8(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -318,14 +331,20 @@ pub fn hashfloat8(key: f64) -> u32 {
     ::hashfn::hash_bytes(&float8_hash_image(key))
 }
 
-pub fn fc_hashfloat8extended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_hashfloat8extended(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let [a, seed] = fcinfo.args_n::<2>();
     let key = a.value.as_f64();
     let seed = seed.value.as_i64() as u64;
     if key == 0.0 {
         return Ok(Datum::from_u64(seed));
     }
-    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(&float8_hash_image(key), seed)))
+    Ok(Datum::from_u64(::hashfn::hash_bytes_extended(
+        &float8_hash_image(key),
+        seed,
+    )))
 }
 
 // float8[] transvalue frame: in an agg/window context (C's
@@ -403,7 +422,10 @@ pub fn fc_float8_combine(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
 }
 
 // float8_regr_accum args: (state, Y, X).
-pub fn fc_float8_regr_accum(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_float8_regr_accum(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let y = fcinfo.arg_f64(1);
     let x = fcinfo.arg_f64(2);
     float8_trans_result::<6>(fcinfo, "float8_regr_accum", |t| {
@@ -459,8 +481,18 @@ use ::types_fmgr::builtin_strict as b;
 // fmgr_builtins[].
 pub const FLOAT_BUILTINS: &[FmgrBuiltin] = &[
     // sortsupport: native comparator resolution; fmgr-lookup parity rows.
-    b(3132, "btfloat4sortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
-    b(3133, "btfloat8sortsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3132,
+        "btfloat4sortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        3133,
+        "btfloat8sortsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(2424, "float4recv", 1, fc_float4recv),
     b(2425, "float4send", 1, fc_float4send),
     b(2426, "float8recv", 1, fc_float8recv),
@@ -621,14 +653,28 @@ fn float_bound(_: Datum) -> Option<usize> {
 }
 unsafe fn float4_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: the caller's MAXDOUBLEWIDTH writable bytes (float_bound).
-    Ok(crate::float4out(v.as_f32(), unsafe { core::slice::from_raw_parts_mut(dst, crate::MAXDOUBLEWIDTH) }))
+    Ok(crate::float4out(v.as_f32(), unsafe {
+        core::slice::from_raw_parts_mut(dst, crate::MAXDOUBLEWIDTH)
+    }))
 }
 unsafe fn float8_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: as float4_render.
-    Ok(crate::float8out(v.as_f64(), unsafe { core::slice::from_raw_parts_mut(dst, crate::MAXDOUBLEWIDTH) }))
+    Ok(crate::float8out(v.as_f64(), unsafe {
+        core::slice::from_raw_parts_mut(dst, crate::MAXDOUBLEWIDTH)
+    }))
 }
 
 pub static FLOAT_OUT_INTO: &[OutInto] = &[
-    OutInto { foid: 201, bound: float_bound, render: float4_render, chars: Some(OUT_CHARS_FLOAT) },
-    OutInto { foid: 215, bound: float_bound, render: float8_render, chars: Some(OUT_CHARS_FLOAT) },
+    OutInto {
+        foid: 201,
+        bound: float_bound,
+        render: float4_render,
+        chars: Some(OUT_CHARS_FLOAT),
+    },
+    OutInto {
+        foid: 215,
+        bound: float_bound,
+        render: float8_render,
+        chars: Some(OUT_CHARS_FLOAT),
+    },
 ];

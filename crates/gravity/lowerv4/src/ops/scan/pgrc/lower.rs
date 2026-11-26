@@ -24,26 +24,40 @@ use gravity_decompose::{Am, Op, Source};
 use gravity_expr::emit::LaneRef;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, Type, Value};
-use gravity_program::protos::{code_sparse_table_arg, code_table_arg, const_key_arg, word_zone_of, Proto, ProtoKind, VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_COND, VERDICT_COUNT_ONLY, VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED, VERDICT_PSMA, VERDICT_UNREAD, VERDICT_WORD_ZONE, VERDICT_ZONE};
+use gravity_program::protos::{
+    code_sparse_table_arg, code_table_arg, const_key_arg, word_zone_of, Proto, ProtoKind,
+    VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_COND, VERDICT_COUNT_ONLY, VERDICT_ELIDE,
+    VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED, VERDICT_PSMA,
+    VERDICT_UNREAD, VERDICT_WORD_ZONE, VERDICT_ZONE,
+};
 #[allow(unused_imports)]
-use gravity_program::{LaneDesc, LaneId as SiteLane, Parallel, Pipeline, Reason as Why, SiteDesc, TableDecl, ZoneOp, ZonePred};
+use gravity_program::{
+    LaneDesc, LaneId as SiteLane, Parallel, Pipeline, Reason as Why, SiteDesc, TableDecl, ZoneOp,
+    ZonePred,
+};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::Node;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::dict::face::DictPolicy;
 use crate::face::kinds::{Face, KindId};
-use crate::face::source::{DecodeOrder, LaneForm, Locator, Packed, ReadForm, ReadPlan, SourceMech, VerdictImpl, VerdictKind, WinConds};
+use crate::face::source::{
+    DecodeOrder, LaneForm, Locator, Packed, ReadForm, ReadPlan, SourceMech, VerdictImpl,
+    VerdictKind, WinConds,
+};
 use crate::frame::env::Env;
 use crate::frame::frame::{SourceMaker, Win, WordWin};
 use crate::frame::px::{ExId, Px, DRAFT_SITE};
 use crate::frame::row::{Carry, Mask, RowVals};
 use crate::frame::site::{Reader, CTID_AT};
-use crate::admit::refusal::{Reason, ShapeWhy};
-use crate::ops::Table;
-use crate::ops::shared::scan::SourceExt;
 use crate::ops::scan::pgrc::verdict_zone::OpenParam;
+use crate::ops::shared::scan::SourceExt;
+use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcPgrc, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcPgrc, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 pub(crate) fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -53,9 +67,15 @@ pub(crate) fn shape(node: i32, why: &'static str) -> ! {
 
 /// The plan node of leading qual `q`, its scan's varno and its pipeline, as the source's make recorded them.
 pub(crate) fn qual_node<'p>(px: &Px<'_, 'p>, q: ExId) -> Option<(Node<'p>, i32, usize)> {
-    let &(_, k, j, i) = px.ext::<SourceExt>(Face::Source)?.quals.iter().find(|e| e.0 == q)?;
+    let &(_, k, j, i) = px
+        .ext::<SourceExt>(Face::Source)?
+        .quals
+        .iter()
+        .find(|e| e.0 == q)?;
     let p = &px.gx.pipelines()[k];
-    let Source::Range { scanrelid, .. } = &p.source else { return None };
+    let Source::Range { scanrelid, .. } = &p.source else {
+        return None;
+    };
     let Op::Filter(n) = p.ops[j] else { return None };
     let n = match n.as_list() {
         Some(l) => l.iter().nth(i)?,
@@ -73,7 +93,10 @@ pub(crate) struct Declared<'g> {
     pub zone_covers: bool,
     pub enables: u64,
     /// `(the covered words' runs, static fingerprint)` when the condition cache takes a leading op (verdict_cond.rs).
-    pub cond: Option<(PgVec<'g, crate::ops::scan::pgrc::verdict_cond::Run>, [u64; 2])>,
+    pub cond: Option<(
+        PgVec<'g, crate::ops::scan::pgrc::verdict_cond::Run>,
+        [u64; 2],
+    )>,
     /// The late lanes (pgrc_late.rs; bit l: site lane l).
     pub late: u64,
     /// The packed body's candidates (pgrc_packed.rs; bit l: site lane l).
@@ -100,17 +123,47 @@ pub(crate) struct Declared<'g> {
 /// Every verdict road that is on, asked for each leading filter qual of pipeline `k` over the drafted `site`. An op is
 /// covered by a verdict when each of its quals is, and every earlier op too. The site's filter lanes come in as the
 /// decomposer's and leave as the elided ones (lane_elide.rs). `tids`: the site has a TID scan's key cells (`tid_bounds`).
-pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut SiteDesc, tids: bool) -> Declared<'g> {
+pub(crate) fn declare_verdicts<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    site: &mut SiteDesc,
+    tids: bool,
+) -> Declared<'g> {
     let gx = px.gx;
     let mcx = px.mcx();
     let p = &gx.pipelines()[k];
     let node = p.node_id;
     let Source::Range { relid, .. } = &p.source else {
         site.filter_lanes.clear();
-        let (wzone, izone, zargs, bound, lists) = (PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx), PgVec::new_in(mcx));
-        return Declared { covers: 0, zone_covers: false, enables: 0, cond: None, late: 0, packed: 0, first_only: 0, answered: false, range: None, wzone, izone, zargs, bound, lists };
+        let (wzone, izone, zargs, bound, lists) = (
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+            PgVec::new_in(mcx),
+        );
+        return Declared {
+            covers: 0,
+            zone_covers: false,
+            enables: 0,
+            cond: None,
+            late: 0,
+            packed: 0,
+            first_only: 0,
+            answered: false,
+            range: None,
+            wzone,
+            izone,
+            zargs,
+            bound,
+            lists,
+        };
     };
-    let filters = p.ops.iter().take_while(|op| matches!(op, Op::Filter(_))).count();
+    let filters = p
+        .ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_)))
+        .count();
     let lead = filters.min(64);
     let (mut zone_ops, mut cond_ops, mut enables, mut cond_zones) = (0u64, 0u64, 0u64, 0usize);
     // sortmerge (D4469 road 2): a merged site's windows are cut into runs (hosts `MergedRangeSource`), so its verdicts only
@@ -150,7 +203,11 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // it whole (the count is the record's tally, exact in any window), and decodes any other window with the true
     // verdicts, its filter run per row. The site rule names no predicate: one the summary learns needs nothing here.
     // (an EXPLAIN ANALYZE's frame counts a window the records answer as the rows its end takes: frame.rs `row_loop`)
-    let counted = if merged { None } else { crate::frame::iface::answer_counted_qual(px, k, site, u64::MAX) };
+    let counted = if merged {
+        None
+    } else {
+        crate::frame::iface::answer_counted_qual(px, k, site, u64::MAX)
+    };
     let mut counted_q = None;
     let mut wzone: PgVec<'_, (usize, u64, u16)> = PgVec::new_in(mcx);
     let mut izone: PgVec<'_, (u16, u8, u8, i32, OpenParam)> = PgVec::new_in(mcx);
@@ -158,11 +215,14 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     for j in 0..lead {
         let qs = crate::step::expr::quals(px, k, j);
         let nodes: PgVec<'_, Node<'_>> = match p.ops[j] {
-            Op::Filter(n) => n.as_list().map_or_else(|| mcx::pg_vec![in mcx; n], |l| l.iter().collect_in(mcx)),
+            Op::Filter(n) => n
+                .as_list()
+                .map_or_else(|| mcx::pg_vec![in mcx; n], |l| l.iter().collect_in(mcx)),
             _ => PgVec::new_in(mcx),
         };
         let ext = px.ext_mut::<SourceExt>(Face::Source);
-        ext.quals.extend(qs.iter().enumerate().map(|(i, &q)| (q, k, j, i))); // alloc: Program
+        ext.quals
+            .extend(qs.iter().enumerate().map(|(i, &q)| (q, k, j, i))); // alloc: Program
         let (mut all, mut cached, mut dec) = (true, mcx::reserved_in(qs.len(), mcx), true);
         for (i, &q) in qs.iter().enumerate() {
             if counted.is_some_and(|c| (c.0, c.1) == (j, i)) {
@@ -175,34 +235,65 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
             let zoned = quiet && declare(px, site, VerdictKind::Zone, q, node);
             // NEW-72: an IN list's members are the execution's: its slot binds the array's word, and exec's prepare adds
             // the members' span and the members (the bloom's) after the static predicates
-            if let Some((lane, ef, a)) = zoned.then(|| crate::ops::scan::pgrc::verdict_zone::list_of(px, site, q)).flatten() {
-                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a).filter(|&w| !lists.iter().any(|x| x.3 == w)) {
-                    lists.push_in((j, gravity_program::protos::word_zone_list_arg(ef.word() as u64), lane, w));
+            if let Some((lane, ef, a)) = zoned
+                .then(|| crate::ops::scan::pgrc::verdict_zone::list_of(px, site, q))
+                .flatten()
+            {
+                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a)
+                    .filter(|&w| !lists.iter().any(|x| x.3 == w))
+                {
+                    lists.push_in((
+                        j,
+                        gravity_program::protos::word_zone_list_arg(ef.word() as u64),
+                        lane,
+                        w,
+                    ));
                 }
             }
             // sortpath (4): an IN list of text over a jsonb path lane: its members' prefix-key span is the execution's
-            if let Some((lane, ef, a)) = zoned.then(|| crate::ops::scan::pgrc::verdict_zone::prefix_list_of(px, site, q)).flatten() {
-                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a).filter(|&w| !lists.iter().any(|x| x.3 == w)) {
-                    lists.push_in((j, gravity_program::protos::word_zone_list_arg(ef.word() as u64) | gravity_program::protos::WORD_ZONE_LIST_PREFIX, lane, w));
+            if let Some((lane, ef, a)) = zoned
+                .then(|| crate::ops::scan::pgrc::verdict_zone::prefix_list_of(px, site, q))
+                .flatten()
+            {
+                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a)
+                    .filter(|&w| !lists.iter().any(|x| x.3 == w))
+                {
+                    lists.push_in((
+                        j,
+                        gravity_program::protos::word_zone_list_arg(ef.word() as u64)
+                            | gravity_program::protos::WORD_ZONE_LIST_PREFIX,
+                        lane,
+                        w,
+                    ));
                 }
             }
             // D289: a generic plan's `lane op $n`, a zone predicate the host adds per execution (never the static site's)
-            let word = if !quiet || zoned || !VerdictKind::Zone.on() { None } else { crate::ops::scan::pgrc::verdict_zone::word_of(px, site, q) };
-            if let Some((arg, w)) = word.filter(|&(a, w)| !wzone.iter().any(|x| (x.1, x.2) == (a, w))) {
+            let word = if !quiet || zoned || !VerdictKind::Zone.on() {
+                None
+            } else {
+                crate::ops::scan::pgrc::verdict_zone::word_of(px, site, q)
+            };
+            if let Some((arg, w)) =
+                word.filter(|&(a, w)| !wzone.iter().any(|x| (x.1, x.2) == (a, w)))
+            {
                 wzone.push_in((j, arg, w));
             }
             // PS1-05: `lane op (SELECT ..)` over an eager-safe InitPlan, a zone predicate the host adds at each seek from the
             // value the open stores (road nest.eagersafe)
-            let open_time = word.is_none() && (quiet || open_quiet) && !zoned && VerdictKind::Zone.on();
+            let open_time =
+                word.is_none() && (quiet || open_quiet) && !zoned && VerdictKind::Zone.on();
             // D2992: else `lane op e` over a STABLE comparand the open evaluates (D3126: past a guard, only that, guarded)
             let open_z = || match quiet {
-                true => crate::ops::scan::pgrc::verdict_zone::init_of(px, site, q).or_else(|| crate::ops::scan::pgrc::verdict_zone::stable_of(px, site, q)),
-                false => crate::ops::scan::pgrc::verdict_zone::stable_of(px, site, q).map(|mut z| {
-                    if let OpenParam::Stable { guarded, .. } = &mut z.4 {
-                        *guarded = true;
-                    }
-                    z
-                }),
+                true => crate::ops::scan::pgrc::verdict_zone::init_of(px, site, q)
+                    .or_else(|| crate::ops::scan::pgrc::verdict_zone::stable_of(px, site, q)),
+                false => {
+                    crate::ops::scan::pgrc::verdict_zone::stable_of(px, site, q).map(|mut z| {
+                        if let OpenParam::Stable { guarded, .. } = &mut z.4 {
+                            *guarded = true;
+                        }
+                        z
+                    })
+                }
             };
             let entry = open_time.then(open_z).flatten();
             if let Some(z) = entry.filter(|z| !izone.contains(z)) {
@@ -211,12 +302,24 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
             let bloomed = quiet && declare(px, site, VerdictKind::Bloom, q, node);
             enables |= VERDICT_BLOOM * bloomed as u64;
             // NEW-72: an IN list over a byte-equality lane: its members' probe words are the execution's (the bloom's)
-            if let Some((lane, ef, a)) = bloomed.then(|| crate::ops::scan::pgrc::verdict_zone::hash_list_of(px, site, q)).flatten() {
-                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a).filter(|&w| !lists.iter().any(|x| x.3 == w)) {
-                    lists.push_in((j, gravity_program::protos::word_zone_list_arg(ef.word() as u64) | gravity_program::protos::WORD_ZONE_LIST_HASH, lane, w));
+            if let Some((lane, ef, a)) = bloomed
+                .then(|| crate::ops::scan::pgrc::verdict_zone::hash_list_of(px, site, q))
+                .flatten()
+            {
+                if let Some(w) = crate::ops::scan::pgrc::verdict_zone::list_word(px, a)
+                    .filter(|&w| !lists.iter().any(|x| x.3 == w))
+                {
+                    lists.push_in((
+                        j,
+                        gravity_program::protos::word_zone_list_arg(ef.word() as u64)
+                            | gravity_program::protos::WORD_ZONE_LIST_HASH,
+                        lane,
+                        w,
+                    ));
                 }
             }
-            enables |= VERDICT_PSMA * (quiet && declare(px, site, VerdictKind::Psma, q, node)) as u64;
+            enables |=
+                VERDICT_PSMA * (quiet && declare(px, site, VerdictKind::Psma, q, node)) as u64;
             if quiet && verdict_table.is_none() && VerdictKind::CodeSparse.on() {
                 if let Some(t) = crate::dict::strategies::code_sparse::table(px, site, q) {
                     if sparse_table.is_none() {
@@ -231,15 +334,23 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
                 range = crate::dict::strategies::verdict_coderange::of(px, q).map(|r| (j, r));
             }
             dec &= zoned || word.is_some() || entry.is_some();
-            let q_quiet = nodes.get(i).is_some_and(|&n| crate::effects::visible::pgrc::quiet_qual(gx, n));
-            let guard = entry.is_some_and(|z| matches!(z.4, OpenParam::Stable { .. })) && nodes.get(i).is_some_and(|&n| crate::effects::visible::pgrc::raises_in_comparand(gx, n));
+            let q_quiet = nodes
+                .get(i)
+                .is_some_and(|&n| crate::effects::visible::pgrc::quiet_qual(gx, n));
+            let guard = entry.is_some_and(|z| matches!(z.4, OpenParam::Stable { .. }))
+                && nodes
+                    .get(i)
+                    .is_some_and(|&n| crate::effects::visible::pgrc::raises_in_comparand(gx, n));
             if !q_quiet && guard && quiet {
                 fires::fire("verdict.zone.guard"); // shapecheck fire signal (D3126: a later STABLE predicate guarded by this open's)
             }
             open_quiet &= q_quiet || guard;
             quiet &= q_quiet;
             all &= !embedded && zoned && declare(px, site, VerdictKind::AllMatch, q, node);
-            if let Some(c) = (cond_on && quiet).then(|| crate::ops::scan::pgrc::verdict_cond_key::covered(px, k, site, q, node)).flatten() {
+            if let Some(c) = (cond_on && quiet)
+                .then(|| crate::ops::scan::pgrc::verdict_cond_key::covered(px, k, site, q, node))
+                .flatten()
+            {
                 cached.push_in(c);
             }
         }
@@ -264,9 +375,18 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // the tallied lane is never elided: it is the answer's (a count(*) over filter-only lanes alone counts a window's rows,
     // answer.rs `filter_only`). The condition cache decides only the windows the tally leaves (another zone predicate
     // Mixed, a delete mask): a site whose one zone predicate is the tallied one has none, so it keeps no cache
-    let tallied = counted.filter(|c| answered && site.answer_lanes.contains(c.2)).and_then(|c| Some((c, crate::ops::scan::pgrc::verdict_zone::of(px, site, counted_q?)?)));
+    let tallied = counted
+        .filter(|c| answered && site.answer_lanes.contains(c.2))
+        .and_then(|c| {
+            Some((
+                c,
+                crate::ops::scan::pgrc::verdict_zone::of(px, site, counted_q?)?,
+            ))
+        });
     let tallied = tallied.and_then(|(c, (z, exact))| {
-        let at = site.zone.iter().position(|p| *p == z).filter(|_| exact && z.lane as usize == c.2 && z.op == c.3.zone_op() && !z.bound && !z.prefix)?;
+        let at = site.zone.iter().position(|p| *p == z).filter(|_| {
+            exact && z.lane as usize == c.2 && z.op == c.3.zone_op() && !z.bound && !z.prefix
+        })?;
         site.zone[at].tallied = true;
         Some(c.2)
     });
@@ -275,17 +395,38 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // each word-valued predicate is a zone predicate of its op for the rule above
     let wz: PgVec<'_, (u64, u16)> = wzone.iter().map(|&(_, a, w)| (a, w)).collect_in(mcx);
     // NEW-72: an IN list's per-execution predicates are its op's, as a word-valued one is
-    let cond_words = wzone.iter().all(|&(j, ..)| cond_ops & (1 << j) != 0) && lists.iter().all(|&(j, ..)| cond_ops & (1 << j) != 0);
-    let cw: PgVec<'_, (u64, u16)> = wz.iter().copied().chain(lists.iter().map(|&(_, a, _, w)| (a, w))).collect_in(mcx);
+    let cond_words = wzone.iter().all(|&(j, ..)| cond_ops & (1 << j) != 0)
+        && lists.iter().all(|&(j, ..)| cond_ops & (1 << j) != 0);
+    let cw: PgVec<'_, (u64, u16)> = wz
+        .iter()
+        .copied()
+        .chain(lists.iter().map(|&(_, a, _, w)| (a, w)))
+        .collect_in(mcx);
     // D3938: quals read under a state other sessions may not see (this thread's uncommitted DDL, a lagged view) share
     // nothing: no cache
     let stamp = made.0.committed_stamp();
-    let cond = (cond_ops != 0 && site.zone.len() == cond_zones && cond_words && !(tallied.is_some() && site.zone.len() == 1)).then(|| crate::ops::scan::pgrc::verdict_cond::finish(&shapes[..], *relid, site, &cw[..], (stamp?, &made.1[..]), mcx)).flatten();
+    let cond = (cond_ops != 0
+        && site.zone.len() == cond_zones
+        && cond_words
+        && !(tallied.is_some() && site.zone.len() == 1))
+        .then(|| {
+            crate::ops::scan::pgrc::verdict_cond::finish(
+                &shapes[..],
+                *relid,
+                site,
+                &cw[..],
+                (stamp?, &made.1[..]),
+                mcx,
+            )
+        })
+        .flatten();
     // D2992: but a STABLE comparand's open-time skip outweighs a cache whose every covered op the zone verdicts already
     // decide per granule (word compares: the cache would spare only a Mixed granule's compares), so such a site drops the
     // cache and keeps the predicate. D3126: a D289 word predicate's op (a generic plan's `year = $1`) and an open-time
     // predicate's are decided too, not only a static zone predicate's
-    let stable = izone.iter().any(|z| matches!(z.4, OpenParam::Stable { .. }));
+    let stable = izone
+        .iter()
+        .any(|z| matches!(z.4, OpenParam::Stable { .. }));
     let cond = cond.filter(|_| !stable || cond_ops & !(zone_ops | decided) != 0);
     // PS1-05: the condition cache's key cannot hash an open-time value, and its covered words are a verdict only while
     // every zone predicate is one of theirs: a site the cache takes keeps today's form (no open-time predicate); a TID
@@ -298,7 +439,11 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // inputs/key.rs `cost_decide`). Any other stays lazy: the filter runs it at the first row that reaches the qual
     // D3008: a rescan parameter's predicate runs nothing at the open (its producer wrote the word), so no charge decides it
     if izone.iter().any(|z| matches!(z.4, OpenParam::Init(_))) {
-        let ids: PgVec<'_, i32> = izone.iter().filter(|z| matches!(z.4, OpenParam::Init(_))).map(|z| z.3).collect_in(mcx);
+        let ids: PgVec<'_, i32> = izone
+            .iter()
+            .filter(|z| matches!(z.4, OpenParam::Init(_)))
+            .map(|z| z.3)
+            .collect_in(mcx);
         let eager = gravity_lower::inputs::key::cost_decide(gx.graph, node, &ids[..]);
         let mut i = 0u32;
         izone.retain(|z| {
@@ -315,7 +460,9 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     let zone_covers = covers != 0 && covers & !zone_ops == 0;
     if covers != 0 {
         // an end that takes a covered window whole reads which ops it covers (dict countwalk.rs, KEYED-14)
-        px.ext_mut::<SourceExt>(Face::Source).covers.push((k, covers)); // alloc: Program
+        px.ext_mut::<SourceExt>(Face::Source)
+            .covers
+            .push((k, covers)); // alloc: Program
     }
     // decode.unread: a plain count(*)-only end over ops that are all projections or covered filters counts a
     // covered window whole (fold/answer.rs `count_covered`), reading no lane and no row of it, so on a condition-cache hit
@@ -327,7 +474,14 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
         Op::Filter(_) => j < 64 && covers >> j & 1 != 0,
         _ => false,
     });
-    if !merged && covers != 0 && every && crate::frame::iface::answer_count_star_only(px, k) && site.lanes()[natts..].iter().all(|l| matches!(l.id, SiteLane::Offset | SiteLane::Table(_))) {
+    if !merged
+        && covers != 0
+        && every
+        && crate::frame::iface::answer_count_star_only(px, k)
+        && site.lanes()[natts..]
+            .iter()
+            .all(|l| matches!(l.id, SiteLane::Offset | SiteLane::Table(_)))
+    {
         px.ext_mut::<SourceExt>(Face::Source).whole.push(k); // alloc: Program
         enables |= VERDICT_UNREAD * cond.is_some() as u64;
     }
@@ -354,20 +508,27 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // before a coded or by-reference one, then the narrowest), so every window is one the frame reads. A site with no
     // zone predicate has no AllMatch zone verdict, so the host answers none of its windows. Under the hit-only elision the
     // host answers none either, and a hit's window still reads that lane (only decode.unread's count reads none)
-    if !answered && (!site.zone.is_empty() || hit_only) && natts > 0 && (0..natts).all(|l| elide.contains(&l)) {
+    if !answered
+        && (!site.zone.is_empty() || hit_only)
+        && natts > 0
+        && (0..natts).all(|l| elide.contains(&l))
+    {
         let ls = site.lanes();
         let keep = (0..natts).min_by_key(|&l| (ls[l].kind != lane::KIND_BYVAL, ls[l].width));
         elide.retain(|&l| Some(l) != keep);
     }
     // the decomposer's filter-only lanes the first op alone reads (before the site keeps only the elided ones)
     let first_only = crate::ops::scan::pgrc::lane_elide::first_only(px, k, site);
-    let first_quals = crate::ops::scan::pgrc::lane_elide::lanes(px, k, site, 1, true).iter().filter(|&&l| l < 64).fold(0u64, |m, &l| m | 1 << l); // M6 R3: + qual_only
+    let first_quals = crate::ops::scan::pgrc::lane_elide::lanes(px, k, site, 1, true)
+        .iter()
+        .filter(|&&l| l < 64)
+        .fold(0u64, |m, &l| m | 1 << l); // M6 R3: + qual_only
     site.filter_lanes.clear();
     for &l in elide.iter() {
         site.set_filter_only(l);
     }
     if !elide.is_empty() {
-        enables |= VERDICT_ELIDE | ( VERDICT_ELIDE_HIT * hit_only as u64);
+        enables |= VERDICT_ELIDE | (VERDICT_ELIDE_HIT * hit_only as u64);
     }
     // D3042, count.only: a plain count(*)-only end over projections alone (the fold's `count_only` plan: answer.rs `whole`
     // counts every window `end - cursor` and reads no lane) over a site with no predicate of any kind, its attribute lanes
@@ -375,14 +536,27 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // one window of its live rows and reads no lane (granule_source `count_only`). A count(*) the stats answer declines
     // read its driving lane whole (a wide key column: hundreds of MB cold)
     let ls = site.lanes();
-    if !merged && site.zone.is_empty() && site.zone_any.is_empty() && wz.is_empty() && izone.is_empty() && lists.is_empty() && cond.is_none() && p.ops.iter().all(|o| matches!(o, Op::Project(_)))
+    if !merged
+        && site.zone.is_empty()
+        && site.zone_any.is_empty()
+        && wz.is_empty()
+        && izone.is_empty()
+        && lists.is_empty()
+        && cond.is_none()
+        && p.ops.iter().all(|o| matches!(o, Op::Project(_)))
         && crate::frame::iface::answer_count_only(px, k)
-        && ls[..natts].iter().all(|l| l.kind == lane::KIND_BYVAL) && ls[natts..].iter().all(|l| matches!(l.id, SiteLane::Offset))
+        && ls[..natts].iter().all(|l| l.kind == lane::KIND_BYVAL)
+        && ls[natts..].iter().all(|l| matches!(l.id, SiteLane::Offset))
     {
         fires::fire("count.only"); // shapecheck fire signal (D3042)
         enables |= VERDICT_COUNT_ONLY;
     }
-    if !site.zone.is_empty() || !site.zone_any.is_empty() || !wz.is_empty() || !izone.is_empty() || !lists.is_empty() {
+    if !site.zone.is_empty()
+        || !site.zone_any.is_empty()
+        || !wz.is_empty()
+        || !izone.is_empty()
+        || !lists.is_empty()
+    {
         enables |= VERDICT_ZONE;
     }
     // sortpath: a zone AllMatch window answers every covered qual, which the host's condition cache learns (protos)
@@ -391,7 +565,11 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     }
     // code.sparse (H08 / P5-04 / SRC-22: any code verdict a host-built table answers whole), at any site whatever its zone
     // predicates, when a by-value lane is gathered beside its code lane (a code-only site is slower cold: D474)
-    let gathers = |c: usize| (0..site.natts()).any(|l| l != c && site.lanes()[l].kind != lane::KIND_CODES && !site.filter_lanes.contains(l));
+    let gathers = |c: usize| {
+        (0..site.natts()).any(|l| {
+            l != c && site.lanes()[l].kind != lane::KIND_CODES && !site.filter_lanes.contains(l)
+        })
+    };
     if let Some((t, _)) = sparse_table.filter(|&(_, c)| gathers(c)) {
         enables |= code_sparse_table_arg(t);
         fires::fire("code.sparse"); // shapecheck fire signal (REGISTRY P5-04, SRC-22): the table form declared here
@@ -400,41 +578,96 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
     // dictionary holds no passing code is skipped, a row selection drops a row whose code the table rejects) at any site, a
     // count over the code lane alone too. A skip publishes no survivor, so under the condition cache only a covered op's
     // qual takes it (as the code-range skip)
-    if let Some((t, _)) = verdict_table.filter(|_| cond.is_none() || cond_ops & (1 << verdict_op) != 0) {
+    if let Some((t, _)) =
+        verdict_table.filter(|_| cond.is_none() || cond_ops & (1 << verdict_op) != 0)
+    {
         enables |= code_table_arg(t);
     }
-    let ops = || wz.iter().map(|&(a, _)| word_zone_of(a).1).chain(izone.iter().map(|z| z.1));
-    enables |= VERDICT_BLOOM * (VerdictKind::Bloom.on() && ops().any(|o| o == ZoneOp::Eq as u8)) as u64;
-    enables |= VERDICT_PSMA * (VerdictKind::Psma.on() && ops().any(|o| o != ZoneOp::Ne as u8)) as u64;
+    let ops = || {
+        wz.iter()
+            .map(|&(a, _)| word_zone_of(a).1)
+            .chain(izone.iter().map(|z| z.1))
+    };
+    enables |=
+        VERDICT_BLOOM * (VerdictKind::Bloom.on() && ops().any(|o| o == ZoneOp::Eq as u8)) as u64;
+    enables |=
+        VERDICT_PSMA * (VerdictKind::Psma.on() && ops().any(|o| o != ZoneOp::Ne as u8)) as u64;
     if cond.is_some() {
         enables |= VERDICT_COND;
     }
     if ReadForm::Claim.on() {
         enables |= VERDICT_CLAIM;
     }
-    let late = if LaneForm::LateDecode.on() && !merged { crate::ops::scan::pgrc::pgrc_late::lanes(px, k, site) } else { 0 };
+    let late = if LaneForm::LateDecode.on() && !merged {
+        crate::ops::scan::pgrc::pgrc_late::lanes(px, k, site)
+    } else {
+        0
+    };
     if late != 0 {
         enables |= VERDICT_LATE;
     }
     // an answered window loads no lane: no code range reads its codes (the host resets its packed frames per window)
     let range = range.filter(|_| !answered && !merged);
-    let packed = if merged { 0 } else { crate::ops::scan::pgrc::pgrc_packed::candidates(px, k, site, late) };
+    let packed = if merged {
+        0
+    } else {
+        crate::ops::scan::pgrc::pgrc_packed::candidates(px, k, site, late)
+    };
     if packed != 0 {
         enables |= VERDICT_PACKED;
     }
     // FRAME lever 1 a (VERDICT_PACKED_ZONE, the host's pack before row_select) is never set (D332): a portal resuming its
     // window off a 64-row boundary ran the non-packed body over zone lanes the host never decoded, and 1 a bought nothing
     // measurable (PSMA narrows most windows). The host's gate and packed_stage stay, unreachable from this source
-    let first_only = packed & first_only | late & (first_quals | crate::dict::face::path_key(node).map_or(0, |f| (f.late)(px, k, site)) | crate::ops::scan::pgrc::strategies::jsonb_nums::late(px, k, site)); // C5 S4, P1b: guard fill only
-    // P1c: no late lane the program fills: a selection's window keeps the guarded columns late (VERDICT_GUARD_SEL)
+    let first_only = packed & first_only
+        | late
+            & (first_quals
+                | crate::dict::face::path_key(node).map_or(0, |f| (f.late)(px, k, site))
+                | crate::ops::scan::pgrc::strategies::jsonb_nums::late(px, k, site)); // C5 S4, P1b: guard fill only
+                                                                                      // P1c: no late lane the program fills: a selection's window keeps the guarded columns late (VERDICT_GUARD_SEL)
     if late != 0 && late & !packed & !first_only == 0 {
         enables |= VERDICT_GUARD_SEL;
     }
     // NEW-72: each bound static predicate's slot, by its final place on the site (the host binds `zone[at]`)
     // D3009: a disjunction's bound predicates after them (`zone.len() + i`: the host binds `zone_any[i]`)
-    let bound: PgVec<'_, (u64, u16)> = site.zone.iter().chain(site.zone_any.iter()).enumerate().filter_map(|(at, z)| z.bound_of().filter(|_| at < u16::MAX as usize).map(|(w, len)| (gravity_program::protos::word_zone_at_arg(z.lane, z.op as u8, len, at as u16), w))).collect_in(mcx);
-    let lists = lists.into_iter().map(|(_, a, l, w)| (a, l, w)).collect_in(mcx);
-    Declared { covers, zone_covers, enables, cond, late, packed, first_only, answered, range, wzone: wz, izone, zargs: PgVec::new_in(mcx), bound, lists }
+    let bound: PgVec<'_, (u64, u16)> = site
+        .zone
+        .iter()
+        .chain(site.zone_any.iter())
+        .enumerate()
+        .filter_map(|(at, z)| {
+            z.bound_of()
+                .filter(|_| at < u16::MAX as usize)
+                .map(|(w, len)| {
+                    (
+                        gravity_program::protos::word_zone_at_arg(
+                            z.lane, z.op as u8, len, at as u16,
+                        ),
+                        w,
+                    )
+                })
+        })
+        .collect_in(mcx);
+    let lists = lists
+        .into_iter()
+        .map(|(_, a, l, w)| (a, l, w))
+        .collect_in(mcx);
+    Declared {
+        covers,
+        zone_covers,
+        enables,
+        cond,
+        late,
+        packed,
+        first_only,
+        answered,
+        range,
+        wzone: wz,
+        izone,
+        zargs: PgVec::new_in(mcx),
+        bound,
+        lists,
+    }
 }
 
 fn declare(px: &mut Px<'_, '_>, site: &mut SiteDesc, v: VerdictKind, q: ExId, node: i32) -> bool {
@@ -447,11 +680,19 @@ fn declare(px: &mut Px<'_, '_>, site: &mut SiteDesc, v: VerdictKind, q: ExId, no
 /// fingerprint's low word; the first carries the second run), slots `VERDICT_WORD_ZONE..` the word-valued zone
 /// predicates (D289). No protocol when the static zone is all the site takes (the host's default).
 fn declare_proto(px: &mut Px<'_, '_>, k: usize, d: &Declared<'_>) {
-    if d.enables & !VERDICT_ZONE == 0 && d.wzone.is_empty() && d.zargs.is_empty() && d.bound.is_empty() && d.lists.is_empty() {
+    if d.enables & !VERDICT_ZONE == 0
+        && d.wzone.is_empty()
+        && d.zargs.is_empty()
+        && d.bound.is_empty()
+        && d.lists.is_empty()
+    {
         return;
     }
     let base = Proto::new(ProtoKind::Verdicts, k as u16).site(DRAFT_SITE);
-    let (runs, fp) = d.cond.as_ref().map_or((&[][..], [0, 0]), |(r, fp)| (&r[..], *fp));
+    let (runs, fp) = d
+        .cond
+        .as_ref()
+        .map_or((&[][..], [0, 0]), |(r, fp)| (&r[..], *fp));
     let (wb, wn, peer) = runs.first().copied().unwrap_or((0, 0, 0));
     px.declare_proto(base.slot(0).arg(d.enables).words(wb, wn).peer(peer));
     if d.cond.is_some() {
@@ -476,16 +717,27 @@ fn declare_proto(px: &mut Px<'_, '_>, k: usize, d: &Declared<'_>) {
     }
     // PS1-05: each open-time predicate's slot after them, its comparand a key cell (no words)
     for (i, &arg) in d.zargs.iter().enumerate() {
-        px.declare_proto(base.slot(VERDICT_WORD_ZONE + (d.wzone.len() + i) as u8).arg(arg));
+        px.declare_proto(
+            base.slot(VERDICT_WORD_ZONE + (d.wzone.len() + i) as u8)
+                .arg(arg),
+        );
     }
     // NEW-72: the bound static predicates' slots, then the IN lists' (the lane in `peer`), while slot numbers last: a
     // bound predicate left without one leaves the host no value for it, so that site takes no zone verdict (never a guess)
     let mut at = d.wzone.len() + d.zargs.len() + VERDICT_WORD_ZONE as usize;
-    for &(arg, w) in d.bound.iter().take(u8::MAX as usize - at.min(u8::MAX as usize)) {
+    for &(arg, w) in d
+        .bound
+        .iter()
+        .take(u8::MAX as usize - at.min(u8::MAX as usize))
+    {
         px.declare_proto(base.slot(at as u8).arg(arg).words(w, 1));
         at += 1;
     }
-    for &(arg, lane, w) in d.lists.iter().take(u8::MAX as usize - at.min(u8::MAX as usize)) {
+    for &(arg, lane, w) in d
+        .lists
+        .iter()
+        .take(u8::MAX as usize - at.min(u8::MAX as usize))
+    {
         px.declare_proto(base.slot(at as u8).arg(arg).words(w, 1).peer(lane));
         at += 1;
     }
@@ -554,26 +806,51 @@ fn tid_bounds<'g>(px: &mut Px<'g, '_>, k: usize) -> PgVec<'g, (u16, TidSide)> {
     let gx = px.gx;
     let mcx = px.mcx();
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range { scanrelid, .. } = &p.source else {
+        return PgVec::new_in(mcx);
+    };
     let (varno, node) = (*scanrelid as i32, p.node_id);
-    let is_ctid = |n: Node<'_>| n.as_var().is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == -1);
-    let plain = |n: Node<'_>| n.as_const().is_some() || n.as_param().is_some_and(|q| q.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN);
+    let is_ctid = |n: Node<'_>| {
+        n.as_var()
+            .is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == -1)
+    };
+    let plain = |n: Node<'_>| {
+        n.as_const().is_some()
+            || n.as_param()
+                .is_some_and(|q| q.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN)
+    };
     let mut out = PgVec::new_in(mcx);
     for op in p.ops.iter().take_while(|op| matches!(op, Op::Filter(_))) {
         let Op::Filter(n) = op else { continue };
-        for q in n.as_list().map_or_else(|| mcx::pg_vec![in mcx; *n], |l| l.iter().collect_in(mcx)) {
+        for q in n
+            .as_list()
+            .map_or_else(|| mcx::pg_vec![in mcx; *n], |l| l.iter().collect_in(mcx))
+        {
             // `ctid = ANY (a)` / `ctid IN (...)` (387 =, OR'd): an array literal's own word, which its compile never
             // places (step/consts.rs places its elements' words, step/expr_saop_set.rs a hashed one's set), so no claim
             // to take; an extern parameter's one word
-            if let Some(a) = q.as_scalar_array_op_expr().filter(|a| a.useOr && a.opno == gravity_decompose::catalog::scan::TID_EQ && a.args.len() == 2 && is_ctid(a.args.nth(0))) {
+            if let Some(a) = q.as_scalar_array_op_expr().filter(|a| {
+                a.useOr
+                    && a.opno == gravity_decompose::catalog::scan::TID_EQ
+                    && a.args.len() == 2
+                    && is_ctid(a.args.nth(0))
+            }) {
                 let value = a.args.nth(1);
                 let place = match (value.as_const(), plain(value)) {
                     (Some(c), _) if !c.constisnull && !c.constbyval => {
-                        let need = gravity_expr::emit::ParamNeed::Const(gravity_expr::NullableDatum::value(c.constvalue));
+                        let need = gravity_expr::emit::ParamNeed::Const(
+                            gravity_expr::NullableDatum::value(c.constvalue),
+                        );
                         Some(px.plan.need_at(&need, c.consttype, false, value))
                     }
                     (Some(_), _) => None,
-                    (None, true) => Some(crate::lifetime::bound::word(px, crate::lifetime::bound::Feed::Qual, k, value, node)),
+                    (None, true) => Some(crate::lifetime::bound::word(
+                        px,
+                        crate::lifetime::bound::Feed::Qual,
+                        k,
+                        value,
+                        node,
+                    )),
                     (None, false) => None,
                 };
                 if let Some(gravity_lower::Place::Word(w)) = place {
@@ -581,7 +858,9 @@ fn tid_bounds<'g>(px: &mut Px<'g, '_>, k: usize) -> PgVec<'g, (u16, TidSide)> {
                 }
                 continue;
             }
-            let Some(e) = q.as_op_expr().filter(|e| e.args.len() == 2) else { continue };
+            let Some(e) = q.as_op_expr().filter(|e| e.args.len() == 2) else {
+                continue;
+            };
             let (left, right) = (e.args.nth(0), e.args.nth(1));
             let (value, flip) = match (is_ctid(left), is_ctid(right)) {
                 (true, false) => (right, false),
@@ -599,7 +878,13 @@ fn tid_bounds<'g>(px: &mut Px<'g, '_>, k: usize) -> PgVec<'g, (u16, TidSide)> {
             // parameter's is the parameter's one word
             let place = match (value.as_const(), plain(value)) {
                 (Some(_), _) => px.claim_ref_const(value),
-                (None, true) => Some(crate::lifetime::bound::word(px, crate::lifetime::bound::Feed::Qual, k, value, node)),
+                (None, true) => Some(crate::lifetime::bound::word(
+                    px,
+                    crate::lifetime::bound::Feed::Qual,
+                    k,
+                    value,
+                    node,
+                )),
                 (None, false) => None,
             };
             if let Some(gravity_lower::Place::Word(w)) = place {
@@ -613,7 +898,10 @@ fn tid_bounds<'g>(px: &mut Px<'g, '_>, k: usize) -> PgVec<'g, (u16, TidSide)> {
 /// The granules `[g0, g1)` the rows of the tid at `ptr + at` (an ItemPointerData) can sit in: its block's positions
 /// `block x 291 ..= block x 291 + 290` (the positional reading), over 8192 a granule.
 fn tid_granules(b: &mut FunctionBuilder<'_>, ptr: Value, at: i32) -> (Value, Value) {
-    let (bh, bl) = (b.load_zext(Type::I16, ptr, at), b.load_zext(Type::I16, ptr, at + 2));
+    let (bh, bl) = (
+        b.load_zext(Type::I16, ptr, at),
+        b.load_zext(Type::I16, ptr, at + 2),
+    );
     let sixteen = b.iconst(Type::I64, 16);
     let bh = b.int_bin(IntBinOp::Shl, bh, sixteen);
     let blk = b.int_bin(IntBinOp::Or, bh, bl);
@@ -633,10 +921,22 @@ fn tid_granules(b: &mut FunctionBuilder<'_>, ptr: Value, at: i32) -> (Value, Val
 /// one dimension, no NULL bitmap; ArrayType's 16 bytes, then dims and lbounds, the 6-byte elements from offset 24, each
 /// at alignment 's') is walked; another form (a NULL element, a short or compressed header, more dimensions) narrows
 /// nothing, and an empty array (no dimension) matches no row. The walk checks for a cancel per element.
-fn tid_array(b: &mut FunctionBuilder<'_>, (ctx, l_cancel): (Value, Block), ptr: Value, isnull: Value, (lo, hi): (Value, Value)) -> (Value, Value) {
+fn tid_array(
+    b: &mut FunctionBuilder<'_>,
+    (ctx, l_cancel): (Value, Block),
+    ptr: Value,
+    isnull: Value,
+    (lo, hi): (Value, Value),
+) -> (Value, Value) {
     let i64s = [Type::I64, Type::I64];
-    let (hdr, walk, head, body, fin, done) =
-        (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64, Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&i64s), b.create_block(&i64s));
+    let (hdr, walk, head, body, fin, done) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64, Type::I64, Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&i64s),
+        b.create_block(&i64s),
+    );
     let [zero, one, three, six, all] = [0, 1, 3, 6, -1].map(|v| b.iconst(Type::I64, v));
     let no = b.bconst(false);
     let tag = b.load_zext(Type::I8, ptr, 0);
@@ -645,8 +945,14 @@ fn tid_array(b: &mut FunctionBuilder<'_>, (ctx, l_cancel): (Value, Block), ptr: 
     let read = b.select(isnull, no, four_byte);
     b.cond_br(read, (hdr, &[]), (done, &[lo, hi]));
     b.switch_to(hdr);
-    let (ndim, nulls) = (b.load_zext(Type::I32, ptr, 4), b.load_zext(Type::I32, ptr, 8));
-    let (one_dim, no_nulls) = (b.icmp(IntCond::Eq, ndim, one), b.icmp(IntCond::Eq, nulls, zero));
+    let (ndim, nulls) = (
+        b.load_zext(Type::I32, ptr, 4),
+        b.load_zext(Type::I32, ptr, 8),
+    );
+    let (one_dim, no_nulls) = (
+        b.icmp(IntCond::Eq, ndim, one),
+        b.icmp(IntCond::Eq, nulls, zero),
+    );
     let plain = b.int_bin(IntBinOp::And, one_dim, no_nulls);
     let empty = b.icmp(IntCond::Eq, ndim, zero);
     let hi0 = b.select(empty, zero, hi);
@@ -654,7 +960,8 @@ fn tid_array(b: &mut FunctionBuilder<'_>, (ctx, l_cancel): (Value, Block), ptr: 
     b.switch_to(walk);
     let n = b.load_zext(Type::I32, ptr, 16);
     b.br(head, &[zero, all, zero]);
-    b.switch_to(head); b.mark_loop_header(head);
+    b.switch_to(head);
+    b.mark_loop_header(head);
     let [i, least, most] = [0, 1, 2].map(|j| b.block_params(head)[j]);
     let more = b.icmp(IntCond::Ult, i, n);
     b.cond_br(more, (body, &[]), (fin, &[least, most]));
@@ -691,21 +998,49 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
 /// The decomposer's descriptor is serial (one seek per open: nodeSamplescan.c evaluates the arguments per rescan). No
 /// verdict (declare_verdicts declares none off a range source), no entries window and no constant-key window: every
 /// window is decoded and masked.
-pub(crate) fn make_sample<'g>(px: &mut Px<'g, '_>, k: usize, keys: PgVec<'g, u16>) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn make_sample<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    keys: PgVec<'g, u16>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     if keys.is_empty() || keys.len() > 2 {
-        crate::refuse!(px.gx.pipelines()[k].node_id, Reason::Bug { payload: "a pgrc sample without its argument word" });
+        crate::refuse!(
+            px.gx.pipelines()[k].node_id,
+            Reason::Bug {
+                payload: "a pgrc sample without its argument word"
+            }
+        );
     }
     make_with(px, k, keys)
 }
 
-fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox<'g, dyn SourceMech + 'g> {
+fn make_with<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    sample: PgVec<'g, u16>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
     let (site, relid) = match &p.source {
-        Source::Range { site, am: Am::Pgrcolumnar, relid, .. } if sample.is_empty() => (site, relid),
-        Source::Sample { site, am: Am::Pgrcolumnar, relid, .. } if !sample.is_empty() => (site, relid),
-        _ => crate::refuse!(node, Reason::Bug { payload: "a pgrc entry over another source" }),
+        Source::Range {
+            site,
+            am: Am::Pgrcolumnar,
+            relid,
+            ..
+        } if sample.is_empty() => (site, relid),
+        Source::Sample {
+            site,
+            am: Am::Pgrcolumnar,
+            relid,
+            ..
+        } if !sample.is_empty() => (site, relid),
+        _ => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a pgrc entry over another source"
+            }
+        ),
     };
     // the decomposer's trailing RowId lane is the plan's `ctid` read: computed from the row's position, never a lane (taken
     // off before the site is driven, as frame/site.rs index_site does)
@@ -716,7 +1051,13 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
         crate::admit::refusal::refuse_native(node, *relid, crate::admit::refusal::ShapeWhy("TABLESAMPLE over a pgrc relation (its ctid is the row's ID, which the rows road samples)"));
     }
     if ctid {
-        crate::admit::refusal::refuse_native(node, *relid, crate::admit::refusal::ShapeWhy("a pgrc scan reading ctid (its ctid is the row's ID, which the rows road reads)"));
+        crate::admit::refusal::refuse_native(
+            node,
+            *relid,
+            crate::admit::refusal::ShapeWhy(
+                "a pgrc scan reading ctid (its ctid is the row's ID, which the rows road reads)",
+            ),
+        );
     }
     let bare = ctid.then(|| {
         let mut d = site.copy_in(px.arena);
@@ -724,21 +1065,37 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
         d
     });
     let site = bare.as_ref().unwrap_or(site);
-    let mut s = crate::ops::scan::pgrc::pgrc_late::fetch_narrow(px, k, driven(px, site, *relid, node));
+    let mut s =
+        crate::ops::scan::pgrc::pgrc_late::fetch_narrow(px, k, driven(px, site, *relid, node));
     s.clear_zone();
     // L0-g (M6 D2): the path lanes the leading quals read, declared before they compile (a merged site reads documents)
     if !s.is_merged() {
         crate::face::source::site_draft(px, k, &mut s);
     }
-    let tids = if sample.is_empty() { tid_bounds(px, k) } else { PgVec::new_in(px.mcx()) };
+    let tids = if sample.is_empty() {
+        tid_bounds(px, k)
+    } else {
+        PgVec::new_in(px.mcx())
+    };
     // a TID scan's key cells: its granule range, then a leading `ctid = ANY (a)`'s array word (tid_keys)
-    let extra = if tids.is_empty() { sample.len() } else if tids.iter().any(|t| t.1 == TidSide::Array) { 3 } else { 2 };
+    let extra = if tids.is_empty() {
+        sample.len()
+    } else if tids.iter().any(|t| t.1 == TidSide::Array) {
+        3
+    } else {
+        2
+    };
     if let gravity_program::SiteKind::RangeSource { nkeys, .. } = &mut s.kind {
         *nkeys = (*nkeys).max((gravity_program::RANGE_KEYS + extra) as u16);
     }
     // the leading quals compile over the drafted site, so their per-code tables are declared on it (step/percode.rs)
     px.set_site(k, s);
-    for j in 0..p.ops.iter().take_while(|op| matches!(op, Op::Filter(_))).count() {
+    for j in 0..p
+        .ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_)))
+        .count()
+    {
         crate::step::expr::quals(px, k, j);
     }
     // the Fp128 tables of the code lanes a keyed end hashes at Program scope (KEYED's rule), before the row cells' Reps
@@ -747,9 +1104,23 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
     // past its probe (frame::iface `build_fp_lanes`)
     let fpl = crate::table::emit_group::fp_lanes(gx, k);
     let built = crate::frame::iface::build_fp_lanes(gx, k);
-    for l in fpl.iter().copied().chain(built.cols().iter().map(|c| c.0 as u8).filter(|l| !fpl.contains(l))) {
-        let bpchar = match gx.pipelines()[k].source.relation().and_then(|(_, _, site)| site.lanes.get(l as usize)).map(|d| d.id) {
-            Some(SiteLane::Attr(a)) => gx.facts.att(*relid, a).is_some_and(|f| crate::dict::coderep::sk_bpchar(gx, f.typid) != 0),
+    for l in fpl.iter().copied().chain(
+        built
+            .cols()
+            .iter()
+            .map(|c| c.0 as u8)
+            .filter(|l| !fpl.contains(l)),
+    ) {
+        let bpchar = match gx.pipelines()[k]
+            .source
+            .relation()
+            .and_then(|(_, _, site)| site.lanes.get(l as usize))
+            .map(|d| d.id)
+        {
+            Some(SiteLane::Attr(a)) => gx
+                .facts
+                .att(*relid, a)
+                .is_some_and(|f| crate::dict::coderep::sk_bpchar(gx, f.typid) != 0),
             _ => false,
         };
         // textkeys step 3 (road key.canon): the lane's canonical image table, so its codes image as a datum of their bytes does
@@ -764,30 +1135,48 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
         crate::dict::percode::declare_table(px, k, decl, crate::dict::percode::Class::Fp);
     }
     let arena = px.arena;
-    let Some(mut s) = px.site_mut(k).map(|d| d.copy_in(arena)) else { crate::refuse!(node, Reason::Bug { payload: "a drafted pgrc site gone" }) };
+    let Some(mut s) = px.site_mut(k).map(|d| d.copy_in(arena)) else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a drafted pgrc site gone"
+            }
+        )
+    };
     let mut d = declare_verdicts(px, k, &mut s, !tids.is_empty());
     // PS1-05 (road nest.eagersafe): each open-time zone predicate's key cell after every other cell (X5's bound cells
     // included), counted in `zkeys` apart from the site's own, and the InitPlan handle word its open reads it through
     let mut izone = PgVec::new_in(px.mcx());
     // (D3008: a rescan parameter's needs no InitPlan handle)
-    let init_load = crate::ops::kind_as::<crate::rerun::params::InitLoad>(crate::face::kinds::KindId::NestInitplan).is_some();
-    d.izone.retain(|z| !matches!(z.4, OpenParam::Init(_)) || init_load);
+    let init_load = crate::ops::kind_as::<crate::rerun::params::InitLoad>(
+        crate::face::kinds::KindId::NestInitplan,
+    )
+    .is_some();
+    d.izone
+        .retain(|z| !matches!(z.4, OpenParam::Init(_)) || init_load);
     if !d.izone.is_empty() {
         if let gravity_program::SiteKind::RangeSource { nkeys, zkeys, .. } = &mut s.kind {
             for &(lane, op, len, id, from) in d.izone.iter() {
                 let cell = *nkeys;
                 *nkeys += 1;
                 *zkeys += 1;
-                let h = matches!(from, OpenParam::Init(_)).then(|| crate::rerun::params::init_handle(px, id));
+                let h = matches!(from, OpenParam::Init(_))
+                    .then(|| crate::rerun::params::init_handle(px, id));
                 if matches!(from, OpenParam::Stable { .. }) {
                     fires::fire("verdict.zone.stable"); // shapecheck fire signal (D2992)
                 }
                 izone.push_in((id, h, cell, from));
-                d.zargs.push_in(gravity_program::protos::word_zone_key_arg(lane, op, len, cell));
+                d.zargs.push_in(gravity_program::protos::word_zone_key_arg(
+                    lane, op, len, cell,
+                ));
             }
         }
     }
-    let ck = if sample.is_empty() && !s.is_merged() { crate::ops::scan::pgrc::verdict_zone::const_key(px, k, &s) } else { None };
+    let ck = if sample.is_empty() && !s.is_merged() {
+        crate::ops::scan::pgrc::verdict_zone::const_key(px, k, &s)
+    } else {
+        None
+    };
     d.enables |= ck.map_or(0, |(l, _)| const_key_arg(l as u16));
     if DictPolicy::Open.on() {
         crate::ops::scan::pgrc::dict_open::open(px, k, &mut s);
@@ -804,7 +1193,10 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
     declare_proto(px, k, &d);
     let claim = d.enables & VERDICT_CLAIM != 0;
     // the fill set: the late lanes (a path-only jsonb column's the host fills, M6 D2) and the packed candidates (read undecoded only by the packed body's first step)
-    let late = crate::ops::scan::pgrc::pgrc_late::Late::new((d.late | d.packed) & !(d.first_only & d.late & !d.packed), (d.late | d.packed) & !d.first_only);
+    let late = crate::ops::scan::pgrc::pgrc_late::Late::new(
+        (d.late | d.packed) & !(d.first_only & d.late & !d.packed),
+        (d.late | d.packed) & !d.first_only,
+    );
     mcx::pg_box_dyn!(px.mcx(), Pgrc { rd, covers: d.covers, zone_covers: d.zone_covers, cond: d.cond.is_some(), cond_lane: None, fill: core::cell::Cell::new(None), codes, claim, tabs, late, first, packs, answered: d.answered, range: d.range.map(|r| r.1), ck, ctid, sample, tids, izone } => dyn SourceMech + 'g)
 }
 
@@ -813,14 +1205,40 @@ fn make_with<'g>(px: &mut Px<'g, '_>, k: usize, sample: PgVec<'g, u16>) -> PgBox
 /// the narrowest within a kind (D3042: a count(*) the stats answer declines read an 8-byte first column whole where a
 /// 2-byte column reads a quarter of it; a count-only window reads none: granule_source `count_only`).
 fn driven(px: &Px<'_, '_>, site: &SiteDesc, relid: u32, node: i32) -> SiteDesc {
-    if site.lanes().iter().any(|l| matches!(l.id, SiteLane::Attr(_))) {
+    if site
+        .lanes()
+        .iter()
+        .any(|l| matches!(l.id, SiteLane::Attr(_)))
+    {
         return site.copy_in(px.arena);
     }
     let natts = px.gx.facts.rel(relid).map_or(0, |r| r.natts);
-    let rank = |f: gravity_decompose::AttFact| if f.byval { !f.notnull as u8 } else if f.typlen > 0 { 2 } else { 3 };
-    let width = |f: gravity_decompose::AttFact| if f.typlen > 0 { f.typlen as i32 } else { i32::MAX };
-    let a = (1..=natts).filter_map(|a| px.gx.facts.att(relid, a).map(|f| (rank(f), width(f), a))).min().map(|(_, _, a)| a);
-    let Some(a) = a else { shape(node, "a pgrc scan reading no column over a relation with no live column") };
+    let rank = |f: gravity_decompose::AttFact| {
+        if f.byval {
+            !f.notnull as u8
+        } else if f.typlen > 0 {
+            2
+        } else {
+            3
+        }
+    };
+    let width = |f: gravity_decompose::AttFact| {
+        if f.typlen > 0 {
+            f.typlen as i32
+        } else {
+            i32::MAX
+        }
+    };
+    let a = (1..=natts)
+        .filter_map(|a| px.gx.facts.att(relid, a).map(|f| (rank(f), width(f), a)))
+        .min()
+        .map(|(_, _, a)| a);
+    let Some(a) = a else {
+        shape(
+            node,
+            "a pgrc scan reading no column over a relation with no live column",
+        )
+    };
     SiteDesc::range_source(px.arena, relid, &[a])
 }
 
@@ -844,9 +1262,13 @@ impl<'g> Pgrc<'g> {
         let keys_null = b.load(Type::Ptr, env.ctx, s + site::KEYS_NULL as i32);
         for (n, &w) in self.sample.iter().enumerate() {
             let (v, isnull) = if w & EXEC_KEY == 0 {
-                (b.load(Type::I64, env.params, w as i32 * 8), b.load(Type::I8, env.params_null, w as i32))
+                (
+                    b.load(Type::I64, env.params, w as i32 * 8),
+                    b.load(Type::I8, env.params_null, w as i32),
+                )
             } else {
-                let (v, null) = crate::rerun::params::load(b, env, env.node, (w & !EXEC_KEY) as i32);
+                let (v, null) =
+                    crate::rerun::params::load(b, env, env.node, (w & !EXEC_KEY) as i32);
                 (v, b.conv(ConvOp::Zext, Type::I8, null))
             };
             let at = (gravity_program::RANGE_KEYS + n) as i32;
@@ -914,9 +1336,23 @@ impl<'g> Pgrc<'g> {
         for &(id, h, cell, from) in self.izone.iter() {
             let (v, isnull) = match (h, from) {
                 (Some(h), _) => crate::frame::site::init_key(b, env, id, h),
-                (None, OpenParam::Stable { q, node, cross, op, guarded, .. }) => {
+                (
+                    None,
+                    OpenParam::Stable {
+                        q,
+                        node,
+                        cross,
+                        op,
+                        guarded,
+                        ..
+                    },
+                ) => {
                     let (v, none, r) = stable_key(b, env, q, node, cross, op);
-                    let none = if guarded { b.int_bin(IntBinOp::Or, none, raised) } else { none };
+                    let none = if guarded {
+                        b.int_bin(IntBinOp::Or, none, raised)
+                    } else {
+                        none
+                    };
                     raised = b.int_bin(IntBinOp::Or, raised, r);
                     (v, b.conv(ConvOp::Zext, Type::I8, none))
                 }
@@ -943,15 +1379,31 @@ impl<'g> Pgrc<'g> {
         let rem = b.int_bin(IntBinOp::Urem, r, per);
         let one = b.iconst(Type::I64, 1);
         let off = b.int_bin(IntBinOp::Add, rem, one);
-        (b.conv(ConvOp::Trunc, Type::I32, block), b.conv(ConvOp::Trunc, Type::I16, off))
+        (
+            b.conv(ConvOp::Trunc, Type::I32, block),
+            b.conv(ConvOp::Trunc, Type::I16, off),
+        )
     }
 
     /// The window's cursor, or its end where the code range proves the window `NoMatch` (read without a selection and with
     /// its code lane decoded only): the frame walks no row and writes the window back consumed, so the host moves on.
-    fn range_cursor(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, r: crate::dict::strategies::verdict_coderange::Range, cursor: Value, end: Value) -> Value {
+    fn range_cursor(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        r: crate::dict::strategies::verdict_coderange::Range,
+        cursor: Value,
+        end: Value,
+    ) -> Value {
         let w = self.rd.vals();
         let lanes = self.rd.cols.iter().zip(w.lanes.iter());
-        let Some(ptr) = lanes.filter(|(c, _)| c.attno == r.attno && c.desc.kind == lane::KIND_CODES).map(|(_, l)| l.0).next() else { return cursor };
+        let Some(ptr) = lanes
+            .filter(|(c, _)| c.attno == r.attno && c.desc.kind == lane::KIND_CODES)
+            .map(|(_, l)| l.0)
+            .next()
+        else {
+            return cursor;
+        };
         let (l_scan, l_done) = (b.create_block(&[]), b.create_block(&[Type::I64]));
         // an undecoded code lane (decode.unread's hit, an elided lane) has no codes to scan
         let pi = b.conv(ConvOp::PtrToInt, Type::I64, ptr);
@@ -983,17 +1435,32 @@ impl<'g> SourceMech for Pgrc<'g> {
         let limit = crate::frame::iface::holds_limit(&p.ops);
         if sink && limit {
             // a sink keeps no owner, words, finish or admit; consumes_from is dropped too (a probe-with-LIMIT would need it)
-            return Pipeline { consumes: d.consumes, ..Pipeline::serial(d.driving_site, gravity_program::End::Sink, Why::Sink) };
+            return Pipeline {
+                consumes: d.consumes,
+                ..Pipeline::serial(d.driving_site, gravity_program::End::Sink, Why::Sink)
+            };
         }
         if limit {
             // D281: step.limit's counters are per-open words, and an eligible pipeline opens per claim (the width-1 arm
             // too) and per worker, so each would keep `count` rows past its own `offset`; PostgreSQL's Limit sits above the
             // Gather. One open over the whole relation in claim order, PostgreSQL's serial row choice too (a sum over the
             // LIMIT reads it); the breaker's descriptor is otherwise the decomposer's.
-            return Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::Sink }, ..d };
+            return Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason: Why::Sink,
+                },
+                ..d
+            };
         }
         match crate::hir::hosted_serial(px, k) {
-            Some(reason) => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+            Some(reason) => Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason,
+                },
+                ..d
+            },
             None => d,
         }
     }
@@ -1003,21 +1470,41 @@ impl<'g> SourceMech for Pgrc<'g> {
     fn seal(&mut self, _px: &mut Px<'_, '_>, _k: usize, site: &mut SiteDesc) {
         if self.cond {
             self.cond_lane = Some(site.lanes().len());
-            site.add_lane(LaneDesc { id: SiteLane::Verdict(0), ..LaneDesc::rowid() }, false);
+            site.add_lane(
+                LaneDesc {
+                    id: SiteLane::Verdict(0),
+                    ..LaneDesc::rowid()
+                },
+                false,
+            );
         }
     }
 
     fn decode_order(&self) -> DecodeOrder {
-        if self.late.mask != 0 { DecodeOrder::Late { first: self.first } } else { DecodeOrder::Eager }
+        if self.late.mask != 0 {
+            DecodeOrder::Late { first: self.first }
+        } else {
+            DecodeOrder::Eager
+        }
     }
 
     /// A row body's fill (`at` none) skips an empty window (a code-range `NoMatch`). A whole block's survivors (`at`'s
     /// base 64 rows or more before the end; a tail's fewer) fill no candidate the first step alone reads: it tested them
     /// packed, and nothing after reads them.
-    fn fill_late(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, win: &Win, at: Option<(Value, Mask)>) {
+    fn fill_late(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        win: &Win,
+        at: Option<(Value, Mask)>,
+    ) {
         let s = self.rd.k(env);
         if let (Some((base, _)), true) = (at, self.late.block != self.late.mask) {
-            let (l_blk, l_tail, l_end) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+            let (l_blk, l_tail, l_end) = (
+                b.create_block(&[]),
+                b.create_block(&[]),
+                b.create_block(&[]),
+            );
             let sixty_four = b.iconst(Type::I64, 64);
             let e = b.int_bin(IntBinOp::Add, base, sixty_four);
             let whole = b.icmp(IntCond::Sle, e, win.end);
@@ -1045,16 +1532,35 @@ impl<'g> SourceMech for Pgrc<'g> {
 
     /// D3194: the late lanes of columns `attnos` for block `at`'s rows (a filtered probe's keys, frame.rs `block_loop`); a
     /// column the site does not carry is not readable.
-    fn fill_late_cols(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, _win: &Win, at: (Value, Mask), attnos: &[i16]) -> bool {
-        let lane = |a: i16| self.rd.cols.iter().find(|c| c.attno == a).map(|c| if c.k < 64 { 1u64 << c.k } else { 0 });
-        let Some(bits) = attnos.iter().try_fold(0u64, |m, &a| lane(a).map(|l| m | l)) else { return false };
+    fn fill_late_cols(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _win: &Win,
+        at: (Value, Mask),
+        attnos: &[i16],
+    ) -> bool {
+        let lane = |a: i16| {
+            self.rd
+                .cols
+                .iter()
+                .find(|c| c.attno == a)
+                .map(|c| if c.k < 64 { 1u64 << c.k } else { 0 })
+        };
+        let Some(bits) = attnos.iter().try_fold(0u64, |m, &a| lane(a).map(|l| m | l)) else {
+            return false;
+        };
         let s = self.rd.k(env);
         self.late.fill(b, env, s, Some(at), bits & self.late.mask);
         true
     }
 
     fn read_plan(&self) -> ReadPlan {
-        if self.claim { ReadPlan::PLAIN.with(ReadForm::Claim) } else { ReadPlan::PLAIN }
+        if self.claim {
+            ReadPlan::PLAIN.with(ReadForm::Claim)
+        } else {
+            ReadPlan::PLAIN
+        }
     }
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
@@ -1081,19 +1587,46 @@ impl<'g> SourceMech for Pgrc<'g> {
         let l_exit = env.x.l_exit;
         crate::dict::percode_bind::bind(b, env, sk, &self.tabs, l_exit);
         let w = self.rd.vals();
-        let cursor = self.range.map_or(cursor, |r| self.range_cursor(b, env, r, cursor, end));
+        let cursor = self
+            .range
+            .map_or(cursor, |r| self.range_cursor(b, env, r, cursor, end));
         env.codes.clear();
         // the render face's `part << 32 | code` word
         let part = self.codes.then(|| {
-            let p = b.load_zext(Type::I32, env.ctx, site_off(sk) as i32 + site::PART_ID as i32);
+            let p = b.load_zext(
+                Type::I32,
+                env.ctx,
+                site_off(sk) as i32 + site::PART_ID as i32,
+            );
             let sh = b.iconst(Type::I64, 32);
             b.int_bin(IntBinOp::Shl, p, sh)
         });
-        for (c, &(ptr, valid, vnull)) in self.rd.cols.iter().zip(w.lanes.iter()).filter(|(c, _)| c.desc.kind == lane::KIND_CODES) {
-            let lr = LaneRef { ptr, valid, valid_null: Some(vnull), width: 4, kind: lane::KIND_CODES, all_valid: c.notnull };
-            env.codes.push_in(gravity_expr::emit::CodeRef { attno: c.attno, lane: lr, code: None, ordinal: c.k as u8, part });
+        for (c, &(ptr, valid, vnull)) in self
+            .rd
+            .cols
+            .iter()
+            .zip(w.lanes.iter())
+            .filter(|(c, _)| c.desc.kind == lane::KIND_CODES)
+        {
+            let lr = LaneRef {
+                ptr,
+                valid,
+                valid_null: Some(vnull),
+                width: 4,
+                kind: lane::KIND_CODES,
+                all_valid: c.notnull,
+            };
+            env.codes.push_in(gravity_expr::emit::CodeRef {
+                attno: c.attno,
+                lane: lr,
+                code: None,
+                ordinal: c.k as u8,
+                part,
+            });
         }
-        let zone = self.zone_covers.then(|| crate::ops::scan::pgrc::verdict_allmatch::covered(b, w.lane_arr, self.rd.cols[0].k));
+        let zone = self.zone_covers.then(|| {
+            crate::ops::scan::pgrc::verdict_allmatch::covered(b, w.lane_arr, self.rd.cols[0].k)
+        });
         let cond = self.cond_lane.map(|k| {
             let (hit, fill) = crate::ops::scan::pgrc::verdict_cond::window(b, w.lane_arr, k);
             self.fill.set(Some(fill));
@@ -1104,22 +1637,60 @@ impl<'g> SourceMech for Pgrc<'g> {
             (z, c) => z.or(c),
         };
         let codes = self.codes.then(|| b.bconst(true));
-        let ptr_of = |l: usize| self.rd.cols.iter().zip(w.lanes.iter()).find(|(c, _)| c.k == l).map_or(env.zero, |(_, v)| v.0);
-        let ptrs: PgVec<'_, (usize, Value)> = self.rd.cols.iter().map(|c| (c.k, ptr_of(c.k))).collect_in(env.mcx);
+        let ptr_of = |l: usize| {
+            self.rd
+                .cols
+                .iter()
+                .zip(w.lanes.iter())
+                .find(|(c, _)| c.k == l)
+                .map_or(env.zero, |(_, v)| v.0)
+        };
+        let ptrs: PgVec<'_, (usize, Value)> = self
+            .rd
+            .cols
+            .iter()
+            .map(|c| (c.k, ptr_of(c.k)))
+            .collect_in(env.mcx);
         let lane_ptr = |l: usize| ptrs.iter().find(|p| p.0 == l).map_or(ptrs[0].1, |p| p.1);
-        let packed = self.packs.window(b, env, cursor, &lane_ptr, &|b, env, k| self.late.call(b, env, sk, k));
-        let answered = self.answered.then(|| b.load_zext(Type::I8, env.ctx, site_off(sk) as i32 + site::ANSWERED as i32));
+        let packed = self.packs.window(b, env, cursor, &lane_ptr, &|b, env, k| {
+            self.late.call(b, env, sk, k)
+        });
+        let answered = self.answered.then(|| {
+            b.load_zext(
+                Type::I8,
+                env.ctx,
+                site_off(sk) as i32 + site::ANSWERED as i32,
+            )
+        });
         // the fast body of a window whose per-code tables bound clean reads no fault table (percode_len.rs `table_ref`)
-        let clean = (!self.tabs.borrow().lanes.is_empty()).then(|| crate::dict::percode_bind::clean(b, env, &self.tabs));
-        let const_key = self.ck.map(|(l, width)| crate::ops::scan::pgrc::verdict_zone::const_key_window(b, env, w.lane_arr, l, width));
-        let facts = WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), codes, covered, packed, answered, clean, const_key, ..WinConds::default() };
+        let clean = (!self.tabs.borrow().lanes.is_empty())
+            .then(|| crate::dict::percode_bind::clean(b, env, &self.tabs));
+        let const_key = self.ck.map(|(l, width)| {
+            crate::ops::scan::pgrc::verdict_zone::const_key_window(b, env, w.lane_arr, l, width)
+        });
+        let facts = WinConds {
+            nonulls: self.rd.nonulls(b),
+            nosel: Some(w.sel_null),
+            codes,
+            covered,
+            packed,
+            answered,
+            clean,
+            const_key,
+            ..WinConds::default()
+        };
         Win { cursor, end, facts }
     }
 
     /// A1 (D3224): each packed numeric lane's kind byte tested once per window (a verbatim part's lane holds image
     /// pointers): the rows' folds read the Bool instead of loading the byte per row per aggregate.
     fn num_kinds(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Vec<(usize, u16, Value)> {
-        let num = |c: &&crate::frame::site::Col| matches!(c.desc.rep, gravity_program::Rep::PackedNum { .. } | gravity_program::Rep::PackedNumDyn);
+        let num = |c: &&crate::frame::site::Col| {
+            matches!(
+                c.desc.rep,
+                gravity_program::Rep::PackedNum { .. } | gravity_program::Rep::PackedNumDyn
+            )
+        };
         if !self.rd.cols.iter().any(|c| num(&c)) {
             return Vec::new();
         }
@@ -1128,25 +1699,58 @@ impl<'g> SourceMech for Pgrc<'g> {
         let byref = b.iconst(Type::I64, lane::KIND_BYREF as i64);
         // D3224 A2: a window past WINDOW_ROWS (none is) takes the generic step, so a lean fold may bound its sums by it
         let big = env.win.as_ref().map(|w| (w.cursor, w.end)).map(|(c, e)| {
-            let (rows, cap) = (b.int_bin(IntBinOp::Sub, e, c), b.iconst(Type::I64, WINDOW_ROWS));
+            let (rows, cap) = (
+                b.int_bin(IntBinOp::Sub, e, c),
+                b.iconst(Type::I64, WINDOW_ROWS),
+            );
             b.icmp(IntCond::Sgt, rows, cap)
         });
-        self.rd.cols.iter().filter(num).map(|c| {
-            let kind = b.load_zext(Type::I8, w.lane_arr, (c.k * lane::SIZE + lane::KIND) as i32);
-            let verbatim = b.icmp(IntCond::Eq, kind, byref);
-            (sk, c.k as u16, big.map_or(verbatim, |g| b.int_bin(IntBinOp::Or, verbatim, g)))
-        }).collect() // alloc: Program
+        self.rd
+            .cols
+            .iter()
+            .filter(num)
+            .map(|c| {
+                let kind =
+                    b.load_zext(Type::I8, w.lane_arr, (c.k * lane::SIZE + lane::KIND) as i32);
+                let verbatim = b.icmp(IntCond::Eq, kind, byref);
+                (
+                    sk,
+                    c.k as u16,
+                    big.map_or(verbatim, |g| b.int_bin(IntBinOp::Or, verbatim, g)),
+                )
+            })
+            .collect() // alloc: Program
     }
 
-    fn packed(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, attno: i16, base: Value) -> Option<Packed> {
+    fn packed(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        attno: i16,
+        base: Value,
+    ) -> Option<Packed> {
         self.packs.packed(b, attno, base)
     }
 
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> {
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
         self.rd.word_win(env.mcx)
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mut row = self.rd.row(b, env, j, carry, next);
         if self.ctid {
             let i = self.rd.row_index(b, env, j);
@@ -1159,12 +1763,28 @@ impl<'g> SourceMech for Pgrc<'g> {
 
     /// H28 (road topk.fetch, V4R-169): the row's `RowId` (pgrc_format rowid: part 32 | granule 19 | row 13 bits), its
     /// `part << 32 | granule << 13` and the granule's row.
-    fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        row: &RowVals,
+    ) -> Option<Locator> {
         let s = site_off(self.rd.k(env)) as i32;
-        let (part, granule) = (b.load_zext(Type::I32, env.ctx, s + site::PART_ID as i32), b.load_zext(Type::I32, env.ctx, s + site::GRANULE as i32));
+        let (part, granule) = (
+            b.load_zext(Type::I32, env.ctx, s + site::PART_ID as i32),
+            b.load_zext(Type::I32, env.ctx, s + site::GRANULE as i32),
+        );
         let (s32, s13) = (b.iconst(Type::I64, 32), b.iconst(Type::I64, 13));
-        let (hi, g) = (b.int_bin(IntBinOp::Shl, part, s32), b.int_bin(IntBinOp::Shl, granule, s13));
-        Some(Locator { block: b.int_bin(IntBinOp::Or, hi, g), offset: self.rd.row_index(b, env, row.at), pinned: None, rel: None })
+        let (hi, g) = (
+            b.int_bin(IntBinOp::Shl, part, s32),
+            b.int_bin(IntBinOp::Shl, granule, s13),
+        );
+        Some(Locator {
+            block: b.int_bin(IntBinOp::Or, hi, g),
+            offset: self.rd.row_index(b, env, row.at),
+            pinned: None,
+            rel: None,
+        })
     }
 
     fn covers(&self) -> u64 {
@@ -1187,7 +1807,14 @@ impl<'g> SourceMech for Pgrc<'g> {
         self.cond_lane.is_some()
     }
 
-    fn passed_block(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, base: Value, m: Mask) {
+    fn passed_block(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        base: Value,
+        m: Mask,
+    ) {
         if let Some(fill) = self.fill.get().filter(|_| self.cond_lane.is_some()) {
             crate::ops::scan::pgrc::verdict_cond::record_block(b, fill, base, m.0);
         }
@@ -1199,11 +1826,26 @@ impl<'g> SourceMech for Pgrc<'g> {
 /// `zone_cross_bound` for a cross-unit kind `cross`: `(value, none, raised)`. None (no predicate) when the value is NULL,
 /// raised (the row filter raises it where PostgreSQL does, never on an empty input), not emitted here, or when no bound
 /// holds; `raised` (D3126) when the comparand raised or was not emitted here.
-fn stable_key(b: &mut FunctionBuilder<'_>, env: &mut Env, q: ExId, node: gravity_expr::NodeId, cross: u8, op: u8) -> (Value, Value, Value) {
+fn stable_key(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    q: ExId,
+    node: gravity_expr::NodeId,
+    cross: u8,
+    op: u8,
+) -> (Value, Value, Value) {
     use gravity_expr::emit::{ColsRef, RowRefs};
     let (words, nulls) = crate::frame::hoist::words(b, env, env.node, q);
     let x = env.placed(q);
-    let refs = RowRefs::scan(ColsRef::Lanes { row: env.zero, lanes: &[] }, &words, &nulls, env.mcx);
+    let refs = RowRefs::scan(
+        ColsRef::Lanes {
+            row: env.zero,
+            lanes: &[],
+        },
+        &words,
+        &nulls,
+        env.mcx,
+    );
     let refs = env.hir.with_ex(b, x, refs);
     let t = b.bconst(true);
     let Ok(l) = x.c.emit_at(b, &refs, node) else {
@@ -1215,9 +1857,20 @@ fn stable_key(b: &mut FunctionBuilder<'_>, env: &mut Env, q: ExId, node: gravity
     let mut v = l.value;
     if cross != 0 {
         use gravity_kernels::ops::scan::entries::{zone_cross_bound, CROSS_NONE};
-        let h = b.declare_host_once("zone_cross_bound", &[Type::I64, Type::I64, Type::I64], Some(Type::I64), zone_cross_bound as *const () as usize, gravity_ir::HostFlags::default());
-        let (kind, op) = (b.iconst(Type::I64, cross as i64), b.iconst(Type::I64, op as i64));
-        v = b.call_host(h, &[kind, op, l.value], Some(Type::I64)).expect("zone_cross_bound returns a word");
+        let h = b.declare_host_once(
+            "zone_cross_bound",
+            &[Type::I64, Type::I64, Type::I64],
+            Some(Type::I64),
+            zone_cross_bound as *const () as usize,
+            gravity_ir::HostFlags::default(),
+        );
+        let (kind, op) = (
+            b.iconst(Type::I64, cross as i64),
+            b.iconst(Type::I64, op as i64),
+        );
+        v = b
+            .call_host(h, &[kind, op, l.value], Some(Type::I64))
+            .expect("zone_cross_bound returns a word");
         let unbound = b.iconst(Type::I64, CROSS_NONE as i64);
         let unbound = b.icmp(IntCond::Eq, v, unbound);
         none = b.int_bin(IntBinOp::Or, none, unbound);
@@ -1243,5 +1896,7 @@ fn open_param(b: &mut FunctionBuilder<'_>, env: &mut Env, id: i32) -> (Value, Va
 /// dictionary at the part's pin, ahead of the claim run, and a cold scan under it waits longer with no part or granule
 /// more skipped (D4946).
 fn rejects_parts(site: &SiteDesc, (t, _): (u16, usize)) -> bool {
-    site.tables.get(t as usize).is_some_and(|d| d.flags & gravity_program::table_fn::FLAG_NEGATED == 0)
+    site.tables
+        .get(t as usize)
+        .is_some_and(|d| d.flags & gravity_program::table_fn::FLAG_NEGATED == 0)
 }

@@ -5,8 +5,8 @@
 use types_nodes::list::NodeList;
 use types_nodes::{Node, NodeTag};
 
-use crate::expr;
 use crate::catalog::typefacts;
+use crate::expr;
 
 use super::Cx;
 
@@ -57,7 +57,8 @@ pub(crate) fn volatile_inputs<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>]) -
     for e in lists.iter().flat_map(|l| l.iter()) {
         expr::walk(e, &mut |x| {
             if x.as_aggref().is_some() {
-                hit |= agg_inputs(x).any(|i| crate::effects::of_expr(cx, i, &crate::effects::PLAIN).acts);
+                hit |= agg_inputs(x)
+                    .any(|i| crate::effects::of_expr(cx, i, &crate::effects::PLAIN).acts);
                 return false;
             }
             !hit
@@ -84,18 +85,24 @@ pub(crate) fn volatile_inputs<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>]) -
 ///   D1371 (v0.4 refusals): every such call streams, beside quiet per-row work too: its calls run at each group's final,
 ///   so the order the groups are finalized in shows (a sequence value, a NOTICE), and the keyed end finalizes its groups
 ///   in its table's order, not PostgreSQL's key order (m6_d1371_user_ordered's `ORDER BY 2 DESC` cursor).
-pub(crate) fn sorted_calls_stream<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>], builtin: &dyn Fn(&types_nodes::primnodes::Aggref<'p>) -> bool) -> bool {
+pub(crate) fn sorted_calls_stream<'p>(
+    cx: &Cx<'_, 'p>,
+    lists: &[&'p NodeList<'p>],
+    builtin: &dyn Fn(&types_nodes::primnodes::Aggref<'p>) -> bool,
+) -> bool {
     use crate::effects::of_agg;
     let mut sorted = false;
     for e in lists.iter().flat_map(|l| l.iter()) {
         expr::walk(e, &mut |x| {
             let Some(r) = x.as_aggref() else { return true };
-            let ordered = (!r.aggorder.is_nil() || !r.aggdistinct.is_nil()) && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL;
+            let ordered = (!r.aggorder.is_nil() || !r.aggdistinct.is_nil())
+                && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL;
             // D1371 (v0.4 refusals): a sort by a user comparator acts too (its calls, NOTICEs and error); the stream runs
             // it at the group's handoff, where PostgreSQL's finalize runs it (which pairs it meets is the sort's own
             // choice, free under USEROP K10.ao); so does a user-defined aggregate's (CREATE AGGREGATE over an internal
             // transfn: lowerv4 reads its calls as acting, visible/group.rs `trans_acts`)
-            let user = crate::effects::agg_calls(cx.cat, r.aggfnoid) != crate::effects::AggCalls::Own;
+            let user =
+                crate::effects::agg_calls(cx.cat, r.aggfnoid) != crate::effects::AggCalls::Own;
             sorted |= ordered && (of_agg(cx.cat, r.aggfnoid).acts || user || !builtin(r));
             false
         });
@@ -117,8 +124,12 @@ pub(crate) fn user_folds<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>]) -> boo
     for e in lists.iter().flat_map(|l| l.iter()) {
         expr::walk(e, &mut |x| {
             if let Some(r) = x.as_aggref() {
-                let sorts = !r.aggorder.is_nil() && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL;
-                hit |= r.aggdistinct.is_nil() && !sorts && crate::effects::agg_calls(cx.cat, r.aggfnoid) != crate::effects::AggCalls::Own;
+                let sorts =
+                    !r.aggorder.is_nil() && r.aggkind == types_nodes::primnodes::AGGKIND_NORMAL;
+                hit |= r.aggdistinct.is_nil()
+                    && !sorts
+                    && crate::effects::agg_calls(cx.cat, r.aggfnoid)
+                        != crate::effects::AggCalls::Own;
                 return false;
             }
             !hit
@@ -130,7 +141,10 @@ pub(crate) fn user_folds<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>]) -> boo
 /// An aggregate's per-row inputs: its arguments and FILTER (direct arguments are per group).
 pub(crate) fn agg_inputs<'p>(r: Node<'p>) -> impl Iterator<Item = Node<'p>> {
     let ag = r.as_aggref().expect("an aggregate");
-    ag.args.iter().filter_map(|t| t.as_target_entry().map(|t| t.expr)).chain(ag.aggfilter)
+    ag.args
+        .iter()
+        .filter_map(|t| t.as_target_entry().map(|t| t.expr))
+        .chain(ag.aggfilter)
 }
 
 /// D1292 (agg A14 d): a hashed group's key of `typid` under collation `coll` that PG's hash raises 42P22 on ("could not

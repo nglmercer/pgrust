@@ -20,7 +20,9 @@ use gravity_driver::{footprint, Entry, Grant, OWNER_CUT_HELD, POOL};
 use gravity_kernels::table::params as par_hashagg;
 use gravity_kernels::table::params::DEFAULT_PARAMS;
 use gravity_parallel::{FixturePool, HashAggPartial};
-use gravity_program::{hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_program::{
+    hand as programs, Code, End, OutCol, OwnerDesc, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 /// While non-zero, an allocation of this many bytes or more is refused (null), as an allocator out of address space refuses.
 static CAP: AtomicUsize = AtomicUsize::new(0);
@@ -70,12 +72,34 @@ impl gravity_parallel::Plan for Keyed {
 fn declared(rows: u64, d: OwnerDesc) -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), T_KV, &[1, 2])];
-    let out = [OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1), OutCol::new("sum", programs::INT8, -1, 8, true), OutCol::new("count", programs::INT8, -1, 8, true)];
-    let pipes = [
-        (Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(0)), rows).owner(d), Code::hand(par_hashagg::par_hashagg)),
-        (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(par_hashagg::par_hashagg_emit)),
+    let out = [
+        OutCol::new("k", programs::INT4, -1, 4, true).origin(T_KV, 1),
+        OutCol::new("sum", programs::INT8, -1, 8, true),
+        OutCol::new("count", programs::INT8, -1, 8, true),
     ];
-    Program::with_pipelines(gravity_program::Layout { nsites: 1, out_natts: 3, out_rows: 16, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(par_hashagg::breaker(0)), rows).owner(d),
+            Code::hand(par_hashagg::par_hashagg),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(par_hashagg::par_hashagg_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        gravity_program::Layout {
+            nsites: 1,
+            out_natts: 3,
+            out_rows: 16,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 fn gen_20k(r: u64) -> Option<[i64; 2]> {
@@ -95,9 +119,15 @@ fn a_leader_region_the_allocator_refused_opens_at_the_room_and_holds_every_owner
         g.0 += v;
         g.1 += 1;
     }
-    let mut expect: Vec<Vec<u64>> = groups.iter().map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64]).collect();
+    let mut expect: Vec<Vec<u64>> = groups
+        .iter()
+        .map(|(k, (s, c))| vec![*k as u64, *s as u64, *c as u64])
+        .collect();
     expect.sort();
-    let d = OwnerDesc { groups: groups.len() as u32, ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0) };
+    let d = OwnerDesc {
+        groups: groups.len() as u32,
+        ..OwnerDesc::generic(par_hashagg::LAYOUT, ORDER_NONE, 0)
+    };
     let program = Arc::new(declared(40_000, d));
     let params = DEFAULT_PARAMS;
     // W2 over a 256 MiB grant: the leader's share 256 MiB, each worker's 128 MiB, the grant's owner cut ~128 MiB each
@@ -108,19 +138,56 @@ fn a_leader_region_the_allocator_refused_opens_at_the_room_and_holds_every_owner
     // the pool: the statement's footprint (G covers the leader and the workers) and 32 MiB of headroom past it
     let need = footprint(grant, &program, w);
     POOL.arm(need + 32 * MIB);
-    let a = Rc::new(POOL.admit_need(grant, &|g| footprint(g, &program, w), Duration::from_millis(10)).unwrap());
-    let (held0, opened0) = (OWNER_CUT_HELD.load(Ordering::Relaxed), gravity_driver::mem::region::OPENED_SMALLER.load(Ordering::Relaxed));
+    let a = Rc::new(
+        POOL.admit_need(
+            grant,
+            &|g| footprint(g, &program, w),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
+    let (held0, opened0) = (
+        OWNER_CUT_HELD.load(Ordering::Relaxed),
+        gravity_driver::mem::region::OPENED_SMALLER.load(Ordering::Relaxed),
+    );
     let mut sink = LegSink::new(true);
     // the leader's 256 MiB region refused by the allocator; the workers' 128 MiB ones are not
     CAP.store(200 * MIB as usize, Ordering::Relaxed);
-    let plan = Keyed { inner: FixturePlan::new(&program, &derive, w, 7), merge: HashAggPartial::new(0, Some(gravity_exec::table::owner::bind(&d, &mut params.clone(), 3, None))) };
-    let rows = run_planned_in(&mut entry, &program, &mut derive, &pool, &plan, a.clone(), &params, &NO_ABORT, &mut sink);
+    let plan = Keyed {
+        inner: FixturePlan::new(&program, &derive, w, 7),
+        merge: HashAggPartial::new(
+            0,
+            Some(gravity_exec::table::owner::bind(
+                &d,
+                &mut params.clone(),
+                3,
+                None,
+            )),
+        ),
+    };
+    let rows = run_planned_in(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        &plan,
+        a.clone(),
+        &params,
+        &NO_ABORT,
+        &mut sink,
+    );
     CAP.store(0, Ordering::Relaxed);
     let rows = rows.unwrap_or_else(|e| panic!("the statement: {e:?}"));
     assert_eq!(rows, expect.len() as u64);
     assert_eq!(sink.sorted(), expect);
-    assert!(gravity_driver::mem::region::OPENED_SMALLER.load(Ordering::Relaxed) > opened0, "the leader region opened at the pool's room");
-    assert!(OWNER_CUT_HELD.load(Ordering::Relaxed) > held0, "the owners cut from the region the leader holds, not the grant's split");
+    assert!(
+        gravity_driver::mem::region::OPENED_SMALLER.load(Ordering::Relaxed) > opened0,
+        "the leader region opened at the pool's room"
+    );
+    assert!(
+        OWNER_CUT_HELD.load(Ordering::Relaxed) > held0,
+        "the owners cut from the region the leader holds, not the grant's split"
+    );
     drop(a);
     drop(entry);
     POOL.arm(0);

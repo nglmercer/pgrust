@@ -17,9 +17,8 @@ use types_core::{
 use types_error::{PgError, PgResult, ERRCODE_TOO_MANY_CONNECTIONS, FATAL};
 use types_snapshot::SnapshotData;
 use types_storage::storage::{
-    SyncCell, PGPROC, PGPROC_MAX_CACHED_SUBXIDS,
-    PROC_AFFECTS_ALL_HORIZONS, PROC_IN_LOGICAL_DECODING, PROC_IN_VACUUM, PROC_IS_AUTOVACUUM,
-    PROC_IS_DB_MAINT_WORKER,
+    SyncCell, PGPROC, PGPROC_MAX_CACHED_SUBXIDS, PROC_AFFECTS_ALL_HORIZONS,
+    PROC_IN_LOGICAL_DECODING, PROC_IN_VACUUM, PROC_IS_AUTOVACUUM, PROC_IS_DB_MAINT_WORKER,
     PROC_VACUUM_FOR_WRAPAROUND, PROC_VACUUM_STATE_MASK, PROC_XMIN_FLAGS,
 };
 
@@ -599,7 +598,11 @@ pub fn ProcArrayShmemResetAfterCrash() {
     // SAFETY: [PAL] serialized by ProcArrayLock
     unsafe { array.replication_slot_xmin.set(InvalidTransactionId) };
     // SAFETY: [PAL] serialized by ProcArrayLock
-    unsafe { array.replication_slot_catalog_xmin.set(InvalidTransactionId) };
+    unsafe {
+        array
+            .replication_slot_catalog_xmin
+            .set(InvalidTransactionId)
+    };
     for slot in array.pgprocnos.iter() {
         // SAFETY: [PAL] serialized by ProcArrayLock
         unsafe { slot.set(-1) };
@@ -621,7 +624,11 @@ pub fn ProcArraySetReplicationSlotXmin(
 ) -> PgResult<()> {
     let arrayP = procArray();
     if !already_locked {
-        LWLockAcquire(ProcArrayLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+        LWLockAcquire(
+            ProcArrayLock(),
+            LW_EXCLUSIVE,
+            init_small::globals::MyProcNumber(),
+        )?;
     }
     // SAFETY: [PAL] serialized by ProcArrayLock
     unsafe { arrayP.replication_slot_xmin.set(xmin) };
@@ -641,7 +648,11 @@ pub fn ProcArraySetReplicationSlotXmin(
 
 pub fn ProcArrayGetReplicationSlotXmin() -> PgResult<(TransactionId, TransactionId)> {
     let arrayP = procArray();
-    LWLockAcquire(ProcArrayLock(), LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     // SAFETY: [PAL] serialized by ProcArrayLock
     let xmin = unsafe { arrayP.replication_slot_xmin.get() };
     // SAFETY: [PAL] serialized by ProcArrayLock
@@ -947,7 +958,9 @@ fn ProcArrayEndTransactionInternal(proc: &PGPROC, latestXid: TransactionId) {
     debug_assert!(TransactionIdIsValid(hdr.xids[pgxactoff].read()));
     debug_assert_eq!(hdr.xids[pgxactoff].read(), proc.xid.read());
 
-    hdr.xids[pgxactoff].value.store(InvalidTransactionId, Relaxed);
+    hdr.xids[pgxactoff]
+        .value
+        .store(InvalidTransactionId, Relaxed);
     proc.xid.value.store(InvalidTransactionId, Relaxed);
     proc.vxid.lxid.store(InvalidLocalTransactionId, Relaxed);
     proc.xmin.value.store(InvalidTransactionId, Relaxed);
@@ -987,7 +1000,9 @@ pub fn ProcArrayClearTransaction() -> PgResult<()> {
     let hdr = ProcGlobal();
     let pgxactoff = proc.pgxactoff.load(Relaxed) as usize;
 
-    hdr.xids[pgxactoff].value.store(InvalidTransactionId, Relaxed);
+    hdr.xids[pgxactoff]
+        .value
+        .store(InvalidTransactionId, Relaxed);
     proc.xid.value.store(InvalidTransactionId, Relaxed);
     proc.vxid.lxid.store(InvalidLocalTransactionId, Relaxed);
     proc.xmin.value.store(InvalidTransactionId, Relaxed);
@@ -1100,7 +1115,9 @@ fn ProcArrayGroupClearXid(procno: ProcNumber, latestXid: TransactionId) -> PgRes
             .value
             .store(INVALID_PROC_NUMBER as u32, Relaxed);
         // pg_write_barrier: all prior writes visible before the follower runs.
-        nextproc.procArrayGroupMember.store(false, Ordering::Release);
+        nextproc
+            .procArrayGroupMember
+            .store(false, Ordering::Release);
         if next_procno != procno {
             lmgr_proc_seams::pg_semaphore_unlock::call(next_procno);
         }
@@ -1243,8 +1260,7 @@ fn GetSnapshotDataReuse(
         my_proc.xmin.value.store(snapshot.xmin, Relaxed);
         fence(Ordering::SeqCst);
         #[cfg(debug_assertions)]
-        SNAPSHOT_REUSE_SPECULATIVE_PUBLISHES
-            .set(SNAPSHOT_REUSE_SPECULATIVE_PUBLISHES.get() + 1);
+        SNAPSHOT_REUSE_SPECULATIVE_PUBLISHES.set(SNAPSHOT_REUSE_SPECULATIVE_PUBLISHES.get() + 1);
         true
     } else {
         false
@@ -1372,256 +1388,261 @@ pub fn GetSnapshotData<'m>(snapshot: &mut SnapshotData<'m>, mcx: Mcx<'m>) -> PgR
     }
 
     'build: loop {
-    LWLockAcquire(pa_lock, LW_SHARED, myprocno)?;
+        LWLockAcquire(pa_lock, LW_SHARED, myprocno)?;
 
-    let latest_completed = FullTransactionId::from_u64(tv.latestCompletedXid.load(Relaxed));
-    // Our own slot only when it is ours, as in TransactionIdIsInProgress (pgrc P8): a caller whose PGPROC is not in
-    // the array (a pool thread) holds offset 0 or a stale one, and must neither take that slot's xid as its own nor
-    // leave it out of xip (a running transaction read as finished: its rows visible once it commits).
-    // SAFETY: [PAL] serialized by ProcArrayLock
-    let mypgxactoff = match my_proc.pgxactoff.load(Relaxed) as usize {
-        off if off < unsafe { arrayP.numProcs.get() } as usize && unsafe { arrayP.pgprocnos[off].get() } == myprocno => off,
-        _ => usize::MAX,
-    };
-    let myxid = if mypgxactoff == usize::MAX { InvalidTransactionId } else { hdr.xids[mypgxactoff].read() };
-    debug_assert_eq!(myxid, my_proc.xid.read());
-
-    let oldestxid = tv.oldestXid.load(Relaxed);
-    let cur_xact_completion_count = tv.xactCompletionCount.load(Relaxed);
-
-    let mut xmax = latest_completed.xid();
-    TransactionIdAdvance(&mut xmax);
-    debug_assert!(TransactionIdIsNormal(xmax));
-
-    let mut xmin = xmax;
-    if TransactionIdIsNormal(myxid) && NormalTransactionIdPrecedes(myxid, xmin) {
-        xmin = myxid;
-    }
-
-    snapshot.takenDuringRecovery = transam_xlog_seams::recovery_in_progress::call();
-
-    let mut count = 0usize;
-    let mut subcount = 0usize;
-    let mut suboverflowed = false;
-    let mut xip_demand = 0usize;
-
-    if !snapshot.takenDuringRecovery {
+        let latest_completed = FullTransactionId::from_u64(tv.latestCompletedXid.load(Relaxed));
+        // Our own slot only when it is ours, as in TransactionIdIsInProgress (pgrc P8): a caller whose PGPROC is not in
+        // the array (a pool thread) holds offset 0 or a stale one, and must neither take that slot's xid as its own nor
+        // leave it out of xip (a running transaction read as finished: its rows visible once it commits).
         // SAFETY: [PAL] serialized by ProcArrayLock
-        let num_procs = unsafe { arrayP.numProcs.get() } as usize;
-        xip_demand = num_procs;
-        if num_procs > snapshot.xip.capacity() {
-            // Cold (D3.5): xip demand exceeds capacity — grow unlocked, rebuild.
-            LWLockRelease(pa_lock)?;
-            grow_snapshot_array(&mut snapshot.xip, num_procs, GetMaxSnapshotXidCount(), mcx)?;
-            continue 'build;
+        let mypgxactoff = match my_proc.pgxactoff.load(Relaxed) as usize {
+            off if off < unsafe { arrayP.numProcs.get() } as usize
+                && unsafe { arrayP.pgprocnos[off].get() } == myprocno =>
+            {
+                off
+            }
+            _ => usize::MAX,
+        };
+        let myxid = if mypgxactoff == usize::MAX {
+            InvalidTransactionId
+        } else {
+            hdr.xids[mypgxactoff].read()
+        };
+        debug_assert_eq!(myxid, my_proc.xid.read());
+
+        let oldestxid = tv.oldestXid.load(Relaxed);
+        let cur_xact_completion_count = tv.xactCompletionCount.load(Relaxed);
+
+        let mut xmax = latest_completed.xid();
+        TransactionIdAdvance(&mut xmax);
+        debug_assert!(TransactionIdIsNormal(xmax));
+
+        let mut xmin = xmax;
+        if TransactionIdIsNormal(myxid) && NormalTransactionIdPrecedes(myxid, xmin) {
+            xmin = myxid;
         }
-        let xip_ptr = snapshot.xip.as_mut_ptr();
-        let subxip_ptr = snapshot.subxip.as_mut_ptr();
-        let subxip_cap = snapshot.subxip.capacity();
 
-        for pgxactoff in 0..num_procs {
-            // Fetch xid just once - see GetNewTransactionId.
-            let xid = hdr.xids[pgxactoff].read();
+        snapshot.takenDuringRecovery = transam_xlog_seams::recovery_in_progress::call();
 
-            if xid == InvalidTransactionId {
-                continue;
+        let mut count = 0usize;
+        let mut subcount = 0usize;
+        let mut suboverflowed = false;
+        let mut xip_demand = 0usize;
+
+        if !snapshot.takenDuringRecovery {
+            // SAFETY: [PAL] serialized by ProcArrayLock
+            let num_procs = unsafe { arrayP.numProcs.get() } as usize;
+            xip_demand = num_procs;
+            if num_procs > snapshot.xip.capacity() {
+                // Cold (D3.5): xip demand exceeds capacity — grow unlocked, rebuild.
+                LWLockRelease(pa_lock)?;
+                grow_snapshot_array(&mut snapshot.xip, num_procs, GetMaxSnapshotXidCount(), mcx)?;
+                continue 'build;
             }
-            if pgxactoff == mypgxactoff {
-                continue;
-            }
-            debug_assert!(TransactionIdIsNormal(xid));
-            if !NormalTransactionIdPrecedes(xid, xmax) {
-                continue;
-            }
+            let xip_ptr = snapshot.xip.as_mut_ptr();
+            let subxip_ptr = snapshot.subxip.as_mut_ptr();
+            let subxip_cap = snapshot.subxip.capacity();
 
-            let status_flags = hdr.statusFlags[pgxactoff].load(Relaxed);
-            if status_flags & (PROC_IN_LOGICAL_DECODING | PROC_IN_VACUUM) != 0 {
-                continue;
-            }
+            for pgxactoff in 0..num_procs {
+                // Fetch xid just once - see GetNewTransactionId.
+                let xid = hdr.xids[pgxactoff].read();
 
-            if NormalTransactionIdPrecedes(xid, xmin) {
-                xmin = xid;
-            }
+                if xid == InvalidTransactionId {
+                    continue;
+                }
+                if pgxactoff == mypgxactoff {
+                    continue;
+                }
+                debug_assert!(TransactionIdIsNormal(xid));
+                if !NormalTransactionIdPrecedes(xid, xmax) {
+                    continue;
+                }
 
-            // SAFETY: count < numProcs <= xip capacity, reserved above.
-            unsafe { xip_ptr.add(count).write(xid) };
-            count += 1;
+                let status_flags = hdr.statusFlags[pgxactoff].load(Relaxed);
+                if status_flags & (PROC_IN_LOGICAL_DECODING | PROC_IN_VACUUM) != 0 {
+                    continue;
+                }
 
-            if !suboverflowed {
-                // SAFETY: [PAL] serialized by ProcArrayLock
-                let substate = unsafe { hdr.subxidStates[pgxactoff].get() };
-                if substate.overflowed {
-                    suboverflowed = true;
-                } else {
-                    let nsubxids = substate.count as usize;
-                    if nsubxids > 0 {
-                        if subcount + nsubxids > subxip_cap {
-                            // Cold (D3.5): subxip demand exceeds capacity —
-                            // grow unlocked (geometric, so a deep spike costs
-                            // O(log) rebuilds), rebuild from scratch.
-                            LWLockRelease(pa_lock)?;
-                            grow_snapshot_array(
-                                &mut snapshot.subxip,
-                                subcount + nsubxids,
-                                GetMaxSnapshotSubxidCount(),
-                                mcx,
-                            )?;
-                            continue 'build;
+                if NormalTransactionIdPrecedes(xid, xmin) {
+                    xmin = xid;
+                }
+
+                // SAFETY: count < numProcs <= xip capacity, reserved above.
+                unsafe { xip_ptr.add(count).write(xid) };
+                count += 1;
+
+                if !suboverflowed {
+                    // SAFETY: [PAL] serialized by ProcArrayLock
+                    let substate = unsafe { hdr.subxidStates[pgxactoff].get() };
+                    if substate.overflowed {
+                        suboverflowed = true;
+                    } else {
+                        let nsubxids = substate.count as usize;
+                        if nsubxids > 0 {
+                            if subcount + nsubxids > subxip_cap {
+                                // Cold (D3.5): subxip demand exceeds capacity —
+                                // grow unlocked (geometric, so a deep spike costs
+                                // O(log) rebuilds), rebuild from scratch.
+                                LWLockRelease(pa_lock)?;
+                                grow_snapshot_array(
+                                    &mut snapshot.subxip,
+                                    subcount + nsubxids,
+                                    GetMaxSnapshotSubxidCount(),
+                                    mcx,
+                                )?;
+                                continue 'build;
+                            }
+                            // SAFETY: [PAL] serialized by ProcArrayLock
+                            let pgprocno = unsafe { arrayP.pgprocnos[pgxactoff].get() };
+                            let proc = &hdr.allProcs[pgprocno as usize];
+
+                            fence(Ordering::Acquire); // pairs with GetNewTransactionId
+                                                      // SAFETY: the owner only appends subxids (never
+                                                      // removes under ProcArrayLock), the count was fetched
+                                                      // once, and subcount + nsubxids <= subxip_cap was
+                                                      // checked above; mirrors C's locked memcpy.
+                            unsafe {
+                                let src = (*proc.subxids.ptr()).xids.as_ptr();
+                                core::ptr::copy_nonoverlapping(
+                                    src,
+                                    subxip_ptr.add(subcount),
+                                    nsubxids,
+                                );
+                            }
+                            subcount += nsubxids;
                         }
-                        // SAFETY: [PAL] serialized by ProcArrayLock
-                        let pgprocno = unsafe { arrayP.pgprocnos[pgxactoff].get() };
-                        let proc = &hdr.allProcs[pgprocno as usize];
-
-                        fence(Ordering::Acquire); // pairs with GetNewTransactionId
-                        // SAFETY: the owner only appends subxids (never
-                        // removes under ProcArrayLock), the count was fetched
-                        // once, and subcount + nsubxids <= subxip_cap was
-                        // checked above; mirrors C's locked memcpy.
-                        unsafe {
-                            let src = (*proc.subxids.ptr()).xids.as_ptr();
-                            core::ptr::copy_nonoverlapping(
-                                src,
-                                subxip_ptr.add(subcount),
-                                nsubxids,
-                            );
-                        }
-                        subcount += nsubxids;
                     }
                 }
             }
+        } else {
+            // D3.5: recovery demand cannot be bounded before the fill — the
+            // startup process appends to KnownAssignedXids lock-free even while
+            // we hold the shared lock — so keep C's worst case here. Hot-standby
+            // backends only; a primary backend never takes this branch.
+            if snapshot.subxip.capacity() < GetMaxSnapshotSubxidCount() {
+                LWLockRelease(pa_lock)?;
+                reserve_exact(&mut snapshot.subxip, GetMaxSnapshotSubxidCount(), mcx)?;
+                continue 'build;
+            }
+            let subxip_ptr = snapshot.subxip.as_mut_ptr();
+            debug_assert!(arrayP.maxKnownAssignedXids as usize <= snapshot.subxip.capacity());
+            subcount = known_assigned::KnownAssignedXidsGetAndSetXmin(
+                // SAFETY: at most maxKnownAssignedXids entries are produced and
+                // subxip has TOTAL_MAX_CACHED_SUBXIDS capacity, reserved above.
+                |i, kxid| unsafe { subxip_ptr.add(i).write(kxid) },
+                &mut xmin,
+                xmax,
+            );
+
+            // SAFETY: [PAL] serialized by ProcArrayLock
+            if TransactionIdPrecedesOrEquals(xmin, unsafe { arrayP.lastOverflowedXid.get() }) {
+                suboverflowed = true;
+            }
         }
-    } else {
-        // D3.5: recovery demand cannot be bounded before the fill — the
-        // startup process appends to KnownAssignedXids lock-free even while
-        // we hold the shared lock — so keep C's worst case here. Hot-standby
-        // backends only; a primary backend never takes this branch.
-        if snapshot.subxip.capacity() < GetMaxSnapshotSubxidCount() {
-            LWLockRelease(pa_lock)?;
-            reserve_exact(&mut snapshot.subxip, GetMaxSnapshotSubxidCount(), mcx)?;
-            continue 'build;
-        }
-        let subxip_ptr = snapshot.subxip.as_mut_ptr();
-        debug_assert!(arrayP.maxKnownAssignedXids as usize <= snapshot.subxip.capacity());
-        subcount = known_assigned::KnownAssignedXidsGetAndSetXmin(
-            // SAFETY: at most maxKnownAssignedXids entries are produced and
-            // subxip has TOTAL_MAX_CACHED_SUBXIDS capacity, reserved above.
-            |i, kxid| unsafe { subxip_ptr.add(i).write(kxid) },
-            &mut xmin,
-            xmax,
-        );
 
         // SAFETY: [PAL] serialized by ProcArrayLock
-        if TransactionIdPrecedesOrEquals(xmin, unsafe { arrayP.lastOverflowedXid.get() }) {
-            suboverflowed = true;
+        let replication_slot_xmin = unsafe { arrayP.replication_slot_xmin.get() };
+        // SAFETY: [PAL] serialized by ProcArrayLock
+        let replication_slot_catalog_xmin = unsafe { arrayP.replication_slot_catalog_xmin.get() };
+
+        if !TransactionIdIsValid(my_proc.xmin.read()) {
+            my_proc.xmin.value.store(xmin, Relaxed);
+            TRANSACTION_XMIN.set(xmin);
         }
-    }
 
-    // SAFETY: [PAL] serialized by ProcArrayLock
-    let replication_slot_xmin = unsafe { arrayP.replication_slot_xmin.get() };
-    // SAFETY: [PAL] serialized by ProcArrayLock
-    let replication_slot_catalog_xmin = unsafe { arrayP.replication_slot_catalog_xmin.get() };
+        LWLockRelease(pa_lock)?;
 
-    if !TransactionIdIsValid(my_proc.xmin.read()) {
-        my_proc.xmin.value.store(xmin, Relaxed);
-        TRANSACTION_XMIN.set(xmin);
-    }
+        {
+            let oldestfxid = FullXidRelativeTo(latest_completed, oldestxid);
+            let def_vis_xid_data = TransactionIdOlder(xmin, replication_slot_xmin);
+            let def_vis_xid = TransactionIdOlder(replication_slot_catalog_xmin, def_vis_xid_data);
+            let def_vis_fxid = FullXidRelativeTo(latest_completed, def_vis_xid);
+            let def_vis_fxid_data = FullXidRelativeTo(latest_completed, def_vis_xid_data);
 
-    LWLockRelease(pa_lock)?;
+            GLOBAL_VIS_SHARED_RELS.with(|c| {
+                let mut s = c.get();
+                s.definitely_needed = FullTransactionIdNewer(def_vis_fxid, s.definitely_needed);
+                s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
+                c.set(s);
+            });
+            GLOBAL_VIS_CATALOG_RELS.with(|c| {
+                let mut s = c.get();
+                s.definitely_needed = FullTransactionIdNewer(def_vis_fxid, s.definitely_needed);
+                s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
+                c.set(s);
+            });
+            GLOBAL_VIS_DATA_RELS.with(|c| {
+                let mut s = c.get();
+                s.definitely_needed =
+                    FullTransactionIdNewer(def_vis_fxid_data, s.definitely_needed);
+                s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
+                c.set(s);
+            });
+            GLOBAL_VIS_TEMP_RELS.with(|c| {
+                let mut s = c.get();
+                s.definitely_needed = if TransactionIdIsNormal(myxid) {
+                    FullXidRelativeTo(latest_completed, myxid)
+                } else {
+                    let mut next = latest_completed;
+                    next.value += 1; // FullTransactionIdAdvance; epoch carries
+                    if !TransactionIdIsNormal(next.xid()) {
+                        next = FullTransactionId::from_u64(
+                            next.value + (FirstNormalTransactionId - next.xid()) as u64,
+                        );
+                    }
+                    next
+                };
+                s.maybe_needed = s.definitely_needed;
+                c.set(s);
+            });
+        }
 
-    {
-        let oldestfxid = FullXidRelativeTo(latest_completed, oldestxid);
-        let def_vis_xid_data = TransactionIdOlder(xmin, replication_slot_xmin);
-        let def_vis_xid = TransactionIdOlder(replication_slot_catalog_xmin, def_vis_xid_data);
-        let def_vis_fxid = FullXidRelativeTo(latest_completed, def_vis_xid);
-        let def_vis_fxid_data = FullXidRelativeTo(latest_completed, def_vis_xid_data);
+        RECENT_XMIN.set(xmin);
+        debug_assert!(TransactionIdPrecedesOrEquals(
+            TRANSACTION_XMIN.get(),
+            RECENT_XMIN.get()
+        ));
 
-        GLOBAL_VIS_SHARED_RELS.with(|c| {
-            let mut s = c.get();
-            s.definitely_needed = FullTransactionIdNewer(def_vis_fxid, s.definitely_needed);
-            s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
-            c.set(s);
-        });
-        GLOBAL_VIS_CATALOG_RELS.with(|c| {
-            let mut s = c.get();
-            s.definitely_needed = FullTransactionIdNewer(def_vis_fxid, s.definitely_needed);
-            s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
-            c.set(s);
-        });
-        GLOBAL_VIS_DATA_RELS.with(|c| {
-            let mut s = c.get();
-            s.definitely_needed = FullTransactionIdNewer(def_vis_fxid_data, s.definitely_needed);
-            s.maybe_needed = FullTransactionIdNewer(s.maybe_needed, oldestfxid);
-            c.set(s);
-        });
-        GLOBAL_VIS_TEMP_RELS.with(|c| {
-            let mut s = c.get();
-            s.definitely_needed = if TransactionIdIsNormal(myxid) {
-                FullXidRelativeTo(latest_completed, myxid)
+        // SAFETY: exactly count/subcount elements were written above.
+        unsafe {
+            snapshot.xip.set_len(count);
+            snapshot.subxip.set_len(subcount);
+        }
+        snapshot.xmin = xmin;
+        snapshot.xmax = xmax;
+        snapshot.xcnt = count as u32;
+        snapshot.subxcnt = subcount as i32;
+        snapshot.suboverflowed = suboverflowed;
+        snapshot.snapXactCompletionCount = cur_xact_completion_count;
+        snapshot.curcid.set(xact::GetCurrentCommandId(false)?);
+        snapshot.active_count.set(0);
+        snapshot.regd_count.set(0);
+        snapshot.copied = false;
+
+        record_snapshot_demand(
+            xip_demand,
+            if snapshot.takenDuringRecovery {
+                // Recovery capacity is pinned at the worst case (see above);
+                // report it as demand so decay never shrinks it while in recovery.
+                GetMaxSnapshotSubxidCount()
             } else {
-                let mut next = latest_completed;
-                next.value += 1; // FullTransactionIdAdvance; epoch carries
-                if !TransactionIdIsNormal(next.xid()) {
-                    next = FullTransactionId::from_u64(
-                        next.value + (FirstNormalTransactionId - next.xid()) as u64,
-                    );
-                }
-                next
-            };
-            s.maybe_needed = s.definitely_needed;
-            c.set(s);
-        });
-    }
+                subcount
+            },
+        );
 
-    RECENT_XMIN.set(xmin);
-    debug_assert!(TransactionIdPrecedesOrEquals(
-        TRANSACTION_XMIN.get(),
-        RECENT_XMIN.get()
-    ));
+        #[cfg(debug_assertions)]
+        {
+            SNAPSHOT_FULL_BUILDS.set(SNAPSHOT_FULL_BUILDS.get() + 1);
+            reuse_trace("full");
+        }
 
-    // SAFETY: exactly count/subcount elements were written above.
-    unsafe {
-        snapshot.xip.set_len(count);
-        snapshot.subxip.set_len(subcount);
-    }
-    snapshot.xmin = xmin;
-    snapshot.xmax = xmax;
-    snapshot.xcnt = count as u32;
-    snapshot.subxcnt = subcount as i32;
-    snapshot.suboverflowed = suboverflowed;
-    snapshot.snapXactCompletionCount = cur_xact_completion_count;
-    snapshot.curcid.set(xact::GetCurrentCommandId(false)?);
-    snapshot.active_count.set(0);
-    snapshot.regd_count.set(0);
-    snapshot.copied = false;
-
-    record_snapshot_demand(
-        xip_demand,
-        if snapshot.takenDuringRecovery {
-            // Recovery capacity is pinned at the worst case (see above);
-            // report it as demand so decay never shrinks it while in recovery.
-            GetMaxSnapshotSubxidCount()
-        } else {
-            subcount
-        },
-    );
-
-    #[cfg(debug_assertions)]
-    {
-        SNAPSHOT_FULL_BUILDS.set(SNAPSHOT_FULL_BUILDS.get() + 1);
-        reuse_trace("full");
-    }
-
-    return Ok(());
+        return Ok(());
     } // 'build
 }
 
 // Reserve up to a TOTAL capacity of `n`, failing exactly as C's palloc does
 // (mcx OOM error). Contents ([0..len]) are preserved.
-fn reserve_exact<'m>(
-    v: &mut PgVec<'m, TransactionId>,
-    n: usize,
-    _mcx: Mcx<'m>,
-) -> PgResult<()> {
+fn reserve_exact<'m>(v: &mut PgVec<'m, TransactionId>, n: usize, _mcx: Mcx<'m>) -> PgResult<()> {
     let add = n.saturating_sub(v.len());
     v.try_reserve_exact(add)
         .map_err(|_| Box::new(_mcx.oom(n * core::mem::size_of::<TransactionId>())))
@@ -1639,7 +1660,10 @@ fn grow_snapshot_array<'m>(
     mcx: Mcx<'m>,
 ) -> PgResult<()> {
     debug_assert!(needed > v.capacity());
-    let target = needed.max(v.capacity().saturating_mul(2)).min(max).max(needed);
+    let target = needed
+        .max(v.capacity().saturating_mul(2))
+        .min(max)
+        .max(needed);
     reserve_exact(v, target, mcx)
 }
 
@@ -1711,7 +1735,9 @@ fn transaction_id_is_in_progress_scan(xid: TransactionId) -> PgResult<bool> {
         let num_procs = unsafe { arrayP.numProcs.get() } as usize;
         // SAFETY: [PAL] serialized by ProcArrayLock
         let mypgxactoff = match usize::try_from(mypgxactoff) {
-            Ok(off) if off < num_procs && unsafe { arrayP.pgprocnos[off].get() } == myprocno => mypgxactoff,
+            Ok(off) if off < num_procs && unsafe { arrayP.pgprocnos[off].get() } == myprocno => {
+                mypgxactoff
+            }
             _ => -1,
         };
         for pgxactoff in 0..num_procs {
@@ -1736,7 +1762,7 @@ fn transaction_id_is_in_progress_scan(xid: TransactionId) -> PgResult<bool> {
             let substate = unsafe { hdr.subxidStates[pgxactoff].get() };
             let pxids = substate.count as usize;
             fence(Ordering::Acquire); // pairs with GetNewTransactionId
-            // SAFETY: [PAL] serialized by ProcArrayLock
+                                      // SAFETY: [PAL] serialized by ProcArrayLock
             let pgprocno = unsafe { arrayP.pgprocnos[pgxactoff].get() };
             let proc = &hdr.allProcs[pgprocno as usize];
             for j in (0..pxids).rev() {
@@ -1854,14 +1880,12 @@ fn ComputeXidHorizons() -> PgResult<ComputeXidHorizonsResult> {
             continue;
         }
         // Never skip a proc for running-ness (C: vacuum/decoding still run).
-        h.oldest_considered_running =
-            TransactionIdOlder(h.oldest_considered_running, xmin);
+        h.oldest_considered_running = TransactionIdOlder(h.oldest_considered_running, xmin);
         if status_flags & (PROC_IN_VACUUM | PROC_IN_LOGICAL_DECODING) != 0 {
             continue;
         }
 
-        h.shared_oldest_nonremovable =
-            TransactionIdOlder(h.shared_oldest_nonremovable, xmin);
+        h.shared_oldest_nonremovable = TransactionIdOlder(h.shared_oldest_nonremovable, xmin);
         if proc.databaseId.load(Relaxed) == my_database_id
             || my_database_id == types_core::InvalidOid
             || (status_flags & PROC_AFFECTS_ALL_HORIZONS) != 0
@@ -1881,14 +1905,12 @@ fn ComputeXidHorizons() -> PgResult<ComputeXidHorizonsResult> {
 
     if in_recovery {
         h.oldest_considered_running = TransactionIdOlder(h.oldest_considered_running, kaxmin);
-        h.shared_oldest_nonremovable =
-            TransactionIdOlder(h.shared_oldest_nonremovable, kaxmin);
+        h.shared_oldest_nonremovable = TransactionIdOlder(h.shared_oldest_nonremovable, kaxmin);
         h.data_oldest_nonremovable = TransactionIdOlder(h.data_oldest_nonremovable, kaxmin);
     }
 
     h.slot_catalog_xmin = slot_catalog_xmin;
-    h.shared_oldest_nonremovable =
-        TransactionIdOlder(h.shared_oldest_nonremovable, slot_xmin);
+    h.shared_oldest_nonremovable = TransactionIdOlder(h.shared_oldest_nonremovable, slot_xmin);
     h.data_oldest_nonremovable = TransactionIdOlder(h.data_oldest_nonremovable, slot_xmin);
     h.shared_oldest_nonremovable_raw = h.shared_oldest_nonremovable;
     h.shared_oldest_nonremovable =
@@ -1941,7 +1963,8 @@ fn GlobalVisHorizonKindForRel(rel: &types_rel::RelationData<'_>) -> GlobalVisHor
         || relation_is_accessible_in_logical_decoding(rel)
     {
         GlobalVisHorizonKind::Catalog
-    } else if !(rel.rd_islocaltemp || rel.rd_createSubid.get() != types_core::InvalidSubTransactionId)
+    } else if !(rel.rd_islocaltemp
+        || rel.rd_createSubid.get() != types_core::InvalidSubTransactionId)
     {
         GlobalVisHorizonKind::Data
     } else {
@@ -1987,7 +2010,10 @@ pub fn GetOldestNonRemovableTransactionId(
     })
 }
 
-fn vis_state_cell<R>(handle: types_core::GlobalVisStateHandle, f: impl FnOnce(&Cell<GlobalVisState>) -> R) -> R {
+fn vis_state_cell<R>(
+    handle: types_core::GlobalVisStateHandle,
+    f: impl FnOnce(&Cell<GlobalVisState>) -> R,
+) -> R {
     match handle.id {
         1 => GLOBAL_VIS_SHARED_RELS.with(f),
         2 => GLOBAL_VIS_CATALOG_RELS.with(f),
@@ -2112,7 +2138,9 @@ pub fn GetVirtualXIDsDelayingChkpt(
     let mut vxids: Vec<types_core::VirtualTransactionId> = Vec::new();
     vxids
         .try_reserve_exact(arrayP.maxProcs as usize)
-        .map_err(|_| ::mcx::oom_named("GetVirtualXIDsDelayingChkpt", arrayP.maxProcs as usize * 8))?;
+        .map_err(|_| {
+            ::mcx::oom_named("GetVirtualXIDsDelayingChkpt", arrayP.maxProcs as usize * 8)
+        })?;
 
     LWLockAcquire(ProcArrayLock(), LW_SHARED, my_procno)?;
     // SAFETY: [PAL] serialized by ProcArrayLock
@@ -2160,8 +2188,7 @@ pub fn HaveVirtualXIDsDelayingChkpt(
         if proc.delayChkptFlags.load(Relaxed) & delay_type != 0
             && vxid.localTransactionId != InvalidLocalTransactionId
             && vxids.iter().any(|v| {
-                v.procNumber == vxid.procNumber
-                    && v.localTransactionId == vxid.localTransactionId
+                v.procNumber == vxid.procNumber && v.localTransactionId == vxid.localTransactionId
             })
         {
             result = true;
@@ -2206,9 +2233,7 @@ pub fn GetCurrentVirtualXIDs<'mcx>(
             }
             // InvalidTransactionId precedes all other XIDs: a proc that has
             // not set xmin yet is never rejected by this test.
-            if !TransactionIdIsValid(limitXmin)
-                || TransactionIdPrecedesOrEquals(pxmin, limitXmin)
-            {
+            if !TransactionIdIsValid(limitXmin) || TransactionIdPrecedesOrEquals(pxmin, limitXmin) {
                 let vxid = types_core::VirtualTransactionId {
                     procNumber: proc.vxid.procNumber.load(Relaxed),
                     localTransactionId: proc.vxid.lxid.load(Relaxed),
@@ -2380,7 +2405,9 @@ pub fn CountOtherDBBackends(databaseid: types_core::Oid) -> PgResult<Option<(i32
                 nprepared += 1;
             } else {
                 nbackends += 1;
-                if status_flags & (PROC_IS_AUTOVACUUM | PROC_IS_DB_MAINT_WORKER) != 0 && nautovacs < MAXAUTOVACPIDS {
+                if status_flags & (PROC_IS_AUTOVACUUM | PROC_IS_DB_MAINT_WORKER) != 0
+                    && nautovacs < MAXAUTOVACPIDS
+                {
                     autovac_pids[nautovacs] = pid;
                     nautovacs += 1;
                 }
@@ -2462,12 +2489,12 @@ pub fn TerminateOtherDBBackends(databaseId: types_core::Oid) -> PgResult<()> {
 
     let user_id = miscinit_seams::get_user_id::call();
     for &pid in &pids {
-        let Some(proc) = BackendPidGetProc(pid) else { continue };
+        let Some(proc) = BackendPidGetProc(pid) else {
+            continue;
+        };
         let role_id = proc.roleId.load(Relaxed);
 
-        if superuser_seams::superuser_arg::call(role_id)?
-            && !superuser_seams::superuser::call()?
-        {
+        if superuser_seams::superuser_arg::call(role_id)? && !superuser_seams::superuser::call()? {
             return Err(elog::ereport(types_error::ERROR)
                 .errcode(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE)
                 .errmsg("permission denied to terminate process".to_string())
@@ -2554,7 +2581,9 @@ pub fn init_seams() {
         procarray_seams::global_vis_test_is_removable_xid::set(GlobalVisTestIsRemovableXid);
     }
     if !procarray_seams::global_vis_test_is_removable_full_xid::is_installed() {
-        procarray_seams::global_vis_test_is_removable_full_xid::set(GlobalVisTestIsRemovableFullXid);
+        procarray_seams::global_vis_test_is_removable_full_xid::set(
+            GlobalVisTestIsRemovableFullXid,
+        );
     }
     if !procarray_seams::global_vis_check_removable_full_xid::is_installed() {
         procarray_seams::global_vis_check_removable_full_xid::set(GlobalVisCheckRemovableFullXid);
@@ -2601,7 +2630,11 @@ pub fn GetConflictingVirtualXIDs(
         .try_reserve_exact(arrayP.maxProcs as usize + 1)
         .map_err(|_| ::mcx::oom_malloc())?;
 
-    LWLockAcquire(ProcArrayLock(), LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     // SAFETY: [PAL] serialized by ProcArrayLock
     for index in 0..unsafe { arrayP.numProcs.get() } as usize {
         // SAFETY: [PAL] serialized by ProcArrayLock
@@ -2649,7 +2682,11 @@ pub fn SignalVirtualTransaction(
     let hdr = ProcGlobal();
     let mut pid = 0;
 
-    LWLockAcquire(ProcArrayLock(), LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     // SAFETY: [PAL] serialized by ProcArrayLock
     for index in 0..unsafe { arrayP.numProcs.get() } as usize {
         // SAFETY: [PAL] serialized by ProcArrayLock
@@ -2679,7 +2716,11 @@ pub fn CountDBBackends(databaseid: types_core::Oid) -> PgResult<i32> {
     let hdr = ProcGlobal();
     let mut count = 0;
 
-    LWLockAcquire(ProcArrayLock(), LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     // SAFETY: [PAL] serialized by ProcArrayLock
     for index in 0..unsafe { arrayP.numProcs.get() } as usize {
         // SAFETY: [PAL] serialized by ProcArrayLock
@@ -2705,7 +2746,11 @@ pub fn CancelDBBackends(
     let arrayP = procArray();
     let hdr = ProcGlobal();
 
-    LWLockAcquire(ProcArrayLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_EXCLUSIVE,
+        init_small::globals::MyProcNumber(),
+    )?;
     // SAFETY: [PAL] serialized by ProcArrayLock
     for index in 0..unsafe { arrayP.numProcs.get() } as usize {
         // SAFETY: [PAL] serialized by ProcArrayLock
@@ -2730,7 +2775,11 @@ pub fn CancelDBBackends(
 pub fn with_procarray_lock_shared<R>(
     f: impl FnOnce() -> types_error::PgResult<R>,
 ) -> types_error::PgResult<R> {
-    LWLockAcquire(ProcArrayLock(), LW_SHARED, init_small::globals::MyProcNumber())?;
+    LWLockAcquire(
+        ProcArrayLock(),
+        LW_SHARED,
+        init_small::globals::MyProcNumber(),
+    )?;
     let r = f();
     LWLockRelease(ProcArrayLock())?;
     r

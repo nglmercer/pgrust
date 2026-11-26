@@ -29,16 +29,14 @@ fn install() {
                             defnamespace: None,
                             defname: Some("n_distinct"),
                             arg: Some(arg),
-                            defaction:
-                                ::types_nodes::parsenodes::DefElemAction::DEFELEM_UNSPEC,
+                            defaction: ::types_nodes::parsenodes::DefElemAction::DEFELEM_UNSPEC,
                             location: -1,
                         },
                     )?;
                     let list = NodeList::make1(mcx, def)?;
-                    let img = reloptions::transformRelOptions(
-                        mcx, None, &list, None, &[], false, false,
-                    )?
-                    .expect("options image");
+                    let img =
+                        reloptions::transformRelOptions(mcx, None, &list, None, &[], false, false)?
+                            .expect("options image");
                     Some(Some(Datum::from_usize(img.leak().as_ptr() as usize)))
                 }
                 2 => Some(None),
@@ -70,15 +68,34 @@ fn caches_until_the_attnum_callback_flushes() {
     let cx = MemoryContext::new("t");
     let m = cx.mcx();
     let before = COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(get_attribute_options(m, COUNTED_REL_OID, 1).unwrap().is_none());
-    assert!(get_attribute_options(m, COUNTED_REL_OID, 1).unwrap().is_none());
-    assert!(get_attribute_options(m, COUNTED_REL_OID, 1).unwrap().is_none());
-    assert_eq!(COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before, 1);
+    assert!(get_attribute_options(m, COUNTED_REL_OID, 1)
+        .unwrap()
+        .is_none());
+    assert!(get_attribute_options(m, COUNTED_REL_OID, 1)
+        .unwrap()
+        .is_none());
+    assert!(get_attribute_options(m, COUNTED_REL_OID, 1)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before,
+        1
+    );
     // A different attnum is a different entry.
-    assert!(get_attribute_options(m, COUNTED_REL_OID, 2).unwrap().is_none());
-    assert_eq!(COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before, 2);
+    assert!(get_attribute_options(m, COUNTED_REL_OID, 2)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before,
+        2
+    );
     // ATTNUM invalidation: everything is re-read.
     InvalidateAttoptCacheCallback(Datum::null(), 7, 0);
-    assert!(get_attribute_options(m, COUNTED_REL_OID, 1).unwrap().is_none());
-    assert_eq!(COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before, 3);
+    assert!(get_attribute_options(m, COUNTED_REL_OID, 1)
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        COUNTED_LOOKUPS.load(std::sync::atomic::Ordering::SeqCst) - before,
+        3
+    );
 }

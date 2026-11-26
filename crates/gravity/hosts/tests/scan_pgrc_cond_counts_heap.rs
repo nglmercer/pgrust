@@ -7,7 +7,9 @@ use std::sync::atomic::AtomicU8;
 
 use common::*;
 use gravity_abi::Lane;
-use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window};
+use gravity_driver::{
+    blank_site, BindingRef, CommandId, Identity, PerTuple, Pins, Snapshot, Source, Window,
+};
 use gravity_hosts::ops::scan::pgrc::cond_cache;
 use gravity_hosts::{HeapRangeSource, RangeRecipe};
 use mcx::MemoryContext;
@@ -27,7 +29,17 @@ fn a_heap_scan_fills_no_condition_cache_count() {
     let snap = static_mvcc_snapshot();
     let heap = Relation::open(heap_relation_data(mcx), None);
     let mut src = HeapRangeSource::new(RangeRecipe::from_plan(&heap, &[1]).unwrap());
-    let b = BindingRef { snapshot: Snapshot(&snap as *const _ as u64), command_id: CommandId(0), params: &[], abort_flag: &FLAG, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: None, ordinal: None };
+    let b = BindingRef {
+        snapshot: Snapshot(&snap as *const _ as u64),
+        command_id: CommandId(0),
+        params: &[],
+        abort_flag: &FLAG,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: None,
+        ordinal: None,
+    };
     src.bind(&b).unwrap();
     let before = cond_cache::census();
     src.seek(&[0, u64::MAX], &[0, 0]).unwrap();
@@ -45,6 +57,10 @@ fn a_heap_scan_fills_no_condition_cache_count() {
     src.unbind();
     assert_eq!(rows, values.len() as u64);
     let after = cond_cache::census();
-    assert_eq!((after[0], after[1], after[2], after[4]), (before[0], before[1], before[2], before[4]), "no lookup, no publish, no byte held");
+    assert_eq!(
+        (after[0], after[1], after[2], after[4]),
+        (before[0], before[1], before[2], before[4]),
+        "no lookup, no publish, no byte held"
+    );
     quiesced();
 }

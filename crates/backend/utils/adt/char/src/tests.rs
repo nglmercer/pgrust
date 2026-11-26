@@ -52,7 +52,10 @@ fn int_casts_signed() {
     assert_eq!(i4tochar(65).unwrap(), 65);
     assert_eq!(i4tochar(-128).unwrap(), -128);
     let e = i4tochar(128).unwrap_err();
-    assert_eq!(e.sqlstate(), types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
+    assert_eq!(
+        e.sqlstate(),
+        types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+    );
     assert_eq!(e.message(), "\"char\" out of range");
     assert!(i4tochar(-129).is_err());
 }
@@ -73,7 +76,11 @@ fn charout_results_do_not_alias_across_carriers() {
     let d1 = f1.invoke(&mut fci).unwrap();
     fci.set_arg(0, ::datum::Datum::from_char(b'b' as i8));
     let d2 = f2.invoke(&mut fci).unwrap();
-    let cstr = |d: ::datum::Datum| unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }.to_bytes().to_vec();
+    let cstr = |d: ::datum::Datum| {
+        unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .to_vec()
+    };
     assert_eq!(cstr(d1), b"a");
     assert_eq!(cstr(d2), b"b");
 }
@@ -85,7 +92,9 @@ fn hashchar_sign_extends_high_bit_like_c() {
     let mut fci = types_fmgr::LocalFcinfo::<1>::new(0);
     let mut h = |c: i8| {
         fci.set_arg(0, ::datum::Datum::from_char(c));
-        crate::builtins::fc_hashchar(None, &mut fci).unwrap().as_u32() as i32
+        crate::builtins::fc_hashchar(None, &mut fci)
+            .unwrap()
+            .as_u32() as i32
     };
     assert_eq!(h(-1), 385747274);
     assert_eq!(h(-128), 1361043915);
@@ -93,6 +102,8 @@ fn hashchar_sign_extends_high_bit_like_c() {
     let mut fx = types_fmgr::LocalFcinfo::<2>::new(0);
     fx.set_arg(0, ::datum::Datum::from_char(-1));
     fx.set_arg(1, ::datum::Datum::from_i64(0));
-    let x = crate::builtins::fc_hashcharextended(None, &mut fx).unwrap().as_u64() as i64;
+    let x = crate::builtins::fc_hashcharextended(None, &mut fx)
+        .unwrap()
+        .as_u64() as i64;
     assert_eq!(x, -1888257769727981238);
 }

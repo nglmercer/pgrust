@@ -35,8 +35,8 @@
 //!   walk.rs).
 //!   Owner M3-WALK. Budget 180 lines.
 use gravity_abi::breaker::{Breaker, BreakerKind, ORDER_KEY, ORDER_NONE};
-use gravity_decompose::ops::shared::agg::{AggDecl, GroupDecl};
 use gravity_decompose::graph::Bound;
+use gravity_decompose::ops::shared::agg::{AggDecl, GroupDecl};
 use gravity_decompose::ops::shared::sort::KeyImage;
 use gravity_decompose::ops::shared::sort::{SortDesc, SortForm};
 use gravity_decompose::{AttFact, Hint, Op, Source};
@@ -55,7 +55,10 @@ crate::strategies! {
     TOPK_WALK = 66, "topk.walk", Walkable;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(TOPK_WALK, &WalkImpl(&ZONE_WALK))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(TOPK_WALK, &WalkImpl(&ZONE_WALK))],
+    ..crate::ops::NONE
+};
 
 /// `ProtoKind::Walk`'s `arg`: the walked attribute in the low 16 bits; bit 16 a group walk (the owner runs cut at the
 /// bound after the pipeline); bit 17 width.walk (exec `v4/m3_walk.rs`).
@@ -73,10 +76,30 @@ impl WalkMech for ZoneWalk {
         let gx = px.gx;
         let shape = px.after_of(k);
         let p = &gx.pipelines()[shape];
-        if let Some(sd) = p.ops.iter().find_map(|op| match op { Op::Sort(d) if matches!(d.form, SortForm::Walk { .. }) => Some(d), _ => None }) {
-            let (Some(site), Some(Breaker { kind: BreakerKind::Sort, .. })) = (site, breaker_of(desc)) else { return };
-            let at = p.ops.iter().position(|op| matches!(op, Op::Sort(_))).unwrap_or(0);
-            let Some((n, attno, down, nulls)) = row_walk(gx, shape, sd).filter(|_| skip_safe(gx, shape, at, &[])) else { return };
+        if let Some(sd) = p.ops.iter().find_map(|op| match op {
+            Op::Sort(d) if matches!(d.form, SortForm::Walk { .. }) => Some(d),
+            _ => None,
+        }) {
+            let (
+                Some(site),
+                Some(Breaker {
+                    kind: BreakerKind::Sort,
+                    ..
+                }),
+            ) = (site, breaker_of(desc))
+            else {
+                return;
+            };
+            let at = p
+                .ops
+                .iter()
+                .position(|op| matches!(op, Op::Sort(_)))
+                .unwrap_or(0);
+            let Some((n, attno, down, nulls)) =
+                row_walk(gx, shape, sd).filter(|_| skip_safe(gx, shape, at, &[]))
+            else {
+                return;
+            };
             fires::fire("topk.walk.rows"); // shapecheck fire signal (REGISTRY RUNS-01, OIDW-53)
             let mut walk = TopKDesc::run(n).walking(attno);
             if down {
@@ -92,43 +115,100 @@ impl WalkMech for ZoneWalk {
             // top (no filter under it: a granule's rows are the run's) and its values come first (NOT NULL, or NULLS LAST:
             // hosts counts a nullable key's non-null values per granule); a NULLS FIRST walk's NULL rows lead, unsized
             let rows = p.ops[..at].iter().all(|op| matches!(op, Op::Project(_))) && !nulls;
-            let width = if rows && crate::face::policy::Width::Walk.on() && px.strategies.has(WIDTH_WALK) { crate::ops::sort::strategies::walk_width::arg(px) } else { 0 };
-            px.declare_proto(Proto::new(ProtoKind::Walk, k as u16).site(site as i16).arg(attno as u16 as u64 | WALK_RUNNER | width));
+            let width =
+                if rows && crate::face::policy::Width::Walk.on() && px.strategies.has(WIDTH_WALK) {
+                    crate::ops::sort::strategies::walk_width::arg(px)
+                } else {
+                    0
+                };
+            px.declare_proto(
+                Proto::new(ProtoKind::Walk, k as u16)
+                    .site(site as i16)
+                    .arg(attno as u16 as u64 | WALK_RUNNER | width),
+            );
             return;
         }
         let Some(g) = gx.group_at(shape) else { return };
-        let Some((n, attno)) = group_walk(gx, shape, g) else { return };
-        // the keyed end skips rows past the bound under this walk (`group`, V4R-177): a walked pipeline has its site and end
-        let (Some(site), Some(b @ Breaker { kind: BreakerKind::HashAgg, .. })) = (site, breaker_of(desc)) else {
-            crate::refuse!(g.node_id, crate::admit::refusal::Reason::Bug { payload: "a walked group's pipeline without its site or HashAgg end" })
+        let Some((n, attno)) = group_walk(gx, shape, g) else {
+            return;
         };
-        let width = if crate::face::policy::Width::Walk.on() && px.strategies.has(WIDTH_WALK) { crate::ops::sort::strategies::walk_width::arg(px) } else { 0 };
+        // the keyed end skips rows past the bound under this walk (`group`, V4R-177): a walked pipeline has its site and end
+        let (
+            Some(site),
+            Some(
+                b @ Breaker {
+                    kind: BreakerKind::HashAgg,
+                    ..
+                },
+            ),
+        ) = (site, breaker_of(desc))
+        else {
+            crate::refuse!(
+                g.node_id,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a walked group's pipeline without its site or HashAgg end"
+                }
+            )
+        };
+        let width = if crate::face::policy::Width::Walk.on() && px.strategies.has(WIDTH_WALK) {
+            crate::ops::sort::strategies::walk_width::arg(px)
+        } else {
+            0
+        };
         // GP-1b: a DESC group walk goes down the key maxima (`descending`); its bound, cut and row skip compare the NOT
         // of the key (walk_skip.rs, exec walk.rs / raw.rs, parallel merge.rs `HashAggPartial::bound`)
         let walk = TopKDesc::run(n).walking(attno);
-        desc.topk = Some(if crate::ops::shared::agg::group_desc(g) { fires::fire("topk.walk.group.desc"); walk.descending() } else { walk }); // shapecheck fire signal (GP-1b)
-        // D518 lever B: the cut and the LIMIT need no key order, so the owner's runs stay unsorted (decompose's ZoneTopK ORDER_KEY)
-        if let Some(o) = desc.owner.as_mut().filter(|o| o.order_slot == ORDER_KEY && o.pair == 0) {
+        desc.topk = Some(if crate::ops::shared::agg::group_desc(g) {
+            fires::fire("topk.walk.group.desc");
+            walk.descending()
+        } else {
+            walk
+        }); // shapecheck fire signal (GP-1b)
+            // D518 lever B: the cut and the LIMIT need no key order, so the owner's runs stay unsorted (decompose's ZoneTopK ORDER_KEY)
+        if let Some(o) = desc
+            .owner
+            .as_mut()
+            .filter(|o| o.order_slot == ORDER_KEY && o.pair == 0)
+        {
             o.order_slot = ORDER_NONE;
         }
         fires::fire("topk.walk.group"); // shapecheck fire signal (REGISTRY RUNS-02, NEW-lowerv4-a2-268, BN-136)
-        px.declare_proto(Proto::new(ProtoKind::Walk, k as u16).site(site as i16).slot(b.slot).arg(attno as u16 as u64 | WALK_GROUP | WALK_RUNNER | width));
+        px.declare_proto(
+            Proto::new(ProtoKind::Walk, k as u16)
+                .site(site as i16)
+                .slot(b.slot)
+                .arg(attno as u16 as u64 | WALK_GROUP | WALK_RUNNER | width),
+        );
     }
 
     /// `declare`'s group walk on pipeline `k`, which the keyed end reads before `declare` runs (V4R-177).
     fn group(&self, px: &Px<'_, '_>, k: usize, g: &GroupDecl<'_>) -> Option<(u32, i16)> {
         let shape = px.after_of(k);
-        px.gx.group_at(shape).filter(|x| core::ptr::eq(*x, g)).and_then(|g| group_walk(px.gx, shape, g))
+        px.gx
+            .group_at(shape)
+            .filter(|x| core::ptr::eq(*x, g))
+            .and_then(|g| group_walk(px.gx, shape, g))
     }
 }
 
 /// The group walk `(count + offset, attno)` of group `g`, which pipeline `shape` builds into its HashAgg slot, when the
 /// group walks as written (the module doc's conditions). `None`: the group runs whole.
 fn group_walk(gx: &Gx<'_, '_>, shape: usize, g: &GroupDecl<'_>) -> Option<(u32, i16)> {
-    let attno = g.hints.iter().find_map(|h| match h { Some(Hint::ZoneTopK { attno, nulls_first: false, .. }) => Some(*attno), _ => None })?;
+    let attno = g.hints.iter().find_map(|h| match h {
+        Some(Hint::ZoneTopK {
+            attno,
+            nulls_first: false,
+            ..
+        }) => Some(*attno),
+        _ => None,
+    })?;
     let p = &gx.pipelines()[shape];
     let hashagg = matches!(breaker_of(&p.desc), Some(Breaker { kind: BreakerKind::HashAgg, slot, .. }) if slot == g.slot);
-    walk_n(gx, g, crate::ops::shared::agg::group_desc(g)).filter(|_| hashagg && walkable(gx, shape, g, attno) && skip_safe(gx, shape, p.ops.len(), &g.aggs)).map(|n| (n, attno))
+    walk_n(gx, g, crate::ops::shared::agg::group_desc(g))
+        .filter(|_| {
+            hashagg && walkable(gx, shape, g, attno) && skip_safe(gx, shape, p.ops.len(), &g.aggs)
+        })
+        .map(|n| (n, attno))
 }
 
 /// D554: a walk leaves unread the granules past its bound, whose rows PostgreSQL's HashAgg / Sort still evaluates. It
@@ -137,20 +217,39 @@ fn group_walk(gx: &Gx<'_, '_>, shape: usize, g: &GroupDecl<'_>) -> Option<(u32, 
 /// `walk_folds`). Otherwise the plan runs whole.
 fn skip_safe(gx: &Gx<'_, '_>, shape: usize, upto: usize, aggs: &[AggDecl<'_>]) -> bool {
     let ops = &gx.pipelines()[shape].ops[..upto];
-    ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) && !crate::props::ops_can_raise(gx, ops) && aggs.iter().all(|a| crate::effects::visible::agg::walk_folds(gx, a))
+    ops.iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        && !crate::props::ops_can_raise(gx, ops)
+        && aggs
+            .iter()
+            .all(|a| crate::effects::visible::agg::walk_folds(gx, a))
 }
 
 /// The row walk's `(count + offset, attno, desc, nulls first over a nullable key)` when the top walks as written (the
 /// module doc's conditions); `None`: whole.
 fn row_walk(gx: &Gx<'_, '_>, shape: usize, sd: &SortDesc<'_>) -> Option<(u32, i16, bool, bool)> {
-    let SortForm::Walk { attno, desc, nulls_first, count: Bound::Const(c), offset, .. } = sd.form else { return None };
+    let SortForm::Walk {
+        attno,
+        desc,
+        nulls_first,
+        count: Bound::Const(c),
+        offset,
+        ..
+    } = sd.form
+    else {
+        return None;
+    };
     let key = sd.keys.first()?;
     let n = limit_n(c, &offset)?;
     let src = &gx.pipelines()[shape].source;
     let (_, relid, _) = src.relation()?;
     let att = gx.facts.att(relid, attno)?;
     let int = walk_image(&att, key.image);
-    (int && key.desc == desc && key.nulls_first == nulls_first && matches!(src, Source::Range { .. }) && gx.source_kind(shape) == KindId::SrcPgrc).then_some((n, attno, desc, nulls_first && !att.notnull))
+    (int && key.desc == desc
+        && key.nulls_first == nulls_first
+        && matches!(src, Source::Range { .. })
+        && gx.source_kind(shape) == KindId::SrcPgrc)
+        .then_some((n, attno, desc, nulls_first && !att.notnull))
 }
 
 /// RUNS-03: a walked key's word is its value, so a zone minimum (the column's values) bounds it: its order image is
@@ -161,7 +260,8 @@ fn row_walk(gx: &Gx<'_, '_>, shape: usize, sd: &SortDesc<'_>) -> Option<(u32, i1
 /// (`order_image` answers its base's type only): neither walks. The planner hints only its zone types
 /// (gravity_paths.rs `zone_word_type`), all of them answered here.
 fn walk_image(att: &AttFact, image: KeyImage) -> bool {
-    gravity_fn::typesem::keysem::word_orders_as_i64(att.typid, att.byval, att.typlen) && image.is_raw()
+    gravity_fn::typesem::keysem::word_orders_as_i64(att.typid, att.byval, att.typlen)
+        && image.is_raw()
 }
 
 /// `count + offset` of constant bounds, both positive (an offset may be absent).
@@ -171,7 +271,9 @@ fn limit_n(c: i64, offset: &Bound<'_>) -> Option<u32> {
         Bound::Const(o) if *o >= 0 => *o,
         _ => return None,
     };
-    u32::try_from(c.checked_add(o)?).ok().filter(|&n| n > 0 && c > 0)
+    u32::try_from(c.checked_add(o)?)
+        .ok()
+        .filter(|&n| n > 0 && c > 0)
 }
 
 /// The group's walk bound `count + offset`: the Limit over the group's emit, or (RUNS-02) a top-k Sort over it whose first
@@ -183,17 +285,32 @@ fn walk_n(gx: &Gx<'_, '_>, g: &GroupDecl<'_>, desc: bool) -> Option<u32> {
     let ops = &gx.pipelines()[emit].ops;
     let j = ops.iter().position(|op| !matches!(op, Op::Project(_)))?;
     if let Op::Sort(sd) = &ops[j] {
-        let SortForm::TopK { count: Bound::Const(c), offset, ties: false } = &sd.form else { return None };
+        let SortForm::TopK {
+            count: Bound::Const(c),
+            offset,
+            ties: false,
+        } = &sd.form
+        else {
+            return None;
+        };
         // the key's own word order (the cut's): ascending under the type's default btree family
-        let key = sd.keys.first().filter(|k| k.desc == desc && !k.own_family && k.no_proc.is_none() && k.image.is_raw())?;
-        let first = crate::ops::sort::topn::order_slot::key_expr(&ops[..j], sd, key.resno, gx.mcx)?.as_var().filter(|v| v.varno == types_nodes::primnodes::OUTER_VAR && v.varlevelsup == 0)?;
-        return (g.keys.first().is_some_and(|k| k.resno == first.varattno)).then(|| limit_n(*c, offset)).flatten();
+        let key = sd.keys.first().filter(|k| {
+            k.desc == desc && !k.own_family && k.no_proc.is_none() && k.image.is_raw()
+        })?;
+        let first = crate::ops::sort::topn::order_slot::key_expr(&ops[..j], sd, key.resno, gx.mcx)?
+            .as_var()
+            .filter(|v| v.varno == types_nodes::primnodes::OUTER_VAR && v.varlevelsup == 0)?;
+        return (g.keys.first().is_some_and(|k| k.resno == first.varattno))
+            .then(|| limit_n(*c, offset))
+            .flatten();
     }
     let op = &ops[j];
     if desc {
         return None; // a descending walk is the planner's under a DESC Sort only
     }
-    let (Bound::Const(c), offset) = limit_bounds(op)? else { return None };
+    let (Bound::Const(c), offset) = limit_bounds(op)? else {
+        return None;
+    };
     if limit_with_ties(op) {
         return None;
     }
@@ -203,13 +320,27 @@ fn walk_n(gx: &Gx<'_, '_>, g: &GroupDecl<'_>, desc: bool) -> Option<u32> {
 /// The first key is the hint's column of the pgrc relation that pipeline `shape` alone scans into the group, NOT NULL,
 /// with an integer image (decompose checked the hint names the first key's attribute).
 fn walkable(gx: &Gx<'_, '_>, shape: usize, g: &GroupDecl<'_>, attno: i16) -> bool {
-    let Some(key) = g.keys.first() else { return false };
+    let Some(key) = g.keys.first() else {
+        return false;
+    };
     let src = &gx.pipelines()[shape].source;
-    let Some((_, relid, _)) = src.relation() else { return false };
-    let Some(att) = gx.facts.att(relid, attno) else { return false };
+    let Some((_, relid, _)) = src.relation() else {
+        return false;
+    };
+    let Some(att) = gx.facts.att(relid, attno) else {
+        return false;
+    };
     let (int, notnull) = (walk_image(&att, key.image), att.notnull);
     // the group's producers by its life, never by slot number: decompose reuses a freed number, so another InitPlan's HashAgg or
     // the parent's PlainAgg may hold it (D2914); an Append's arms all fold into the group and refuse
-    let alone = g.producer.0 as usize == shape && (0..gx.pipelines().len()).filter(|&q| gx.group_at(q).is_some_and(|x| core::ptr::eq(x, g))).count() == 1;
-    int && key.attno == attno && notnull && alone && matches!(src, Source::Range { .. }) && gx.source_kind(shape) == KindId::SrcPgrc
+    let alone = g.producer.0 as usize == shape
+        && (0..gx.pipelines().len())
+            .filter(|&q| gx.group_at(q).is_some_and(|x| core::ptr::eq(x, g)))
+            .count()
+            == 1;
+    int && key.attno == attno
+        && notnull
+        && alone
+        && matches!(src, Source::Range { .. })
+        && gx.source_kind(shape) == KindId::SrcPgrc
 }

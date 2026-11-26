@@ -96,7 +96,10 @@ const C_SIZEOF_WAIT_EVENT_CUSTOM_COUNTER_DATA: usize = 8;
 #[allow(non_snake_case)] // C-parity name
 pub fn WaitEventCustomShmemSize() -> PgResult<usize> {
     Ok(C_SIZEOF_WAIT_EVENT_CUSTOM_COUNTER_DATA
-        + dynahash::hash_estimate_size(WAIT_EVENT_CUSTOM_HASH_MAX_SIZE as i64, size_of::<EntryByInfo>())?
+        + dynahash::hash_estimate_size(
+            WAIT_EVENT_CUSTOM_HASH_MAX_SIZE as i64,
+            size_of::<EntryByInfo>(),
+        )?
         + dynahash::hash_estimate_size(
             WAIT_EVENT_CUSTOM_HASH_MAX_SIZE as i64,
             size_of::<EntryByName>(),
@@ -112,7 +115,10 @@ pub fn WaitEventCustomShmemInit() -> PgResult<()> {
 
     // wait_event.c:125-127: the counter is a named ShmemInitStruct; the
     // Rust counter lives in CUSTOM, its C-sized row is registered.
-    shmem::ShmemInitStruct("WaitEventCustomCounterData", C_SIZEOF_WAIT_EVENT_CUSTOM_COUNTER_DATA)?;
+    shmem::ShmemInitStruct(
+        "WaitEventCustomCounterData",
+        C_SIZEOF_WAIT_EVENT_CUSTOM_COUNTER_DATA,
+    )?;
 
     let mut by_info_ctl = HASHCTL::default();
     by_info_ctl.keysize = size_of::<u32>();
@@ -208,7 +214,11 @@ pub fn WaitEventCustomNew(class_id: u32, wait_event_name: &str) -> PgResult<u32>
     let tables = shared();
     let key = key_buf(wait_event_name);
 
-    LWLockAcquire(main_lock(WAIT_EVENT_CUSTOM_LOCK), LW_SHARED, g::MyProcNumber())?;
+    LWLockAcquire(
+        main_lock(WAIT_EVENT_CUSTOM_LOCK),
+        LW_SHARED,
+        g::MyProcNumber(),
+    )?;
     let found = hash_search(tables.by_name, key.as_ptr(), HASH_FIND, None)?;
     LWLockRelease(main_lock(WAIT_EVENT_CUSTOM_LOCK))?;
     if !found.is_null() {
@@ -217,7 +227,11 @@ pub fn WaitEventCustomNew(class_id: u32, wait_event_name: &str) -> PgResult<u32>
         return check_same_class(info, class_id, wait_event_name);
     }
 
-    LWLockAcquire(main_lock(WAIT_EVENT_CUSTOM_LOCK), LW_EXCLUSIVE, g::MyProcNumber())?;
+    LWLockAcquire(
+        main_lock(WAIT_EVENT_CUSTOM_LOCK),
+        LW_EXCLUSIVE,
+        g::MyProcNumber(),
+    )?;
     let found = hash_search(tables.by_name, key.as_ptr(), HASH_FIND, None)?;
     if !found.is_null() {
         // SAFETY: as above.
@@ -258,7 +272,12 @@ pub fn WaitEventCustomNew(class_id: u32, wait_event_name: &str) -> PgResult<u32>
     // already written by dynahash's keycopy.
     unsafe { (*(entry_by_info as *mut EntryByInfo)).wait_event_name = key };
 
-    let entry_by_name = hash_search(tables.by_name, key.as_ptr(), HASH_ENTER, Some(&mut found_flag))?;
+    let entry_by_name = hash_search(
+        tables.by_name,
+        key.as_ptr(),
+        HASH_ENTER,
+        Some(&mut found_flag),
+    )?;
     debug_assert!(!found_flag);
     // SAFETY: freshly HASH_ENTER'd EntryByName; the key (name) is already
     // written by dynahash's keycopy.
@@ -277,7 +296,11 @@ pub fn GetWaitEventCustomIdentifier(wait_event_info: u32) -> PgResult<&'static s
     }
 
     let tables = shared();
-    LWLockAcquire(main_lock(WAIT_EVENT_CUSTOM_LOCK), LW_SHARED, g::MyProcNumber())?;
+    LWLockAcquire(
+        main_lock(WAIT_EVENT_CUSTOM_LOCK),
+        LW_SHARED,
+        g::MyProcNumber(),
+    )?;
     let entry = hash_search(
         tables.by_info,
         &wait_event_info as *const u32 as *const u8,
@@ -308,8 +331,12 @@ fn trim_name(name: &'static [u8; NAMEDATALEN]) -> &'static str {
 #[allow(non_snake_case)] // C-parity name
 pub fn GetWaitEventCustomNames(class_id: u32) -> Vec<String> {
     let tables = shared();
-    LWLockAcquire(main_lock(WAIT_EVENT_CUSTOM_LOCK), LW_SHARED, g::MyProcNumber())
-        .expect("GetWaitEventCustomNames: lock");
+    LWLockAcquire(
+        main_lock(WAIT_EVENT_CUSTOM_LOCK),
+        LW_SHARED,
+        g::MyProcNumber(),
+    )
+    .expect("GetWaitEventCustomNames: lock");
 
     let mut status = HASH_SEQ_STATUS::new();
     hash_seq_init(&mut status, tables.by_name).expect("GetWaitEventCustomNames: hash_seq_init");

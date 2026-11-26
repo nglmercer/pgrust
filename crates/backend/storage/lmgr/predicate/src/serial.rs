@@ -150,7 +150,8 @@ pub fn SerialInit() -> PgResult<()> {
 
     if SERIAL_CONTROL.get().is_none() {
         // predicate.c:827: ShmemInitStruct("SerialControlData", sizeof(SerialControlData)).
-        let (raw, found) = shmem::ShmemInitStruct("SerialControlData", C_SIZEOF_SERIAL_CONTROL_DATA)?;
+        let (raw, found) =
+            shmem::ShmemInitStruct("SerialControlData", C_SIZEOF_SERIAL_CONTROL_DATA)?;
         let c = raw as *mut SerialControlData;
         if !found {
             // SAFETY: a fresh cache-line-aligned block of C_SIZEOF_SERIAL_CONTROL_DATA

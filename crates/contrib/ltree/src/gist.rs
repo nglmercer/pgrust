@@ -2,14 +2,13 @@
 //! (`gist__ltree_ops`, the `ltree[]` array opclass) — the GiST opclass support
 //! functions, ported over pgrust's generic catalog-driven GiST opclass dispatch
 
-use ::types_error::{ERRCODE_ARRAY_SUBSCRIPT_ERROR, ERRCODE_NULL_VALUE_NOT_ALLOWED};
 use ::types_error::{PgError, PgResult};
+use ::types_error::{ERRCODE_ARRAY_SUBSCRIPT_ERROR, ERRCODE_NULL_VALUE_NOT_ALLOWED};
 
 use crate::array::LtreeArray;
 use crate::crc::ltree_crc32_sz;
 use crate::op;
-use crate::repr::{intalign, read_u32, set_varsize, varsize, Ltree, Lquery, VARHDRSZ};
-
+use crate::repr::{intalign, read_u32, set_varsize, varsize, Lquery, Ltree, VARHDRSZ};
 
 const BITBYTE: usize = 8;
 
@@ -81,7 +80,6 @@ fn hemdistsign(a: &[u8], b: &[u8], siglen: usize) -> i32 {
     }
     dist
 }
-
 
 #[derive(Clone, Debug)]
 struct LtgKey {
@@ -184,7 +182,8 @@ fn read_node(data: &[u8], off: usize) -> PgResult<Vec<u8>> {
     let sz = varsize(&data[off..]);
     if off + sz > data.len() {
         return Err(PgError::error("corrupt ltree_gist GiST key (node overruns key)").into());
-    }::mcx::std_vec_from_slice("ltree", &data[off..off + sz])
+    }
+    ::mcx::std_vec_from_slice("ltree", &data[off..off + sz])
 }
 
 fn ltree_gist_alloc(
@@ -259,8 +258,11 @@ fn hashing(sign: &mut [u8], t: &[u8], siglen: usize) {
     }
 }
 
-
-pub fn ltree_compress(leafkey: bool, key_image: &[u8], key_is_null: bool) -> PgResult<Option<Vec<u8>>> {
+pub fn ltree_compress(
+    leafkey: bool,
+    key_image: &[u8],
+    key_is_null: bool,
+) -> PgResult<Option<Vec<u8>>> {
     if leafkey {
         if key_is_null {
             return Err(PgError::error("ltree_compress: NULL leaf key").into());
@@ -313,10 +315,16 @@ pub fn ltree_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
         if cur.is_onenode() {
             let curtree = &cur.lnode;
             hashing(&mut base, curtree, siglen);
-            if left.as_ref().is_none_or( |l| op::ltree_compare(l, curtree) > 0) {
+            if left
+                .as_ref()
+                .is_none_or(|l| op::ltree_compare(l, curtree) > 0)
+            {
                 left = Some(curtree.clone());
             }
-            if right.as_ref().is_none_or( |r| op::ltree_compare(r, curtree) < 0) {
+            if right
+                .as_ref()
+                .is_none_or(|r| op::ltree_compare(r, curtree) < 0)
+            {
                 right = Some(curtree.clone());
             }
         } else {
@@ -329,12 +337,12 @@ pub fn ltree_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
                 }
             }
             let lt = cur.get_lnode();
-            if left.as_ref().is_none_or( |l| op::ltree_compare(l, lt) > 0) {
-                left = Some(::mcx::std_vec_from_slice("ltree",lt)?);
+            if left.as_ref().is_none_or(|l| op::ltree_compare(l, lt) > 0) {
+                left = Some(::mcx::std_vec_from_slice("ltree", lt)?);
             }
             let rt = cur.get_rnode();
-            if right.as_ref().is_none_or( |r| op::ltree_compare(r, rt) < 0) {
-                right = Some(::mcx::std_vec_from_slice("ltree",rt)?);
+            if right.as_ref().is_none_or(|r| op::ltree_compare(r, rt) < 0) {
+                right = Some(::mcx::std_vec_from_slice("ltree", rt)?);
             }
         }
     }
@@ -411,8 +419,8 @@ pub fn ltree_picksplit(
         if j <= half {
             spl_left.push(*index as u16);
             let rt = lu.get_rnode();
-            if lu_r.as_ref().is_none_or( |x| op::ltree_compare(rt, x) > 0) {
-                lu_r = Some(::mcx::std_vec_from_slice("ltree",rt)?);
+            if lu_r.as_ref().is_none_or(|x| op::ltree_compare(rt, x) > 0) {
+                lu_r = Some(::mcx::std_vec_from_slice("ltree", rt)?);
             }
             if lu.is_onenode() {
                 hashing(&mut ls, &lu.lnode, siglen);
@@ -427,8 +435,8 @@ pub fn ltree_picksplit(
         } else {
             spl_right.push(*index as u16);
             let rt = lu.get_rnode();
-            if ru_r.as_ref().is_none_or( |x| op::ltree_compare(rt, x) > 0) {
-                ru_r = Some(::mcx::std_vec_from_slice("ltree",rt)?);
+            if ru_r.as_ref().is_none_or(|x| op::ltree_compare(rt, x) > 0) {
+                ru_r = Some(::mcx::std_vec_from_slice("ltree", rt)?);
             }
             if lu.is_onenode() {
                 hashing(&mut rs, &lu.lnode, siglen);
@@ -451,12 +459,12 @@ pub fn ltree_picksplit(
     }
 
     // lu_l = LTG_GETLNODE(entry array[FirstOffsetNumber].index)
-    let lu_l = ::mcx::std_vec_from_slice("ltree",lnodes[array[0]])?;
+    let lu_l = ::mcx::std_vec_from_slice("ltree", lnodes[array[0]])?;
     let lu = ltree_gist_alloc(lisat, Some(&ls), siglen, Some(&lu_l), lu_r.as_deref())?;
 
     // ru_l = LTG_GETLNODE(entry array[1 + half].index)
     let ru_l_index = array[(1 + half) as usize - 1];
-    let ru_l = ::mcx::std_vec_from_slice("ltree",keys[ru_l_index].as_ref().unwrap().get_lnode())?;
+    let ru_l = ::mcx::std_vec_from_slice("ltree", keys[ru_l_index].as_ref().unwrap().get_lnode())?;
     let ru = ltree_gist_alloc(risat, Some(&rs), siglen, Some(&ru_l), ru_r.as_deref())?;
 
     Ok((spl_left, spl_right, lu, ru))
@@ -720,12 +728,16 @@ pub fn ltree_gist_relopts_validator(parsed: &mut [u8]) -> Result<(), String> {
 fn read_options_siglen(parsed: &[u8]) -> i32 {
     let off = OFFSETOF_LTREE_GIST_OPTIONS_SIGLEN as usize;
     if parsed.len() >= off + 4 {
-        i32::from_ne_bytes([parsed[off], parsed[off + 1], parsed[off + 2], parsed[off + 3]])
+        i32::from_ne_bytes([
+            parsed[off],
+            parsed[off + 1],
+            parsed[off + 2],
+            parsed[off + 3],
+        ])
     } else {
         LTREE_SIGLEN_DEFAULT
     }
 }
-
 
 fn ahashing(sign: &mut [u8], t: &[u8], siglen: usize) {
     hashing(sign, t, siglen)
@@ -744,18 +756,26 @@ pub fn array_compress(
         let arr = LtreeArray::parse(key_image);
         if arr.ndim() > 1 {
             return Err(PgError::error("array must be one-dimensional")
-                .with_sqlstate(ERRCODE_ARRAY_SUBSCRIPT_ERROR).into());
+                .with_sqlstate(ERRCODE_ARRAY_SUBSCRIPT_ERROR)
+                .into());
         }
         if arr.contains_nulls() {
             return Err(PgError::error("array must not contain nulls")
-                .with_sqlstate(ERRCODE_NULL_VALUE_NOT_ALLOWED).into());
+                .with_sqlstate(ERRCODE_NULL_VALUE_NOT_ALLOWED)
+                .into());
         }
         // key = ltree_gist_alloc(false, NULL, siglen, NULL, NULL); hash each item.
         let mut sign = ::mcx::std_vec_from_elem("ltree", 0u8, siglen)?;
         for item in arr.elements() {
             ahashing(&mut sign, item, siglen);
         }
-        return Ok(Some(ltree_gist_alloc(false, Some(&sign), siglen, None, None)?));
+        return Ok(Some(ltree_gist_alloc(
+            false,
+            Some(&sign),
+            siglen,
+            None,
+            None,
+        )?));
     }
     // inner, !ALLTRUE: rewrite to ALLTRUE iff every signature byte is 0xff.
     let key = decode_key(key_image, siglen)?;
@@ -763,7 +783,13 @@ pub fn array_compress(
         return Ok(None);
     }
     if key.sign.iter().all(|&b| b == 0xff) {
-        return Ok(Some(ltree_gist_alloc(true, Some(&key.sign), siglen, None, None)?));
+        return Ok(Some(ltree_gist_alloc(
+            true,
+            Some(&key.sign),
+            siglen,
+            None,
+            None,
+        )?));
     }
     Ok(None)
 }
@@ -1022,11 +1048,8 @@ pub fn array_consistent(
     Ok((res, true))
 }
 
-
 pub const OFFSETOF_SIGLEN: usize = OFFSETOF_LTREE_GIST_OPTIONS_SIGLEN as usize;
 pub const SIZEOF_GIST_OPTIONS: usize = SIZEOF_LTREE_GIST_OPTIONS;
-
-
 
 fn canonical_varlena(image: &[u8]) -> PgResult<Vec<u8>> {
     match image.first() {

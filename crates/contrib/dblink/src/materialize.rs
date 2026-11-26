@@ -40,7 +40,13 @@ impl AttInMeta {
             typioparams.push(typioparam);
             typmods.push(att.atttypmod);
         }
-        Ok(AttInMeta { natts, dropped, in_funcs, typioparams, typmods })
+        Ok(AttInMeta {
+            natts,
+            dropped,
+            in_funcs,
+            typioparams,
+            typmods,
+        })
     }
 }
 
@@ -70,8 +76,8 @@ impl RemoteIoGucs {
             let Some(remote) = remote else {
                 continue;
             };
-            let local = guc::GetConfigOption(name, false, false)?
-                .expect("IO GUCs always have a value");
+            let local =
+                guc::GetConfigOption(name, false, false)?.expect("IO GUCs always have a value");
             if *remote == local {
                 continue;
             }
@@ -128,30 +134,30 @@ fn build_row(
         // non-strict and enforces NOT NULL / CHECK on the NULL value
         // (domain_in -> domain_check_input, 23502). Skipping the call for a
         // NULL column silently stored a NULL into a NOT NULL domain.
-        let cstr = if let Some(bytes) = cols.get(i).copied().flatten() {
-            // dblink pins the remote client_encoding to the local database
-            // encoding at connect (lib.rs), but honoring that is entirely up to
-            // the remote: a hostile/compromised server, an honest SQL_ASCII
-            // server, or a MITM on a non-TLS link can return text-format bytes
-            // that are invalid in the local encoding. C's dblink tolerates the
-            // resulting mojibake because it is byte-oriented, but this port has
-            // from_utf8_unchecked sinks (e.g. jsonpath_exec over stored jsonb)
-            // that rely on the engine invariant that stored strings are valid
-            // in the database encoding; feeding them invalid bytes is UB.
-            // Verify against the database encoding — as C's pg_client_to_server
-            // would when client_encoding == database encoding — before the type
-            // input function runs and the value can become a stored datum.
-            // SQL_ASCII accepts every byte, so valid behavior is preserved.
-            // This covers both the streaming TupleSink::row path and
-            // materialize_result, which funnel every remote column through here.
-            mbutils::pg_verifymbstr(bytes, false)?;
-            Some(
-                CString::new(bytes)
-                    .map_err(|_| Box::new(PgError::error("remote value contains embedded NUL byte")))?,
-            )
-        } else {
-            None
-        };
+        let cstr =
+            if let Some(bytes) = cols.get(i).copied().flatten() {
+                // dblink pins the remote client_encoding to the local database
+                // encoding at connect (lib.rs), but honoring that is entirely up to
+                // the remote: a hostile/compromised server, an honest SQL_ASCII
+                // server, or a MITM on a non-TLS link can return text-format bytes
+                // that are invalid in the local encoding. C's dblink tolerates the
+                // resulting mojibake because it is byte-oriented, but this port has
+                // from_utf8_unchecked sinks (e.g. jsonpath_exec over stored jsonb)
+                // that rely on the engine invariant that stored strings are valid
+                // in the database encoding; feeding them invalid bytes is UB.
+                // Verify against the database encoding — as C's pg_client_to_server
+                // would when client_encoding == database encoding — before the type
+                // input function runs and the value can become a stored datum.
+                // SQL_ASCII accepts every byte, so valid behavior is preserved.
+                // This covers both the streaming TupleSink::row path and
+                // materialize_result, which funnel every remote column through here.
+                mbutils::pg_verifymbstr(bytes, false)?;
+                Some(CString::new(bytes).map_err(|_| {
+                    Box::new(PgError::error("remote value contains embedded NUL byte"))
+                })?)
+            } else {
+                None
+            };
         values[i] = types_fmgr::input_function_call(
             &mut attinmeta.in_funcs[i],
             cstr.as_deref(),
@@ -177,8 +183,10 @@ fn check_result_rowtype(mcx: mcx::Mcx<'_>, flinfo: &FmgrInfo, fcinfo: &mut Fcinf
     match funcapi::get_call_result_type(mcx, flinfo, expected)?.class {
         funcapi::TypeFuncClass::Composite => Ok(()),
         funcapi::TypeFuncClass::Record => Err(Box::new(
-            PgError::error("function returning record called in context that cannot accept type record")
-                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+            PgError::error(
+                "function returning record called in context that cannot accept type record",
+            )
+            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
         )),
         _ => Err(Box::new(PgError::error("return type must be a row type"))),
     }
@@ -278,7 +286,11 @@ pub fn materialize_result(
     if res.nfields != attinmeta.natts {
         return Err(rowtype_mismatch());
     }
-    let nestlevel = if res.rows.is_empty() { -1 } else { gucs.apply()? };
+    let nestlevel = if res.rows.is_empty() {
+        -1
+    } else {
+        gucs.apply()?
+    };
     let mut scratch = mcx::MemoryContext::new_wholesale("dblink temporary context");
     let mut cols: Vec<Option<&[u8]>> = ::mcx::std_vec_with_capacity("dblink", res.nfields)?;
     for row in &res.rows {

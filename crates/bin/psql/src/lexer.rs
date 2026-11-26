@@ -110,7 +110,9 @@ impl ScanState {
                 .any(|k| ident.eq_ignore_ascii_case(k))
             {
                 first.to_ascii_lowercase()
-            } else if ["copy", "from", "stdin", "stdout"].iter().any(|k| ident.eq_ignore_ascii_case(k))
+            } else if ["copy", "from", "stdin", "stdout"]
+                .iter()
+                .any(|k| ident.eq_ignore_ascii_case(k))
             {
                 first.to_ascii_uppercase()
             } else {
@@ -194,7 +196,7 @@ impl ScanState {
         let vars = HashMap::new();
         for line in query.split('\n') {
             // The first item of the first line that yields one decides the count.
-            if let Some( item) = st.scan_line(line, &vars).into_iter().next() {
+            if let Some(item) = st.scan_line(line, &vars).into_iter().next() {
                 return match item {
                     ScanItem::Statement(_, n) => n,
                     ScanItem::Backslash(_) => st.count_copy_from_stdin(),
@@ -266,11 +268,10 @@ impl ScanState {
                             continue;
                         }
                         self.state = QuoteState::None;
-                    } else if c == '\\' && !self.standard_strings
-                        && i + 1 < n {
-                            push!(chars[i + 1]);
-                            i += 2;
-                            continue;
+                    } else if c == '\\' && !self.standard_strings && i + 1 < n {
+                        push!(chars[i + 1]);
+                        i += 2;
+                        continue;
                     }
                     i += 1;
                 }
@@ -307,7 +308,12 @@ impl ScanState {
                 QuoteState::Dollar => {
                     // Check for the closing tag at this position.
                     let tag: Vec<char> = self.dollar_tag.chars().collect();
-                    if c == '$' && i + tag.len() <= n && chars[i..i + tag.len()].iter().copied().eq(tag.iter().copied())
+                    if c == '$'
+                        && i + tag.len() <= n
+                        && chars[i..i + tag.len()]
+                            .iter()
+                            .copied()
+                            .eq(tag.iter().copied())
                     {
                         push_str!(&self.dollar_tag.clone());
                         i += tag.len();
@@ -374,8 +380,11 @@ impl ScanState {
                             let estring = matches!(prev, Some('e') | Some('E'))
                                 && !prev_is_ident_continuation(&self.buf);
                             push!('\'');
-                            self.state =
-                                if estring { QuoteState::EString } else { QuoteState::Single };
+                            self.state = if estring {
+                                QuoteState::EString
+                            } else {
+                                QuoteState::Single
+                            };
                             i += 1;
                         }
                         '"' => {
@@ -436,14 +445,10 @@ impl ScanState {
                                 push!(':');
                                 push!(':');
                                 i += 2;
-                            } else if i + 1 < n
-                                && (chars[i + 1] == '\'' || chars[i + 1] == '"')
-                            {
+                            } else if i + 1 < n && (chars[i + 1] == '\'' || chars[i + 1] == '"') {
                                 let q = chars[i + 1];
                                 // find closing quote
-                                if let Some(endrel) =
-                                    chars[i + 2..].iter().position(|&x| x == q)
-                                {
+                                if let Some(endrel) = chars[i + 2..].iter().position(|&x| x == q) {
                                     let name: String =
                                         chars[i + 2..i + 2 + endrel].iter().collect();
                                     if let Some(v) = vars.get(&name) {
@@ -553,7 +558,11 @@ fn dollar_tag_len(chars: &[char]) -> Option<usize> {
         if c == '$' {
             return Some(j + 1);
         }
-        let ok = if j == 1 { is_ident_start(c) } else { is_ident_cont(c) };
+        let ok = if j == 1 {
+            is_ident_start(c)
+        } else {
+            is_ident_cont(c)
+        };
         if !ok {
             return None;
         }
@@ -695,14 +704,23 @@ mod tests {
     fn copy_from_stdin_is_counted_per_statement() {
         assert_eq!(copy_counts(&["copy t from stdin;"]), vec![1]);
         assert_eq!(copy_counts(&["COPY BINARY public.t FROM STDIN;"]), vec![1]);
-        assert_eq!(copy_counts(&["copy t (a, b) from stdin with (format csv);"]), vec![1]);
+        assert_eq!(
+            copy_counts(&["copy t (a, b) from stdin with (format csv);"]),
+            vec![1]
+        );
         assert_eq!(copy_counts(&["copy t", "from", "stdin;"]), vec![1]);
         assert_eq!(copy_counts(&["copy t to stdout;"]), vec![0]);
         assert_eq!(copy_counts(&["copy (select 1) to stdout;"]), vec![0]);
         assert_eq!(copy_counts(&["select 'copy t from stdin';"]), vec![0]);
         assert_eq!(copy_counts(&["select E'x' from stdin;"]), vec![0]);
-        assert_eq!(copy_counts(&["select 1; copy t from stdin; select 2;"]), vec![0, 1, 0]);
-        assert_eq!(copy_counts(&["copy t from stdin", "copy t from stdin;"]), vec![1]);
+        assert_eq!(
+            copy_counts(&["select 1; copy t from stdin; select 2;"]),
+            vec![0, 1, 0]
+        );
+        assert_eq!(
+            copy_counts(&["copy t from stdin", "copy t from stdin;"]),
+            vec![1]
+        );
         assert_eq!(copy_counts(&["copy a b c d e f g from stdin;"]), vec![0]);
         let mut st = ScanState::new();
         let mut vars = HashMap::new();
@@ -730,11 +748,26 @@ mod tests {
 
     #[test]
     fn count_copy_from_stdin_in_string_stops_at_first_terminator() {
-        assert_eq!(ScanState::count_copy_from_stdin_in_string("copy t from stdin", true), 1);
-        assert_eq!(ScanState::count_copy_from_stdin_in_string("copy t from stdin;\nselect 1", true), 1);
-        assert_eq!(ScanState::count_copy_from_stdin_in_string("select 1; copy t from stdin", true), 0);
-        assert_eq!(ScanState::count_copy_from_stdin_in_string("copy t from stdin \\echo x", true), 1);
-        assert_eq!(ScanState::count_copy_from_stdin_in_string("select 1", true), 0);
+        assert_eq!(
+            ScanState::count_copy_from_stdin_in_string("copy t from stdin", true),
+            1
+        );
+        assert_eq!(
+            ScanState::count_copy_from_stdin_in_string("copy t from stdin;\nselect 1", true),
+            1
+        );
+        assert_eq!(
+            ScanState::count_copy_from_stdin_in_string("select 1; copy t from stdin", true),
+            0
+        );
+        assert_eq!(
+            ScanState::count_copy_from_stdin_in_string("copy t from stdin \\echo x", true),
+            1
+        );
+        assert_eq!(
+            ScanState::count_copy_from_stdin_in_string("select 1", true),
+            0
+        );
     }
 
     #[test]
@@ -751,7 +784,13 @@ mod tests {
         assert_eq!(s[1], "select 3;");
         let (s, _, _) =
             scan_all(&["CREATE OR REPLACE PROCEDURE p() BEGIN ATOMIC select 1; END; select 2;"]);
-        assert_eq!(s, vec!["CREATE OR REPLACE PROCEDURE p() BEGIN ATOMIC select 1; END;", "select 2;"]);
+        assert_eq!(
+            s,
+            vec![
+                "CREATE OR REPLACE PROCEDURE p() BEGIN ATOMIC select 1; END;",
+                "select 2;"
+            ]
+        );
         assert_eq!(scan_all(&["begin; select 1; end;"]).0.len(), 3);
         let (s, _, st) = scan_all(&["select (1;"]);
         assert!(s.is_empty());

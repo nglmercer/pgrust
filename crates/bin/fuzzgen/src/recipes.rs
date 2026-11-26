@@ -68,7 +68,9 @@ pub struct Bank {
 }
 
 fn walk_sql(dir: &Path, depth: usize, out: &mut Vec<(PathBuf, usize)>) -> std::io::Result<()> {
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?.map(|e| e.map(|e| e.path())).collect::<Result<_, _>>()?;
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)?
+        .map(|e| e.map(|e| e.path()))
+        .collect::<Result<_, _>>()?;
     entries.sort();
     for p in entries {
         if p.is_dir() {
@@ -91,7 +93,10 @@ impl Bank {
     /// Load the bank under `root`. Missing root ⇒ an empty bank (not an
     /// error: a fresh checkout before the first import).
     pub fn load(root: &Path) -> std::io::Result<Bank> {
-        let mut bank = Bank { root: root.to_path_buf(), ..Default::default() };
+        let mut bank = Bank {
+            root: root.to_path_buf(),
+            ..Default::default()
+        };
         if !root.exists() {
             return Ok(bank);
         }
@@ -99,11 +104,18 @@ impl Bank {
         walk_sql(root, 0, &mut files)?;
         for (path, depth) in files {
             let rel = path.strip_prefix(root).unwrap_or(&path);
-            let rel_path = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/");
+            let rel_path = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
             if depth != 2 {
                 bank.errors.push(BankError {
                     rel_path,
-                    message: format!("recipe at depth {} (expected recipes/<subsystem>/<cfile-stem>/<id>.sql)", depth + 1),
+                    message: format!(
+                        "recipe at depth {} (expected recipes/<subsystem>/<cfile-stem>/<id>.sql)",
+                        depth + 1
+                    ),
                 });
                 continue;
             }
@@ -115,29 +127,46 @@ impl Bank {
             let text = match std::fs::read_to_string(&path) {
                 Ok(t) => t,
                 Err(e) => {
-                    bank.errors.push(BankError { rel_path, message: format!("read: {}", e) });
+                    bank.errors.push(BankError {
+                        rel_path,
+                        message: format!("read: {}", e),
+                    });
                     continue;
                 }
             };
             let recipe = match Recipe::parse(&text) {
                 Ok(r) => r,
                 Err(e) => {
-                    bank.errors.push(BankError { rel_path, message: format!("parse: {}", e) });
+                    bank.errors.push(BankError {
+                        rel_path,
+                        message: format!("parse: {}", e),
+                    });
                     continue;
                 }
             };
             if recipe.header.id != expected_id {
                 bank.errors.push(BankError {
                     rel_path,
-                    message: format!("header id {:?} does not match path id {:?}", recipe.header.id, expected_id),
+                    message: format!(
+                        "header id {:?} does not match path id {:?}",
+                        recipe.header.id, expected_id
+                    ),
                 });
                 continue;
             }
             if bank.recipes.contains_key(&expected_id) {
-                bank.errors.push(BankError { rel_path, message: format!("duplicate recipe id {:?}", expected_id) });
+                bank.errors.push(BankError {
+                    rel_path,
+                    message: format!("duplicate recipe id {:?}", expected_id),
+                });
                 continue;
             }
-            let entry = BankEntry { rel_path, subsystem, cfile, recipe };
+            let entry = BankEntry {
+                rel_path,
+                subsystem,
+                cfile,
+                recipe,
+            };
             for t in &entry.recipe.header.targets {
                 if t != "-" {
                     push_index(&mut bank.by_target, t, &expected_id);
@@ -177,7 +206,8 @@ impl Bank {
     }
 
     fn select(&self, ids: Option<&Vec<String>>) -> Vec<&BankEntry> {
-        ids.map(|v| v.iter().filter_map(|id| self.recipes.get(id)).collect()).unwrap_or_default()
+        ids.map(|v| v.iter().filter_map(|id| self.recipes.get(id)).collect())
+            .unwrap_or_default()
     }
 
     /// Recipes targeting a unit id.
@@ -213,16 +243,43 @@ impl Bank {
         let mut wire = 0usize;
         for e in self.recipes.values() {
             *by_sub.entry(&e.subsystem).or_default() += 1;
-            *by_ordered.entry(e.recipe.header.ordered.as_str()).or_default() += 1;
+            *by_ordered
+                .entry(e.recipe.header.ordered.as_str())
+                .or_default() += 1;
             if e.recipe.is_wire() {
                 wire += 1;
             }
         }
-        let fmt = |m: &BTreeMap<&str, usize>| m.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join(" ");
-        let mut out = format!("recipes={} wire={} non_wire={} errors={}\n", self.len(), wire, self.len() - wire, self.errors.len());
+        let fmt = |m: &BTreeMap<&str, usize>| {
+            m.iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let mut out = format!(
+            "recipes={} wire={} non_wire={} errors={}\n",
+            self.len(),
+            wire,
+            self.len() - wire,
+            self.errors.len()
+        );
         out.push_str(&format!("subsystem: {}\n", fmt(&by_sub)));
-        out.push_str(&format!("env: {}\n", self.by_env.iter().map(|(k, v)| format!("{}={}", k, v.len())).collect::<Vec<_>>().join(" ")));
-        out.push_str(&format!("origin: {}\n", self.by_origin.iter().map(|(k, v)| format!("{}={}", k, v.len())).collect::<Vec<_>>().join(" ")));
+        out.push_str(&format!(
+            "env: {}\n",
+            self.by_env
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v.len()))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        out.push_str(&format!(
+            "origin: {}\n",
+            self.by_origin
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, v.len()))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
         out.push_str(&format!("ordered: {}\n", fmt(&by_ordered)));
         out.push_str(&format!("targets: {}\n", self.by_target.len()));
         out
@@ -251,11 +308,15 @@ mod tests {
     use std::fs;
 
     fn workspace_root() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .unwrap()
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("fuzzgen-recipes-{}-{}", name, std::process::id()));
+        let d =
+            std::env::temp_dir().join(format!("fuzzgen-recipes-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -281,7 +342,13 @@ mod tests {
         // wrong depth
         write(&root, "audit/loose.sql", "audit/loose", "", "select 1;\n");
         // parse failure (unknown directive)
-        write(&root, "author/z/bad.sql", "author/z/bad", "", "-- @bogus\nselect 1;\n");
+        write(
+            &root,
+            "author/z/bad.sql",
+            "author/z/bad",
+            "",
+            "-- @bogus\nselect 1;\n",
+        );
         // an authored recipe in another env
         fs::write(
             root.join("author/z/ok.sql"),
@@ -290,20 +357,38 @@ mod tests {
         .unwrap();
         let bank = Bank::load(&root).unwrap();
         assert_eq!(bank.len(), 3, "{:?}", bank.errors);
-        let msgs: Vec<String> = bank.errors.iter().map(|e| format!("{}: {}", e.rel_path, e.message)).collect();
+        let msgs: Vec<String> = bank
+            .errors
+            .iter()
+            .map(|e| format!("{}: {}", e.rel_path, e.message))
+            .collect();
         assert_eq!(bank.errors.len(), 3, "{:?}", msgs);
-        assert!(msgs.iter().any(|m| m.starts_with("audit/y/a-1.sql: header id")));
-        assert!(msgs.iter().any(|m| m.starts_with("audit/loose.sql: recipe at depth")));
-        assert!(msgs.iter().any(|m| m.starts_with("author/z/bad.sql: parse:")));
+        assert!(msgs
+            .iter()
+            .any(|m| m.starts_with("audit/y/a-1.sql: header id")));
+        assert!(msgs
+            .iter()
+            .any(|m| m.starts_with("audit/loose.sql: recipe at depth")));
+        assert!(msgs
+            .iter()
+            .any(|m| m.starts_with("author/z/bad.sql: parse:")));
         assert_eq!(bank.for_target("ereport:src/x.c:1").len(), 3);
         assert_eq!(bank.for_target("elog:src/y.c:9").len(), 1);
         assert_eq!(bank.for_env("astm").len(), 1);
         assert_eq!(bank.for_env("base").len(), 2);
-        assert_eq!(bank.regression_floor().iter().map(|e| e.id()).collect::<Vec<_>>(), vec!["audit/x/a-1", "audit/x/a-2"]);
+        assert_eq!(
+            bank.regression_floor()
+                .iter()
+                .map(|e| e.id())
+                .collect::<Vec<_>>(),
+            vec!["audit/x/a-1", "audit/x/a-2"]
+        );
         assert_eq!(bank.for_origin("author").len(), 1);
         assert!(bank.load_strict_err());
         assert!(bank.ordered_mismatches().is_empty());
-        assert!(bank.summary().starts_with("recipes=3 wire=3 non_wire=0 errors=3\n"));
+        assert!(bank
+            .summary()
+            .starts_with("recipes=3 wire=3 non_wire=0 errors=3\n"));
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -329,7 +414,10 @@ mod tests {
         // The committed bank is an internal tree the public release tree does
         // not carry; without it there is nothing to check — skip loudly.
         if !root.exists() {
-            eprintln!("committed_bank_is_canonical: SKIP — recipes/ bank missing at {} (public tree)", root.display());
+            eprintln!(
+                "committed_bank_is_canonical: SKIP — recipes/ bank missing at {} (public tree)",
+                root.display()
+            );
             return;
         }
         let bank = Bank::load_strict(&root).unwrap();
@@ -339,20 +427,45 @@ mod tests {
             assert_eq!(e.recipe.render(), text, "{} is not canonical", e.rel_path);
             let again = Recipe::parse(&e.recipe.render()).unwrap();
             assert_eq!(again, e.recipe, "{} does not round-trip", e.rel_path);
-            assert!(!e.recipe.to_steps("bank", 0).is_empty(), "{} has no steps", e.rel_path);
+            assert!(
+                !e.recipe.to_steps("bank", 0).is_empty(),
+                "{} has no steps",
+                e.rel_path
+            );
             let origin = &e.recipe.header.origin;
-            assert!(origin.starts_with("audit:") || origin.starts_with("author:"), "{} origin {:?}", e.rel_path, origin);
+            assert!(
+                origin.starts_with("audit:") || origin.starts_with("author:"),
+                "{} origin {:?}",
+                e.rel_path,
+                origin
+            );
             if e.subsystem == "composition" {
-                assert!(origin.starts_with("author:composition"), "{} origin {:?}", e.rel_path, origin);
-                assert!(e.recipe.note_features().len() >= 2, "{} composes fewer than two features", e.rel_path);
+                assert!(
+                    origin.starts_with("author:composition"),
+                    "{} origin {:?}",
+                    e.rel_path,
+                    origin
+                );
+                assert!(
+                    e.recipe.note_features().len() >= 2,
+                    "{} composes fewer than two features",
+                    e.rel_path
+                );
             }
         }
         let mism = bank.ordered_mismatches();
         assert!(mism.is_empty(), "ordered mismatches: {:?}", mism);
-        assert_eq!(bank.regression_floor().len(), bank.for_origin("audit").len());
+        assert_eq!(
+            bank.regression_floor().len(),
+            bank.for_origin("audit").len()
+        );
         assert!(bank.regression_floor().len() >= 90);
         // The composition bank (RECIPES.md "Composition bank"): at least 40
         // authored recipes, each composing two or more features.
-        assert!(bank.for_origin("author").len() >= 40, "composition bank has {} recipes", bank.for_origin("author").len());
+        assert!(
+            bank.for_origin("author").len() >= 40,
+            "composition bank has {} recipes",
+            bank.for_origin("author").len()
+        );
     }
 }

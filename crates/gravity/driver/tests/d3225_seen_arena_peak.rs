@@ -65,14 +65,27 @@ fn reloads(open: &Open<'_>, ordinal: u16, bytes: usize, held: usize, rounds: usi
 
 /// One run of `program` at `want` whose worker 0 reloads `rounds` x `held` regions of `bytes`; the pool armed with room past
 /// W for them (D225: a worker's draw past its W is reserved at its size).
-fn run(program: &Arc<gravity_program::Program>, want: Grant, bytes: usize, held: usize, rounds: usize) {
+fn run(
+    program: &Arc<gravity_program::Program>,
+    want: Grant,
+    bytes: usize,
+    held: usize,
+    rounds: usize,
+) {
     let need = footprint(want, program, WIDTH);
     POOL.gate(0);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
     assert_eq!(POOL.held(), 0, "a previous run left bytes held");
     POOL.arm(need + (held * bytes) as u64 + 64 * MIB);
-    let res = std::rc::Rc::new(POOL.admit_need(want, &|g| footprint(g, program, WIDTH), Duration::from_millis(10)).unwrap());
+    let res = std::rc::Rc::new(
+        POOL.admit_need(
+            want,
+            &|g| footprint(g, program, WIDTH),
+            Duration::from_millis(10),
+        )
+        .unwrap(),
+    );
     let table = RangeTable::new(BLOCKS, PER_BLOCK);
     let mut derive = FakeDerive::ranges(table);
     let mut entry = Entry::new(2);
@@ -80,22 +93,37 @@ fn run(program: &Arc<gravity_program::Program>, want: Grant, bytes: usize, held:
     {
         let mut sink = LegSink::new();
         let mut b = binding(&[8], &NULLS, &mut sink, &flag);
-        let mut exec = entry.start(None, program, &mut derive, &mut b, res.clone()).unwrap();
-        let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+        let mut exec = entry
+            .start(None, program, &mut derive, &mut b, res.clone())
+            .unwrap();
+        let open = entry
+            .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+            .unwrap();
         assert!(reloads(&open, 0, bytes, held, rounds), "every reload taken");
         let cursor = AtomicU64::new(0);
         for o in 0..WIDTH {
             drain(&open, &cursor, o).unwrap();
         }
-        entry.close_section(open, &mut b, &GroupMerge, true).unwrap();
-        assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+        entry
+            .close_section(open, &mut b, &GroupMerge, true)
+            .unwrap();
+        assert_eq!(
+            entry
+                .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+                .unwrap(),
+            Step::Done
+        );
         entry.end(exec, true);
     }
     drop(res);
     drop(entry);
     REGIONS.trim();
     gravity_driver::DEPOT.trim();
-    assert_eq!(POOL.held(), 0, "every region, chunk and W released at the statement's end");
+    assert_eq!(
+        POOL.held(),
+        0,
+        "every region, chunk and W released at the statement's end"
+    );
     POOL.arm(0);
 }
 
@@ -108,15 +136,28 @@ fn a_reload_given_back_is_not_noted_again_and_the_next_run_reserves_what_a_worke
     // 16 reloads of 8 MiB, one held at a time: 128 MiB of maps, 8 MiB held at once
     run(&program, want, (8 * MIB) as usize, 1, 16);
     let (_, worker) = arena_seen(program.key).expect("the run noted its draws");
-    assert!((8 * MIB..16 * MIB).contains(&worker), "the worker held one 8 MiB region at once, not the 128 MiB of maps: noted {worker}");
+    assert!(
+        (8 * MIB..16 * MIB).contains(&worker),
+        "the worker held one 8 MiB region at once, not the 128 MiB of maps: noted {worker}"
+    );
     let once = footprint(want, &program, WIDTH);
-    assert!(once <= prior + WIDTH as u64 * 16 * MIB, "the next run reserves what a worker held at once: {prior} -> {once}");
+    assert!(
+        once <= prior + WIDTH as u64 * 16 * MIB,
+        "the next run reserves what a worker held at once: {prior} -> {once}"
+    );
     // the same run again: the note does not grow
     run(&program, want, (8 * MIB) as usize, 1, 16);
-    assert_eq!(footprint(want, &program, WIDTH), once, "a run that held as much notes nothing more");
+    assert_eq!(
+        footprint(want, &program, WIDTH),
+        once,
+        "a run that held as much notes nothing more"
+    );
     // two held at once: the note follows what was held
     run(&program, want, (8 * MIB) as usize, 2, 4);
     let (_, worker) = arena_seen(program.key).unwrap();
-    assert!((16 * MIB..24 * MIB).contains(&worker), "two 8 MiB regions held at once: noted {worker}");
+    assert!(
+        (16 * MIB..24 * MIB).contains(&worker),
+        "two 8 MiB regions held at once: noted {worker}"
+    );
     gravity_driver::forget_arena_draws();
 }

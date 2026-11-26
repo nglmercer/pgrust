@@ -27,13 +27,24 @@ fn a_fresh_buffer_leaves_the_pool_with_none_of_an_older_buffers_given_pages() {
     }
     reuse::set_idle_ms(reuse::IDLE_RELEASE_MS);
     let (n0, g0) = (net(), given_back_bytes());
-    assert!(g0 >= (m as i64) * 8, "the older buffer's pages were given back: {g0}");
+    assert!(
+        g0 >= (m as i64) * 8,
+        "the older buffer's pages were given back: {g0}"
+    );
     // a fresh buffer of m words in and out (the older one is past FIT for a take of m words)
     reuse::give(vec![2u64; m]);
-    assert_eq!(net(), n0 + (m as i64) * 8, "the fresh buffer's bytes on the pool's account");
+    assert_eq!(
+        net(),
+        n0 + (m as i64) * 8,
+        "the fresh buffer's bytes on the pool's account"
+    );
     let b = reuse::take(m);
     assert_eq!(b.len(), m, "the fresh buffer back");
-    assert_eq!((net(), given_back_bytes()), (n0, g0), "the older buffer's pages stay given back, off the pool's account");
+    assert_eq!(
+        (net(), given_back_bytes()),
+        (n0, g0),
+        "the older buffer's pages stay given back, off the pool's account"
+    );
     drop(b);
     reuse::release_to(0);
 }

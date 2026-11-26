@@ -65,7 +65,12 @@ const SORT_STREAM: u64 = 1 << 34;
 /// NEW-50: the producer pipelines of `program`'s streamed Incremental Sorts (their run holds a prefix group at a time, not
 /// every row): exec's grant ask sizes their run from the planner's largest prefix group (inputs/knobs/grant.rs).
 pub fn stream_producers(program: &gravity_program::Program) -> impl Iterator<Item = usize> + '_ {
-    program.v4.iter().flat_map(|d| d.protos.iter()).filter(|p| p.kind == ProtoKind::Cte && p.arg & SORT_STREAM != 0).map(|p| p.pipeline as usize)
+    program
+        .v4
+        .iter()
+        .flat_map(|d| d.protos.iter())
+        .filter(|p| p.kind == ProtoKind::Cte && p.arg & SORT_STREAM != 0)
+        .map(|p| p.pipeline as usize)
 }
 
 /// The stream's frame words (byte offsets), keyed under producer `k`: the run's rows in closed prefix groups, the end flag
@@ -86,12 +91,42 @@ pub(crate) struct Words {
 }
 
 pub(crate) fn words(px: &mut Px<'_, '_>, k: usize, pull: Pull) -> Words {
-    let mut word = |i: u8| px.frame_word(WordKey::Open { face: Face::Runs, k, j: u64::MAX, i }) as i32 * 8;
-    let (closed, done, spill) = (word(runs_word::INC_CLOSED), word(runs_word::INC_DONE), word(runs_word::INC_SPILL));
-    let (budget, base, handed) = (word(runs_word::INC_WANT), word(runs_word::INC_BASE), word(runs_word::INC_HANDED));
+    let mut word = |i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k,
+            j: u64::MAX,
+            i,
+        }) as i32
+            * 8
+    };
+    let (closed, done, spill) = (
+        word(runs_word::INC_CLOSED),
+        word(runs_word::INC_DONE),
+        word(runs_word::INC_SPILL),
+    );
+    let (budget, base, handed) = (
+        word(runs_word::INC_WANT),
+        word(runs_word::INC_BASE),
+        word(runs_word::INC_HANDED),
+    );
     let cursor = pull == Pull::Cursor;
-    let (start, batch) = if cursor { (word(runs_word::INC_START), word(runs_word::INC_ASKED)) } else { (0, 0) };
-    Words { closed, done, spill, budget, base, handed, cursor, start, batch }
+    let (start, batch) = if cursor {
+        (word(runs_word::INC_START), word(runs_word::INC_ASKED))
+    } else {
+        (0, 0)
+    };
+    Words {
+        closed,
+        done,
+        spill,
+        budget,
+        base,
+        handed,
+        cursor,
+        start,
+        batch,
+    }
 }
 
 /// How the reader pulls (`form`): a lock's LIMIT count + offset, every pull's budget; or a cursor's batches.
@@ -107,26 +142,47 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize) -> Option<(usize, Pull)> {
     let gx = px.gx;
     let ps = gx.pipelines();
     let p = &ps[k];
-    let (Op::Sort(sd), before) = p.ops.split_last()? else { return None };
-    if !matches!(sd.form, SortForm::Runs) || sd.presorted == 0 || !before.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
+    let (Op::Sort(sd), before) = p.ops.split_last()? else {
+        return None;
+    };
+    if !matches!(sd.form, SortForm::Runs)
+        || sd.presorted == 0
+        || !before
+            .iter()
+            .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)))
+    {
         return None;
     }
-    if !matches!(p.source, Source::Index { .. } | Source::Range { .. }) || p.desc.finish || p.desc.is_eligible() {
+    if !matches!(p.source, Source::Index { .. } | Source::Range { .. })
+        || p.desc.finish
+        || p.desc.is_eligible()
+    {
         return None;
     }
-    if !crate::effects::ops_raise_free(gx, before) || crate::effects::visible::calls_visible(gx, k).is_some() {
+    if !crate::effects::ops_raise_free(gx, before)
+        || crate::effects::visible::calls_visible(gx, k).is_some()
+    {
         return None;
     }
     // a stop a Unique or a sorted group above hands the sort (decompose facts/stream.rs) is incremental.rs's `Batches`, a
     // held sort (D2316) inc_held.rs's
-    if gx.graph.stops.iter().any(|s| p.node_ops.iter().any(|o| o.node_id == s.sort)) || crate::ops::sort::inc_held::reader(gx, k).is_some() {
+    if gx
+        .graph
+        .stops
+        .iter()
+        .any(|s| p.node_ops.iter().any(|o| o.node_id == s.sort))
+        || crate::ops::sort::inc_held::reader(gx, k).is_some()
+    {
         return None;
     }
     // every pipeline (inner ones too) reading a slot `k` fills: one, the lock pipeline, reading it as its source
     let from_k = |q: usize, slot: u8| gx.life_of(q, slot).is_some_and(|l| l.0 as usize == k);
-    let mut readers = (0..ps.len() + ps.inners().len()).filter(|&q| ps[q].desc.consumes.iter().any(|&s| from_k(q, s)));
+    let mut readers = (0..ps.len() + ps.inners().len())
+        .filter(|&q| ps[q].desc.consumes.iter().any(|&s| from_k(q, s)));
     #[allow(clippy::question_mark)]
-    let Some(r) = readers.next() else { return None };
+    let Some(r) = readers.next() else {
+        return None;
+    };
     if readers.next().is_some() {
         return None;
     }
@@ -138,10 +194,20 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize) -> Option<(usize, Pull)> {
         None if cursor_reader(px, r) => Pull::Cursor,
         None => return None,
     };
-    let rerun = |x: usize| gx.graph.reruns.iter().any(|s| s.pipelines.contains(&(x as u16)));
+    let rerun = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|s| s.pipelines.contains(&(x as u16)))
+    };
     let init = |x: usize| gx.graph.init_plans.iter().any(|i| i.pipeline as usize == x);
     let cte = gx.cte_write(r); // `r` is a CTE's plan (its InitPlan's link is the CTE's)
-    if rerun(k) || rerun(r) || init(k) || (init(r) && !cte) || (!cte && gx.end_kind(r) != EndKind::Sink) {
+    if rerun(k)
+        || rerun(r)
+        || init(k)
+        || (init(r) && !cte)
+        || (!cte && gx.end_kind(r) != EndKind::Sink)
+    {
         return None;
     }
     Some((r, pull))
@@ -152,7 +218,12 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize) -> Option<(usize, Pull)> {
 /// FETCH stops pulling.
 fn cursor_reader(px: &Px<'_, '_>, r: usize) -> bool {
     let gx = px.gx;
-    gx.graph.partial && r == gx.graph.root as usize && gx.pipelines()[r].ops.iter().all(|o| matches!(o, Op::Project(_) | Op::FirstOfRun(_)))
+    gx.graph.partial
+        && r == gx.graph.root as usize
+        && gx.pipelines()[r]
+            .ops
+            .iter()
+            .all(|o| matches!(o, Op::Project(_) | Op::FirstOfRun(_)))
 }
 
 /// Reader `r`'s ops after its source are projections, the lock and projections up to the plan node above the lock's, in
@@ -166,7 +237,12 @@ fn lock_bound(px: &Px<'_, '_>, r: usize) -> Option<i64> {
     }
     let n = p.node_ops.iter().rposition(|x| x.first_op as usize <= at)?;
     let above = p.node_ops.get(n + 1)?.first_op as usize;
-    if !p.ops.get(at + 1..above)?.iter().all(|o| matches!(o, Op::Project(_))) {
+    if !p
+        .ops
+        .get(at + 1..above)?
+        .iter()
+        .all(|o| matches!(o, Op::Project(_)))
+    {
         return None;
     }
     match px.request(p.node_ops[n].node_id).bound {
@@ -187,11 +263,20 @@ pub(crate) fn exact(shape: &Shape, pre: usize) -> bool {
 
 /// Producer `k`'s pulled-set object (its handle word), declared once whichever maker asks first.
 fn handle(px: &mut Px<'_, '_>, k: usize, r: usize) -> u16 {
-    if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == k && p.arg & SORT_STREAM != 0) {
+    if let Some(p) = px
+        .protos
+        .iter()
+        .find(|p| p.kind == ProtoKind::Cte && p.pipeline as usize == k && p.arg & SORT_STREAM != 0)
+    {
         return p.words.base;
     }
     let h = px.proto_words(1);
-    px.declare_proto(Proto::new(ProtoKind::Cte, k as u16).peer(r as u16).words(h, 1).arg(SORT_STREAM));
+    px.declare_proto(
+        Proto::new(ProtoKind::Cte, k as u16)
+            .peer(r as u16)
+            .words(h, 1)
+            .arg(SORT_STREAM),
+    );
     h
 }
 
@@ -211,7 +296,16 @@ const STOPPED: i64 = 2;
 /// `fell` (the caller's: its runs put and a stop at the row that opened the next group, `stopped`); a rerun reads on. A
 /// cursor's stream stops through `at_row` (the caller's: the row taken off the run, the stop at it), so a stopped stream's
 /// run holds closed rows only.
-pub(crate) fn closed(b: &mut FunctionBuilder<'_>, env: &mut Env, w: Words, idx: Value, carry: &Carry, next: Value, fell: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env), at_row: Option<&mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env)>) {
+pub(crate) fn closed(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    w: Words,
+    idx: Value,
+    carry: &Carry,
+    next: Value,
+    fell: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env),
+    at_row: Option<&mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env)>,
+) {
     let [l_file, l_spill, l_fell, l_past] = [(); 4].map(|_| b.create_block(&[]));
     let sp = env.load_word(b, w.spill);
     let streaming = b.icmp(IntCond::Eq, sp, env.zero);
@@ -226,8 +320,15 @@ pub(crate) fn closed(b: &mut FunctionBuilder<'_>, env: &mut Env, w: Words, idx: 
     env.store_word(b, w.closed, idx);
     let (budget, base) = (env.load_word(b, w.budget), env.load_word(b, w.base));
     let got = b.int_bin(IntBinOp::Sub, idx, base);
-    let (taken, set) = (b.icmp(IntCond::Sge, got, budget), b.icmp(IntCond::Ne, budget, env.zero));
-    let (full, l_stop, l_on) = (b.int_bin(IntBinOp::And, taken, set), b.create_block(&[]), b.create_block(&[]));
+    let (taken, set) = (
+        b.icmp(IntCond::Sge, got, budget),
+        b.icmp(IntCond::Ne, budget, env.zero),
+    );
+    let (full, l_stop, l_on) = (
+        b.int_bin(IntBinOp::And, taken, set),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(full, (l_stop, &[]), (l_on, &[]));
     b.switch_to(l_stop);
     match at_row {
@@ -274,13 +375,21 @@ struct StreamEmit<'g> {
 }
 
 /// Pipeline `k`'s reader of producer `q`'s stream, when `q` streams (`form`, and `exact` over the reader's `shape`).
-pub(crate) fn reader<'g>(px: &mut Px<'g, '_>, k: usize, q: usize, shape: Shape, pre: usize) -> Result<PgBox<'g, dyn SourceMech + 'g>, Shape> {
+pub(crate) fn reader<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    q: usize,
+    shape: Shape,
+    pre: usize,
+) -> Result<PgBox<'g, dyn SourceMech + 'g>, Shape> {
     match form(px, q) {
         Some((r, pull)) if r == k && exact(&shape, pre) => {
             let h = handle(px, q, r);
             let w = words(px, q, pull);
             let emit = RunEmit::over(px, k, shape);
-            Ok(mcx::pg_box_dyn!(px.mcx(), StreamEmit { emit, w, h, pull, mcx: px.mcx() } => dyn SourceMech + 'g))
+            Ok(
+                mcx::pg_box_dyn!(px.mcx(), StreamEmit { emit, w, h, pull, mcx: px.mcx() } => dyn SourceMech + 'g),
+            )
         }
         _ => Err(shape),
     }
@@ -293,7 +402,10 @@ impl<'g> StreamEmit<'g> {
         match self.pull {
             Pull::Lock(n) => b.iconst(Type::I64, n),
             Pull::Cursor => {
-                let (last, first) = (env.load_word(b, self.w.batch), b.iconst(Type::I64, CURSOR_BATCH));
+                let (last, first) = (
+                    env.load_word(b, self.w.batch),
+                    b.iconst(Type::I64, CURSOR_BATCH),
+                );
                 let short = b.icmp(IntCond::Slt, last, first);
                 b.select(short, first, last)
             }
@@ -303,7 +415,14 @@ impl<'g> StreamEmit<'g> {
     /// C1 part 2: a cursor's pull past every closed row (`l_cursor`): the run emptied when it holds them only (its producer
     /// stopped at a group's first row), the words with it, then the batch twice the last, at most half the room (at least
     /// `CURSOR_BATCH`; that before any).
-    fn cursor_pull(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_cursor: Block, l_pull: Block, l_eof: Block) {
+    fn cursor_pull(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        l_cursor: Block,
+        l_pull: Block,
+        l_eof: Block,
+    ) {
         let (_, w_cursor, _) = self.emit.words();
         let [l_recycle, l_clear] = [(); 2].map(|_| b.create_block(&[]));
         let l_grow = b.create_block(&[Type::I64]);
@@ -324,11 +443,20 @@ impl<'g> StreamEmit<'g> {
         b.br(l_grow, &[room]);
         b.switch_to(l_grow);
         let room = b.block_params(l_grow)[0];
-        let (last, first) = (env.load_word(b, self.w.batch), b.iconst(Type::I64, CURSOR_BATCH));
+        let (last, first) = (
+            env.load_word(b, self.w.batch),
+            b.iconst(Type::I64, CURSOR_BATCH),
+        );
         let twice = b.int_bin(IntBinOp::Add, last, last);
         let half = b.int_bin(IntBinOp::Ushr, room, env.one);
-        let cap = { let big = b.icmp(IntCond::Sgt, half, first); b.select(big, half, first) };
-        let grown = { let under = b.icmp(IntCond::Slt, twice, cap); b.select(under, twice, cap) };
+        let cap = {
+            let big = b.icmp(IntCond::Sgt, half, first);
+            b.select(big, half, first)
+        };
+        let grown = {
+            let under = b.icmp(IntCond::Slt, twice, cap);
+            b.select(under, twice, cap)
+        };
         let fresh = b.icmp(IntCond::Slt, last, first);
         let next = b.select(fresh, first, grown);
         env.store_word(b, self.w.batch, next);
@@ -339,11 +467,35 @@ impl<'g> StreamEmit<'g> {
 impl<'g> SourceMech for StreamEmit<'g> {
     fn open_words(&self, w: &mut OpenWords) {
         self.emit.open_words(w);
-        w.declare(OpenWord::open("incremental stream budget", Base::Words, self.w.budget, Type::I64, 0));
-        w.declare(OpenWord::open("incremental stream pulled at", Base::Words, self.w.base, Type::I64, 0));
-        w.declare(OpenWord::open("incremental stream rows handed before a re-arm", Base::Words, self.w.handed, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "incremental stream budget",
+            Base::Words,
+            self.w.budget,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "incremental stream pulled at",
+            Base::Words,
+            self.w.base,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "incremental stream rows handed before a re-arm",
+            Base::Words,
+            self.w.handed,
+            Type::I64,
+            0,
+        ));
         if self.w.cursor {
-            w.declare(OpenWord::open("incremental stream cursor batch", Base::Words, self.w.batch, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "incremental stream cursor batch",
+                Base::Words,
+                self.w.batch,
+                Type::I64,
+                0,
+            ));
         }
     }
 
@@ -367,17 +519,27 @@ impl<'g> SourceMech for StreamEmit<'g> {
     /// (`cursor_pull`); past a re-arm it pulls its last batch.
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (w_mode, w_cursor, w_total) = self.emit.words();
-        let [l_top, l_mem, l_merge, l_drained, l_rearm, l_fell, l_switch, l_check, l_past, l_bad, l_ok] = [(); 11].map(|_| b.create_block(&[]));
-        let (l_win, l_pull) = (b.create_block(&[Type::I64, Type::I64, Type::I64]), b.create_block(&[Type::I64]));
+        let [l_top, l_mem, l_merge, l_drained, l_rearm, l_fell, l_switch, l_check, l_past, l_bad, l_ok] =
+            [(); 11].map(|_| b.create_block(&[]));
+        let (l_win, l_pull) = (
+            b.create_block(&[Type::I64, Type::I64, Type::I64]),
+            b.create_block(&[Type::I64]),
+        );
         b.br(l_top, &[]);
         b.switch_to(l_top);
         let (mode, cur) = (env.load_word(b, w_mode), env.load_word(b, w_cursor));
-        let in_place = { let m = b.iconst(Type::I64, gravity_kernels::host_abi::SORT_MODE_MEM); b.icmp(IntCond::Eq, mode, m) };
+        let in_place = {
+            let m = b.iconst(Type::I64, gravity_kernels::host_abi::SORT_MODE_MEM);
+            b.icmp(IntCond::Eq, mode, m)
+        };
         b.cond_br(in_place, (l_mem, &[]), (l_merge, &[]));
         // the merge after a fallback: its rows past the cursor (a mode of 0 sends nothing)
         b.switch_to(l_merge);
         let total = env.load_word(b, w_total);
-        let (on, left) = (b.icmp(IntCond::Sgt, mode, env.zero), b.icmp(IntCond::Slt, cur, total));
+        let (on, left) = (
+            b.icmp(IntCond::Sgt, mode, env.zero),
+            b.icmp(IntCond::Slt, cur, total),
+        );
         let go = b.int_bin(IntBinOp::And, on, left);
         b.cond_br(go, (l_win, &[total, mode, cur]), (l_drained, &[]));
         // past the merge: the end once the producer ended, else the stream streams on
@@ -415,7 +577,10 @@ impl<'g> SourceMech for StreamEmit<'g> {
         b.switch_to(l_fell);
         let done = env.load_word(b, self.w.done);
         let ended = b.icmp(IntCond::Ne, done, env.zero);
-        let stop = { let s2 = b.iconst(Type::I64, STOPPED); b.icmp(IntCond::Eq, sp, s2) };
+        let stop = {
+            let s2 = b.iconst(Type::I64, STOPPED);
+            b.icmp(IntCond::Eq, sp, s2)
+        };
         let ready = b.int_bin(IntBinOp::Or, ended, stop);
         let full = self.full(b, env);
         b.cond_br(ready, (l_switch, &[]), (l_pull, &[full]));
@@ -454,7 +619,10 @@ impl<'g> SourceMech for StreamEmit<'g> {
         b.mark_cold(l_bad);
         b.cond_br(bad, (l_bad, &[]), (l_ok, &[]));
         b.switch_to(l_bad);
-        let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
+        let e = b.iconst(
+            Type::I64,
+            gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64,
+        );
         b.br(env.l_raise, &[e]);
         b.switch_to(l_ok);
         b.br(l_top, &[]);
@@ -462,7 +630,15 @@ impl<'g> SourceMech for StreamEmit<'g> {
         self.emit.window(b, p[1], p[2], p[0], l_win)
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.emit.row(b, env, win, j, carry, next)
     }
 
@@ -474,7 +650,13 @@ impl<'g> SourceMech for StreamEmit<'g> {
     fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize) -> Pipeline {
         let d = px.gx.pipelines()[k].desc;
         match d.is_eligible() {
-            true => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::Host }, ..d },
+            true => Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason: Why::Host,
+                },
+                ..d
+            },
             false => d,
         }
     }

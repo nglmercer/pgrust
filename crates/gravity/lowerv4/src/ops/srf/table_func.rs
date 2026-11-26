@@ -11,19 +11,32 @@
 use gravity_decompose::Source;
 use mcx::PgBox;
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::source::SourceMech;
 use crate::frame::frame::SourceMaker;
 use crate::frame::px::Px;
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrfTablefunc, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrfTablefunc, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let Source::TableFunc { scanrelid, func, .. } = &p.source else { crate::refuse!(p.node_id, Reason::Bug { payload: "a table function entry over another source" }) };
+    let Source::TableFunc {
+        scanrelid, func, ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            p.node_id,
+            Reason::Bug {
+                payload: "a table function entry over another source"
+            }
+        )
+    };
     let types = mcx::to_vec_in(func.coltypes.as_slice(), px.mcx());
     crate::rerun::store_read::scan(px, k, *scanrelid as i32, types)
 }

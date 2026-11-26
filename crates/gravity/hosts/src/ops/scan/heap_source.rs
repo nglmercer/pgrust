@@ -4,16 +4,26 @@ use std::sync::Arc;
 
 use crate::ops::scan::pgrc::lanebits::LaneBits;
 
-use bufmgr_seams::{free_access_strategy, get_access_strategy, get_access_strategy_buffer_count, get_access_strategy_with_size, lock_buffer, read_buffer, read_buffer_batched_without_relcache, read_buffer_without_relcache, read_recent_buffer, release_buffer, relation_get_number_of_blocks_in_fork, BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK};
+use bufmgr_seams::{
+    free_access_strategy, get_access_strategy, get_access_strategy_buffer_count,
+    get_access_strategy_with_size, lock_buffer, read_buffer, read_buffer_batched_without_relcache,
+    read_buffer_without_relcache, read_recent_buffer, relation_get_number_of_blocks_in_fork,
+    release_buffer, BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK,
+};
 use gravity_abi::ctx::lane;
 use gravity_abi::site::site::{PAGE_FULL, PAGE_IOTA, PAGE_NONULLS};
 use gravity_abi::{Datum as Word, Lane, ScanPos};
 use gravity_driver::{BindingRef, Cursor, Error, Result, Source, Window, WindowBase};
 use gravity_program::LaneId;
 use heapam::HeapCheckForSerializableConflictOut;
-use types_core::{BlockNumber, Buffer, ForkNumber, Oid, BLCKSZ, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_TEMP, RELPERSISTENCE_UNLOGGED};
+use types_core::{
+    BlockNumber, Buffer, ForkNumber, Oid, BLCKSZ, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_TEMP,
+    RELPERSISTENCE_UNLOGGED,
+};
 use types_error::{PgError, PgResult, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE};
-use types_rel::{Relation, RelationData, RELKIND_MATVIEW, RELKIND_RELATION, RELKIND_SEQUENCE, RELKIND_TOASTVALUE};
+use types_rel::{
+    Relation, RelationData, RELKIND_MATVIEW, RELKIND_RELATION, RELKIND_SEQUENCE, RELKIND_TOASTVALUE,
+};
 use types_snapshot::{SnapshotData, XidVisMemo};
 use types_storage::buf::{BufferAccessStrategy, BufferAccessStrategyType};
 use types_storage::bufpage::{MaxHeapTuplesPerPage, PageRef};
@@ -21,10 +31,12 @@ use types_storage::{ReadBufferMode, RelFileLocator};
 use types_tuple::tupdesc::CompactAttribute;
 use types_tuple::{HeapTupleData, ItemPointerData, HEAP_HASNULL};
 
+use crate::ops::scan::heap_window::{
+    count_hinted, deform_rows, hinted_visible, reach, Lanes, Shape, LANE_LATE, PAGE_ALL_VISIBLE,
+};
 use crate::ops::scan::index_source::{open_heap, park};
-use crate::ops::shared::rel::snapshot_ptr;
-use crate::ops::scan::heap_window::{count_hinted, deform_rows, hinted_visible, reach, Lanes, Shape, LANE_LATE, PAGE_ALL_VISIBLE};
 use crate::ops::scan::page_hints::PageHints;
+use crate::ops::shared::rel::snapshot_ptr;
 use crate::scratch::NodeScratch;
 
 use crate::ops::scan::heap_window::{PAGE_ROWS, PAGE_VALIDITY_WORDS};
@@ -37,7 +49,10 @@ static DEFORMED_PAGES: AtomicU64 = AtomicU64::new(0);
 
 /// `(raw windows, pages deformed into lanes)` so far in this process: a page the program read alone never counts in the second.
 pub fn page_census() -> (u64, u64) {
-    (RAW_WINDOWS.load(Ordering::Relaxed), DEFORMED_PAGES.load(Ordering::Relaxed))
+    (
+        RAW_WINDOWS.load(Ordering::Relaxed),
+        DEFORMED_PAGES.load(Ordering::Relaxed),
+    )
 }
 
 #[derive(Clone)]
@@ -96,8 +111,13 @@ const WALK_CANCELED: &str = "gravity: a heap walk stopped for its statement's ca
 
 #[cold]
 pub(crate) fn unpopulated(name: &str) -> Box<PgError> {
-    let e = PgError::error(format!("materialized view \"{name}\" has not been populated")); // alloc: Cold
-    Box::<PgError>::new(e.with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE).with_hint("Use the REFRESH MATERIALIZED VIEW command.")) // alloc: Cold
+    let e = PgError::error(format!(
+        "materialized view \"{name}\" has not been populated"
+    )); // alloc: Cold
+    Box::<PgError>::new(
+        e.with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
+            .with_hint("Use the REFRESH MATERIALIZED VIEW command."),
+    ) // alloc: Cold
 }
 
 impl RangeRecipe {
@@ -111,11 +131,20 @@ impl RangeRecipe {
     /// as datum pointers into the pinned page — valid while the window is current, never
     /// detoasted (a compressed or external image is the kernel's to refuse). The other lanes
     /// follow `from_plan`'s rule.
-    pub fn from_plan_byref(heap: &Relation<'_>, attnos: &[i16], byref: &[u64]) -> PgResult<RangeRecipe> {
-        let table_am = matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE);
+    pub fn from_plan_byref(
+        heap: &Relation<'_>,
+        attnos: &[i16],
+        byref: &[u64],
+    ) -> PgResult<RangeRecipe> {
+        let table_am = matches!(
+            heap.rd_rel.relkind,
+            RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE
+        );
         // a sequence's one tuple is a heap page's (no table AM: relam 0), which PostgreSQL's SeqScan reads as heap
         let sequence = heap.rd_rel.relkind == RELKIND_SEQUENCE;
-        if !sequence && (!table_am || tableam_vocab::TableAm::of(heap) != Some(tableam_vocab::TableAm::Heap)) {
+        if !sequence
+            && (!table_am || tableam_vocab::TableAm::of(heap) != Some(tableam_vocab::TableAm::Heap))
+        {
             return Err(err("gravity: heap AM only"));
         }
         let byref = LaneBits::from_words(attnos.len(), byref);
@@ -148,18 +177,26 @@ impl RangeRecipe {
         let mut atts: Vec<CompactAttribute> = Vec::with_capacity(want); // alloc: Program
         let mut missing: Vec<(bool, u64)> = Vec::with_capacity(want); // alloc: Program
         let mut imgs: Vec<Box<[u64]>> = Vec::new(); // alloc: Program
-        // bounded("key-columns: one attribute copy per column up to the last one read, at plan time, at most MaxTupleAttributeNumber (1664) columns")
+                                                    // bounded("key-columns: one attribute copy per column up to the last one read, at plan time, at most MaxTupleAttributeNumber (1664) columns")
         for i in 0..want {
             let slot = heap.rd_att.compact_attrs[i].clone();
             slot.attcacheoff.set(-1);
-            let m = if slot.atthasmissing { heap.rd_att.constr.as_ref().and_then(|c| c.missing.get(i)).filter(|m| m.am_present) } else { None };
+            let m = if slot.atthasmissing {
+                heap.rd_att
+                    .constr
+                    .as_ref()
+                    .and_then(|c| c.missing.get(i))
+                    .filter(|m| m.am_present)
+            } else {
+                None
+            };
             let word = match m {
                 Some(m) if !slot.attbyval => {
                     let p = m.am_value.as_u64() as *const u8;
                     // a present by-reference attmissingval addresses its image in the relcache entry (raw::missing_len)
                     let len = raw::missing_len(slot.attlen, p);
                     let mut img = vec![0u64; len.div_ceil(8)].into_boxed_slice(); // alloc: Program
-                    // `img` holds at least `len` bytes; the source is `len` bytes (above)
+                                                                                  // `img` holds at least `len` bytes; the source is `len` bytes (above)
                     raw::copy_missing(p, &mut img, len);
                     let w = img.as_ptr() as u64;
                     imgs.push(img);
@@ -171,7 +208,23 @@ impl RangeRecipe {
             missing.push(word);
             atts.push(slot);
         }
-        Ok(RangeRecipe { heap: heap.rd_id, natts: attnos.len(), attnos: Arc::from(attnos), want, atts: Arc::from(atts), heap_natts: heap.rd_att.natts, relam: heap.rd_rel.relam, byref, missing: Arc::from(missing), missing_imgs: Arc::from(imgs), stream: Arc::new(AtomicBool::new(false)), set: None, set_pruned: false, run_counted: false, seek_counted: false }) // alloc: Program
+        Ok(RangeRecipe {
+            heap: heap.rd_id,
+            natts: attnos.len(),
+            attnos: Arc::from(attnos),
+            want,
+            atts: Arc::from(atts),
+            heap_natts: heap.rd_att.natts,
+            relam: heap.rd_rel.relam,
+            byref,
+            missing: Arc::from(missing),
+            missing_imgs: Arc::from(imgs),
+            stream: Arc::new(AtomicBool::new(false)),
+            set: None,
+            set_pruned: false,
+            run_counted: false,
+            seek_counted: false,
+        }) // alloc: Program
     }
 }
 
@@ -241,17 +294,37 @@ impl RelSet {
 
     /// D3663: `resolve` over the members `keep` names by their position in the set (an Append's initial pruning keeps
     /// them, exec append/proto.rs `Initial::file_sets`): no other member is opened or sized.
-    pub fn resolve_kept(mcx: mcx::Mcx<'_>, recipe: &RangeRecipe, keep: &dyn Fn(usize) -> bool) -> PgResult<RelSet> {
-        let set: &[Oid] = recipe.set.as_deref().unwrap_or(core::slice::from_ref(&recipe.heap));
+    pub fn resolve_kept(
+        mcx: mcx::Mcx<'_>,
+        recipe: &RangeRecipe,
+        keep: &dyn Fn(usize) -> bool,
+    ) -> PgResult<RelSet> {
+        let set: &[Oid] = recipe
+            .set
+            .as_deref()
+            .unwrap_or(core::slice::from_ref(&recipe.heap));
         let mut rels = Vec::with_capacity(set.len()); // alloc: Exec
         let mut starts = Vec::with_capacity(set.len() + 1); // alloc: Exec
         let mut total = 0u64;
         // bounded("catalog-sized: one relation per member of the site's relation set (an Append's arms, a partitioned table's leaves), opened and sized as PG's executor opens each at its start")
         for (_, &oid) in set.iter().enumerate().filter(|&(i, _)| keep(i)) {
             let heap = table::table_open(mcx, oid, types_storage::lock::NoLock)?;
-            let same = heap.rd_att.natts == recipe.heap_natts && heap.rd_rel.relam == recipe.relam && heap.rd_rel.relpersistence == RELPERSISTENCE_PERMANENT && !heap.uses_local_buffers();
-            let n = if same { relation_get_number_of_blocks_in_fork::call(&heap, ForkNumber::MAIN_FORKNUM) } else { Ok(0) };
-            let r = SetRel { oid, locator: heap.rd_locator.get(), nblocks: 0, shared: heap.rd_rel.relisshared, stats: heap.pgstat_enabled.get() };
+            let same = heap.rd_att.natts == recipe.heap_natts
+                && heap.rd_rel.relam == recipe.relam
+                && heap.rd_rel.relpersistence == RELPERSISTENCE_PERMANENT
+                && !heap.uses_local_buffers();
+            let n = if same {
+                relation_get_number_of_blocks_in_fork::call(&heap, ForkNumber::MAIN_FORKNUM)
+            } else {
+                Ok(0)
+            };
+            let r = SetRel {
+                oid,
+                locator: heap.rd_locator.get(),
+                nblocks: 0,
+                shared: heap.rd_rel.relisshared,
+                stats: heap.pgstat_enabled.get(),
+            };
             heap.close(types_storage::lock::NoLock)?;
             if !same {
                 return Err(err("gravity: relation changed under the parked plan"));
@@ -262,7 +335,10 @@ impl RelSet {
             rels.push(SetRel { nblocks, ..r }); // alloc: Exec
         }
         starts.push(total); // alloc: Exec
-        Ok(RelSet { rels: rels.into_boxed_slice(), starts: starts.into_boxed_slice() })
+        Ok(RelSet {
+            rels: rels.into_boxed_slice(),
+            starts: starts.into_boxed_slice(),
+        })
     }
 
     /// The blocks of every relation.
@@ -286,7 +362,9 @@ impl RelSet {
     /// The relation holding block `g` of the claims' space (`g < total`): the last whose first block is at most `g` (an
     /// empty relation's first block is its successor's).
     fn at(&self, g: u64) -> usize {
-        self.starts[..self.rels.len()].partition_point(|&s| s <= g).saturating_sub(1)
+        self.starts[..self.rels.len()]
+            .partition_point(|&s| s <= g)
+            .saturating_sub(1)
     }
 }
 
@@ -310,7 +388,12 @@ pub trait SampleFilter {
     fn next_block(&mut self, nblocks: BlockNumber) -> PgResult<Option<BlockNumber>>;
     fn keep(&mut self, blk: BlockNumber, maxoff: u16, vis: &mut [u16]) -> usize;
     /// The visible tuples `vis` of pinned, share-locked page `page` (block `blk`) to keep, compacted to the front.
-    fn keep_page(&mut self, _blk: BlockNumber, _page: PageRef<'_>, vis: &mut [u16]) -> PgResult<usize> {
+    fn keep_page(
+        &mut self,
+        _blk: BlockNumber,
+        _page: PageRef<'_>,
+        vis: &mut [u16],
+    ) -> PgResult<usize> {
         Ok(vis.len())
     }
     /// The current page's window flags (`site::PAGE_RECHECK`), published on its host-deformed window.
@@ -371,7 +454,10 @@ pub type HeldOwner = Option<(memledger::Owner, memledger::Kind)>;
 
 /// An empty scratch charged to `owner` as it grows (uncharged with none).
 pub(crate) fn charged_scratch<T>(owner: HeldOwner) -> memledger::ChargedVec<T> {
-    memledger::ChargedVec::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1)) // alloc: Node charged owner
+    memledger::ChargedVec::new(
+        owner.map(|o| o.0),
+        owner.map_or(memledger::Kind::Region, |o| o.1),
+    ) // alloc: Node charged owner
 }
 
 /// The release a charge on `o` states (memledger `ChargedVec`'s rule).
@@ -380,19 +466,26 @@ pub(crate) fn release_of(o: memledger::Owner) -> memledger::Release {
         memledger::Owner::Portal { .. } => memledger::Release::Portal,
         memledger::Owner::Session(_) => memledger::Release::Session,
         memledger::Owner::Cache(_) => memledger::Release::Evict,
-        memledger::Owner::Statement { .. } | memledger::Owner::WorkerSet(_) | memledger::Owner::Op { .. } => memledger::Release::Statement,
+        memledger::Owner::Statement { .. }
+        | memledger::Owner::WorkerSet(_)
+        | memledger::Owner::Op { .. } => memledger::Release::Statement,
     }
 }
 
 impl HeldCharge {
     pub(crate) const fn new() -> HeldCharge {
-        HeldCharge { charge: memledger::Charge::NONE, at: None, live: false }
+        HeldCharge {
+            charge: memledger::Charge::NONE,
+            at: None,
+            live: false,
+        }
     }
 
     /// The slot the window's pipeline produces into (its breaker's kind), else the statement or the portal
     /// (`Kind::Region`); `None` with neither (a rig's window).
     pub(crate) fn owner_of(w: &Window<'_>) -> HeldOwner {
-        w.op_owner().or_else(|| w.stmt_owner().map(|(o, _)| (o, memledger::Kind::Region)))
+        w.op_owner()
+            .or_else(|| w.stmt_owner().map(|(o, _)| (o, memledger::Kind::Region)))
     }
 
     /// The bind's owner until a window names the breaker: the statement or the portal (`gravity_driver::stmt_context`;
@@ -411,8 +504,13 @@ impl HeldCharge {
     /// True when it moved (a source hands its cursors the new owner).
     #[inline]
     pub(crate) fn home(&mut self, to: HeldOwner) -> bool {
-        let Some((o, k)) = to.filter(|&t| self.at != Some(t)) else { return false };
-        let old = core::mem::replace(&mut self.charge, memledger::Charge::open(o, release_of(o), k, memledger::charge::Door::Heap, 0));
+        let Some((o, k)) = to.filter(|&t| self.at != Some(t)) else {
+            return false;
+        };
+        let old = core::mem::replace(
+            &mut self.charge,
+            memledger::Charge::open(o, release_of(o), k, memledger::charge::Door::Heap, 0),
+        );
         self.charge.absorb(old);
         (self.at, self.live) = (to, true);
         true
@@ -443,7 +541,10 @@ impl HeldCharge {
     pub(crate) fn park(&mut self, bytes: u64) {
         self.sync(bytes);
         if let Some((o, _)) = self.at.take() {
-            self.charge.transfer(memledger::Owner::Session(o.acct()), memledger::Release::Session);
+            self.charge.transfer(
+                memledger::Owner::Session(o.acct()),
+                memledger::Release::Session,
+            );
         }
     }
 
@@ -619,7 +720,7 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             lanes: vec![0; natts * PAGE_ROWS], // alloc: Node
             valid: vec![0; natts * PAGE_VALIDITY_WORDS], // alloc: Node
             vals: vec![datum::Datum::from_u64(0); want], // alloc: Node
-            nulls: vec![false; want], // alloc: Node
+            nulls: vec![false; want],          // alloc: Node
             substituted: None,
             raw: false,
             filled: 0,
@@ -656,7 +757,7 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             set_hi: 0,
             leader: true,
             set_counts: Vec::new(), // alloc: Node
-            set_prune: Vec::new(), // alloc: Node
+            set_prune: Vec::new(),  // alloc: Node
             site: usize::MAX,
         }
     }
@@ -708,7 +809,14 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         // D3586 / D3597: a plain scan of an Append arm this execution's initial pruning removed (`Resolved::site_pruned`),
         // or (D3663) a relation set it removed whole; any other relation-set site (D3585) reads its execution's relations
         // as `claims_of` or `Initial::file_sets` resolved them
-        if !S::ACTIVE && !S::BITMAP && self.walk.is_none() && !self.worker && b.resolved.and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>()).is_some_and(|r| r.site_pruned(self.site)) {
+        if !S::ACTIVE
+            && !S::BITMAP
+            && self.walk.is_none()
+            && !self.worker
+            && b.resolved
+                .and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>())
+                .is_some_and(|r| r.site_pruned(self.site))
+        {
             self.bind_pruned(b);
             return Ok(());
         }
@@ -718,12 +826,20 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         if let Some(i) = self.set_at {
             // the set's first relation is bound, parked and counted as a one-relation site's; the claims' relations are
             // taken at their seeks (`enter`)
-            let filed = b.resolved.and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>()).and_then(|r| r.rel_set(i)).cloned();
+            let filed = b
+                .resolved
+                .and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>())
+                .and_then(|r| r.rel_set(i))
+                .cloned();
             let set = match filed {
                 Some(set) => set,
                 // D3663: a pruned set's survivors are this execution's; resolving the whole set would open, size and count
                 // every member its Append removed: no path resolves the whole set
-                None if self.recipe.set_pruned => return Err(err("gravity: a pruned relation set bound without its survivors (D3663)")),
+                None if self.recipe.set_pruned => {
+                    return Err(err(
+                        "gravity: a pruned relation set bound without its survivors (D3663)",
+                    ))
+                }
                 None => Arc::new(RelSet::resolve(self.scratch.mcx(), &self.recipe)?), // alloc: Exec
             };
             // D3663: a pruned set's first survivor moves with the execution's parameters: the relation parked by an
@@ -731,8 +847,12 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             // D3681: a recheck node's site substituted with a row's newest version (EvalPlanQual, exec rerun/epq.rs) binds
             // that row's own member, where the walk stopped: its window is that row alone (`window_substituted`), and no
             // other member is counted, as a one-relation arm's recheck binds its relation alone
-            let sub = self.substituted.map(|p| p.rel).filter(|&r| set.rels.iter().any(|e| e.oid == r));
-            self.recipe.heap = sub.unwrap_or_else(|| set.rels.first().map_or(self.recipe.heap, |r| r.oid));
+            let sub = self
+                .substituted
+                .map(|p| p.rel)
+                .filter(|&r| set.rels.iter().any(|e| e.oid == r));
+            self.recipe.heap =
+                sub.unwrap_or_else(|| set.rels.first().map_or(self.recipe.heap, |r| r.oid));
             if self.parked_oid != self.recipe.heap {
                 self.parked = None;
             }
@@ -760,14 +880,20 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             RELPERSISTENCE_UNLOGGED | RELPERSISTENCE_TEMP => false,
             _ => {
                 heap.close(types_storage::lock::NoLock)?;
-                return Err(err("gravity: range source over a relation of unknown persistence"));
+                return Err(err(
+                    "gravity: range source over a relation of unknown persistence",
+                ));
             }
         };
-        self.nblocks = relation_get_number_of_blocks_in_fork::call(&heap, ForkNumber::MAIN_FORKNUM)?;
+        self.nblocks =
+            relation_get_number_of_blocks_in_fork::call(&heap, ForkNumber::MAIN_FORKNUM)?;
         let walk = self.walk;
         // D3670: a member-driven site's scans count at its runs (`count_scan`), a probed site's at its seeks, each what the
         // bind counts here for any other site
-        let (counts, at_run) = (b.ordinal.is_none() && !S::BITMAP, self.recipe.run_counted || self.recipe.seek_counted);
+        let (counts, at_run) = (
+            b.ordinal.is_none() && !S::BITMAP,
+            self.recipe.run_counted || self.recipe.seek_counted,
+        );
         self.run_scan = None;
         self.stats = heap.pgstat_enabled.get().then(|| {
             let scan = match walk {
@@ -786,17 +912,27 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         self.walk_fetched = 0;
         // D3585: every relation of the set counts its scan at the bind, as a one-relation site per arm does (D3681: a
         // substituted recheck's bind its row's member alone, above)
-        if let (Some(set), true, false, None) = (self.set.as_ref(), counts, at_run, self.substituted) {
+        if let (Some(set), true, false, None) =
+            (self.set.as_ref(), counts, at_run, self.substituted)
+        {
             // bounded("catalog-sized: one scan count per relation of the site's relation set")
             for r in set.rels.iter().skip(1).filter(|r| r.stats) {
                 pgstat::relation::pgstat_count_heap_scan(r.oid, r.shared);
             }
         }
-        (self.run_counted, self.seek_count, self.reached) = (counts && self.recipe.run_counted, counts && self.recipe.seek_counted && !self.recipe.run_counted, 0);
+        (self.run_counted, self.seek_count, self.reached) = (
+            counts && self.recipe.run_counted,
+            counts && self.recipe.seek_counted && !self.recipe.run_counted,
+            0,
+        );
         let snapshot = snapshot_ptr(b);
         // the leader's registered snapshot, alive from bind to unbind (`snapshot_ptr`); null on a claimless bind
         let ssi = match raw::snapshot_opt(snapshot) {
-            Some(s) if predicate_seams::check_for_serializable_conflict_out_needed::is_installed() => serializable_read(&heap, s),
+            Some(s)
+                if predicate_seams::check_for_serializable_conflict_out_needed::is_installed() =>
+            {
+                serializable_read(&heap, s)
+            }
             _ => Ok(false),
         };
         self.ssi = match ssi {
@@ -810,10 +946,16 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         self.parked = park(Some(heap))?;
         // D3585: a serializable read predicate-locks every relation of the set at the bind, as a one-relation site per arm
         // does at its own (an empty relation included: an insert into it conflicts with this read)
-        if let (true, Some(set), Some(snap), None) = (self.ssi, self.set.clone(), raw::snapshot_opt(snapshot), self.substituted) {
+        if let (true, Some(set), Some(snap), None) = (
+            self.ssi,
+            self.set.clone(),
+            raw::snapshot_opt(snapshot),
+            self.substituted,
+        ) {
             // bounded("catalog-sized: one predicate lock per relation of the site's relation set, as PG's Append takes one per arm it begins")
             for r in set.rels.iter().skip(1) {
-                let rel = table::table_open(self.scratch.mcx(), r.oid, types_storage::lock::NoLock)?;
+                let rel =
+                    table::table_open(self.scratch.mcx(), r.oid, types_storage::lock::NoLock)?;
                 let locked = serializable_read(&rel, snap);
                 rel.close(types_storage::lock::NoLock)?;
                 locked?;
@@ -831,10 +973,27 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             0 => Buffer::MAX, // no shared pool in this process: the hosts rig's fake bufmgr verifies a guess itself
             n => n,
         };
-        self.hints = if self.local { None } else { PageHints::of(self.locator, self.nblocks, self.nbuffers) };
+        self.hints = if self.local {
+            None
+        } else {
+            PageHints::of(self.locator, self.nblocks, self.nbuffers)
+        };
         let stream = !self.local && self.permanent && self.recipe.stream.load(Ordering::Relaxed);
-        self.ahead = if stream { crate::ops::scan::heap_window::read_ahead(self.locator, self.nblocks, b.ordinal.is_none()) } else { None };
-        if S::RING && !self.local && self.nblocks as u64 > (self.nbuffers / 4) as u64 && self.strategy.is_none() && get_access_strategy::is_installed() {
+        self.ahead = if stream {
+            crate::ops::scan::heap_window::read_ahead(
+                self.locator,
+                self.nblocks,
+                b.ordinal.is_none(),
+            )
+        } else {
+            None
+        };
+        if S::RING
+            && !self.local
+            && self.nblocks as u64 > (self.nbuffers / 4) as u64
+            && self.strategy.is_none()
+            && get_access_strategy::is_installed()
+        {
             self.strategy = bulk_read_ring();
         }
         self.cur.clear();
@@ -882,7 +1041,10 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         let buf = if !self.local {
             let hinted = self.hints.as_ref().map_or(0, |h| h.get(blk));
             let g = if hinted > 0 { hinted } else { self.guess };
-            if g > 0 && g <= self.nbuffers && read_recent_buffer::call(self.locator, ForkNumber::MAIN_FORKNUM, blk, g)? {
+            if g > 0
+                && g <= self.nbuffers
+                && read_recent_buffer::call(self.locator, ForkNumber::MAIN_FORKNUM, blk, g)?
+            {
                 if hinted == 0 {
                     if let Some(h) = &self.hints {
                         h.set(blk, g);
@@ -905,16 +1067,33 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             // D2939: a read outside a claim's run (the EPQ substitution: `hi` is 0) reads its one block; `hi - blk` wrapped
             // there (D1360's sweep: an overflow panic in a debug build; in a release one a read-ahead of up to
             // io_combine_limit blocks the recheck never visits).
-            let ahead = if S::SPARSE { 1 } else { self.hi.min(self.nblocks as u64).saturating_sub(blk as u64) as BlockNumber };
+            let ahead = if S::SPARSE {
+                1
+            } else {
+                self.hi.min(self.nblocks as u64).saturating_sub(blk as u64) as BlockNumber
+            };
             let b = if ahead > 1 && read_buffer_batched_without_relcache::is_installed() {
-                let (b, hit) = read_buffer_batched_without_relcache::call(self.locator, blk, ahead, self.strategy.clone(), self.permanent)?;
+                let (b, hit) = read_buffer_batched_without_relcache::call(
+                    self.locator,
+                    blk,
+                    ahead,
+                    self.strategy.clone(),
+                    self.permanent,
+                )?;
                 // heap.stream: a combined read that missed shared buffers advises the blocks past it (a hit advises nothing)
                 if let (false, Some(a)) = (hit, &self.ahead) {
                     a.advise(blk)?;
                 }
                 b
             } else {
-                read_buffer_without_relcache::call(self.locator, ForkNumber::MAIN_FORKNUM, blk, ReadBufferMode::Normal, self.strategy.clone(), self.permanent)?
+                read_buffer_without_relcache::call(
+                    self.locator,
+                    ForkNumber::MAIN_FORKNUM,
+                    blk,
+                    ReadBufferMode::Normal,
+                    self.strategy.clone(),
+                    self.permanent,
+                )?
             };
             if let Some(h) = &self.hints {
                 h.set(blk, b);
@@ -928,9 +1107,13 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             b
         } else {
             if !self.on_bind_thread {
-                return Err(err("gravity: a temporary relation read off its backend's thread"));
+                return Err(err(
+                    "gravity: a temporary relation read off its backend's thread",
+                ));
             }
-            let Some(rel) = self.rel.as_deref() else { return Err(err("gravity: a temporary relation's parked entry is gone")) };
+            let Some(rel) = self.rel.as_deref() else {
+                return Err(err("gravity: a temporary relation's parked entry is gone"));
+            };
             let b = read_buffer::call(rel, blk)?;
             self.buf = Some(b);
             if let Some(st) = self.stats.as_mut() {
@@ -946,10 +1129,13 @@ impl<S: SampleFilter> HeapRangeSource<S> {
     /// counts (the left relation's kept for the unbind), and on the bind thread its relcache entry (the prune and the
     /// serializable check take it; a serializable walk predicate-locks each relation it enters, as heapam's beginscan).
     fn enter(&mut self, r: usize) -> PgResult<()> {
-        let Some(e) = self.set.as_ref().and_then(|set| set.rels.get(r)).copied() else { return Err(err("gravity: a claim outside its relation set")) };
+        let Some(e) = self.set.as_ref().and_then(|set| set.rels.get(r)).copied() else {
+            return Err(err("gravity: a claim outside its relation set"));
+        };
         if let Some((shared, n, fetched, hit)) = self.stats.take() {
             if n | fetched | hit != 0 {
-                self.set_counts.push((self.recipe.heap, shared, n, fetched, hit)); // alloc: Node
+                self.set_counts
+                    .push((self.recipe.heap, shared, n, fetched, hit)); // alloc: Node
             }
         }
         self.stats = e.stats.then_some((e.shared, 0, 0, 0));
@@ -960,8 +1146,16 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         self.guess = 0;
         self.hints = PageHints::of(self.locator, self.nblocks, self.nbuffers);
         let stream = self.permanent && self.recipe.stream.load(Ordering::Relaxed);
-        self.ahead = if stream { crate::ops::scan::heap_window::read_ahead(self.locator, self.nblocks, self.leader) } else { None };
-        if S::RING && self.nblocks as u64 > (self.nbuffers / 4) as u64 && self.strategy.is_none() && get_access_strategy::is_installed() {
+        self.ahead = if stream {
+            crate::ops::scan::heap_window::read_ahead(self.locator, self.nblocks, self.leader)
+        } else {
+            None
+        };
+        if S::RING
+            && self.nblocks as u64 > (self.nbuffers / 4) as u64
+            && self.strategy.is_none()
+            && get_access_strategy::is_installed()
+        {
             self.strategy = bulk_read_ring();
         }
         self.rel = None;
@@ -987,7 +1181,13 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         }
         let Some(set) = self.set.as_ref() else { return };
         // bounded("catalog-sized: one scan count per relation of the site's relation set, each counted once")
-        for e in set.rels.iter().take(r + 1).skip(self.reached).filter(|e| e.stats) {
+        for e in set
+            .rels
+            .iter()
+            .take(r + 1)
+            .skip(self.reached)
+            .filter(|e| e.stats)
+        {
             pgstat::relation::pgstat_count_heap_scan(e.oid, e.shared);
         }
         self.reached = r + 1;
@@ -996,7 +1196,9 @@ impl<S: SampleFilter> HeapRangeSource<S> {
     /// D3585: past the walk's relation, the next of the set the seek's range reaches (`set_hi`), its blocks the walk's;
     /// false at the range's end (or for a one-relation site).
     fn next_rel(&mut self) -> PgResult<bool> {
-        let Some(set) = self.set.as_ref() else { return Ok(false) };
+        let Some(set) = self.set.as_ref() else {
+            return Ok(false);
+        };
         let mut r = self.set_cur.wrapping_add(1);
         // bounded("catalog-sized: steps over the empty relations of the site's relation set, two loads each")
         while r < set.rels.len() && set.starts[r] < self.set_hi && set.rels[r].nblocks == 0 {
@@ -1025,7 +1227,7 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         if raw::pinned_page(buf).prune_xid() != 0 {
             match self.set {
                 Some(_) => self.set_prune.push((self.set_cur as u32, blk)), // alloc: Node
-                None => self.defer_prune.push(blk), // alloc: Node
+                None => self.defer_prune.push(blk),                         // alloc: Node
             }
         }
     }
@@ -1044,7 +1246,9 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         if self.local || self.bind_thread != Some(me()) {
             return Ok(());
         }
-        let Some(rel) = self.parked.as_ref().and_then(|w| w.upgrade()) else { return Ok(()) };
+        let Some(rel) = self.parked.as_ref().and_then(|w| w.upgrade()) else {
+            return Ok(());
+        };
         // a page's prune is the unit; a canceled statement drops the rest of its list, as a drop off the bind thread does
         let mut step = cancelpoll::step("heap_source prune_deferred: a deferred page's prune");
         for blk in blocks {
@@ -1054,7 +1258,14 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             if blk >= self.nblocks {
                 continue;
             }
-            let buf = read_buffer_without_relcache::call(self.locator, ForkNumber::MAIN_FORKNUM, blk, ReadBufferMode::Normal, self.strategy.clone(), self.permanent)?;
+            let buf = read_buffer_without_relcache::call(
+                self.locator,
+                ForkNumber::MAIN_FORKNUM,
+                blk,
+                ReadBufferMode::Normal,
+                self.strategy.clone(),
+                self.permanent,
+            )?;
             let pruned = pruneheap_seams::heap_page_prune_opt::call(&rel, buf);
             release_buffer::call(buf)?;
             pruned?;
@@ -1065,7 +1276,9 @@ impl<S: SampleFilter> HeapRangeSource<S> {
     /// D865 for a set (`set_prune`): each relation's deferred pages pruned through its own relcache entry, on the bind thread.
     fn prune_deferred_set(&mut self) -> PgResult<()> {
         let mut pages = core::mem::take(&mut self.set_prune);
-        let Some(set) = self.set.clone().filter(|_| self.bind_thread == Some(me())) else { return Ok(()) };
+        let Some(set) = self.set.clone().filter(|_| self.bind_thread == Some(me())) else {
+            return Ok(());
+        };
         // the sort and a page's prune are the units; a canceled statement drops the rest of its list (`prune_deferred`)
         let mut step = cancelpoll::step("heap_source prune_deferred_set: a deferred page's prune");
         // a refused scratch drops the list, as a cancel does
@@ -1073,7 +1286,11 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         if pages.len() > cancelpoll::SORT_RUN && scratch.resize(pages.len(), pages[0]).is_err() {
             return Ok(());
         }
-        if cancelpoll::sort_by(&mut step, &mut pages, scratch.as_mut_slice(), |a, b| a.cmp(b)).is_err() {
+        if cancelpoll::sort_by(&mut step, &mut pages, scratch.as_mut_slice(), |a, b| {
+            a.cmp(b)
+        })
+        .is_err()
+        {
             return Ok(());
         }
         drop(scratch);
@@ -1081,14 +1298,23 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         while i < pages.len() && !stopped {
             let r = pages[i].0;
             let j = i + pages[i..].partition_point(|p| p.0 == r);
-            let Some(e) = set.rels.get(r as usize).copied() else { break };
+            let Some(e) = set.rels.get(r as usize).copied() else {
+                break;
+            };
             let rel = table::table_open(self.scratch.mcx(), e.oid, types_storage::lock::NoLock)?;
             for &(_, blk) in pages[i..j].iter().filter(|p| p.1 < e.nblocks) {
                 if step.tick().is_err() {
                     stopped = true;
                     break;
                 }
-                let buf = read_buffer_without_relcache::call(e.locator, ForkNumber::MAIN_FORKNUM, blk, ReadBufferMode::Normal, self.strategy.clone(), true)?;
+                let buf = read_buffer_without_relcache::call(
+                    e.locator,
+                    ForkNumber::MAIN_FORKNUM,
+                    blk,
+                    ReadBufferMode::Normal,
+                    self.strategy.clone(),
+                    true,
+                )?;
                 let pruned = pruneheap_seams::heap_page_prune_opt::call(&rel, buf);
                 release_buffer::call(buf)?;
                 pruned?;
@@ -1134,7 +1360,9 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         // The prune and the serializable check take the parked relation (`seek` upgraded it on the bind thread alone). The check
         // is asked per page as heapam does, but only when the bind said yes: C's `SerializationNeededForRead` never turns true.
         if self.rel.is_none() && self.ssi {
-            return Err(err("gravity: a serializable range claim off its backend's thread"));
+            return Err(err(
+                "gravity: a serializable range claim off its backend's thread",
+            ));
         }
         if S::ACTIVE {
             return self.stage_sampled(snapshot);
@@ -1162,7 +1390,11 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             let ssi = match self.rel.as_deref() {
                 Some(rel) => {
                     pruneheap_seams::heap_page_prune_opt::call(rel, buf)?;
-                    (self.ssi && predicate_seams::check_for_serializable_conflict_out_needed::call(rel, snapshot)?).then_some(rel)
+                    (self.ssi
+                        && predicate_seams::check_for_serializable_conflict_out_needed::call(
+                            rel, snapshot,
+                        )?)
+                    .then_some(rel)
                 }
                 None => {
                     self.note_prune(blk, buf);
@@ -1170,10 +1402,19 @@ impl<S: SampleFilter> HeapRangeSource<S> {
                 }
             };
             lock_buffer::call(buf, BUFFER_LOCK_SHARE)?;
-            let walked = collect_visible(buf, blk, self.recipe.heap, self.recipe.want, snapshot, &mut self.vis, ssi);
+            let walked = collect_visible(
+                buf,
+                blk,
+                self.recipe.heap,
+                self.recipe.want,
+                snapshot,
+                &mut self.vis,
+                ssi,
+            );
             // D3475: an index-only walk reads the heap only for an entry whose page the visibility map does not vouch for
             // (nodeIndexonlyscan.c); PD_ALL_VISIBLE is set and cleared with the map's bit, read here under the share lock
-            let fetches = matches!(self.walk, Some((_, true))) && !raw::pinned_page(buf).is_all_visible();
+            let fetches =
+                matches!(self.walk, Some((_, true))) && !raw::pinned_page(buf).is_all_visible();
             lock_buffer::call(buf, BUFFER_LOCK_UNLOCK)?;
             let (nvis, flags, direct) = walked?;
             self.nvis = nvis;
@@ -1205,14 +1446,19 @@ impl<S: SampleFilter> HeapRangeSource<S> {
     #[inline(never)]
     fn stage_sampled(&mut self, snapshot: &SnapshotData<'_>) -> PgResult<bool> {
         // a page the filter kept no row of is the unit, as `stage_rel`'s
-        let mut step = cancelpoll::step("heap_source stage_sampled: a sampled page that kept no row");
+        let mut step =
+            cancelpoll::step("heap_source stage_sampled: a sampled page that kept no row");
         while let Some(blk) = self.sample.next_block(self.nblocks)? {
             self.block = blk as u64;
             let buf = self.read_block(blk)?;
             let ssi = match self.rel.as_deref() {
                 Some(rel) => {
                     pruneheap_seams::heap_page_prune_opt::call(rel, buf)?;
-                    (self.ssi && predicate_seams::check_for_serializable_conflict_out_needed::call(rel, snapshot)?).then_some(rel)
+                    (self.ssi
+                        && predicate_seams::check_for_serializable_conflict_out_needed::call(
+                            rel, snapshot,
+                        )?)
+                    .then_some(rel)
                 }
                 None => {
                     self.note_prune(blk, buf);
@@ -1220,10 +1466,22 @@ impl<S: SampleFilter> HeapRangeSource<S> {
                 }
             };
             lock_buffer::call(buf, BUFFER_LOCK_SHARE)?;
-            let walked = collect_visible(buf, blk, self.recipe.heap, self.recipe.want, snapshot, &mut self.vis, ssi);
+            let walked = collect_visible(
+                buf,
+                blk,
+                self.recipe.heap,
+                self.recipe.want,
+                snapshot,
+                &mut self.vis,
+                ssi,
+            );
             // A bitmap keeps by the page's HOT chains, read under the same share lock
             let kept = match &walked {
-                Ok((nvis, _, _)) if S::PAGE => Some(self.sample.keep_page(blk, raw::pinned_page(buf), &mut self.vis[..*nvis])),
+                Ok((nvis, _, _)) if S::PAGE => Some(self.sample.keep_page(
+                    blk,
+                    raw::pinned_page(buf),
+                    &mut self.vis[..*nvis],
+                )),
                 _ => None,
             };
             lock_buffer::call(buf, BUFFER_LOCK_UNLOCK)?;
@@ -1287,17 +1545,41 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         RAW_WINDOWS.fetch_add(1, Ordering::Relaxed);
         // bounded("key-columns: one lane per output column, at most MaxTupleAttributeNumber (1664) columns")
         for k in 0..natts {
-            let mut l = Lane::byval(core::ptr::null(), core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
+            let mut l = Lane::byval(
+                core::ptr::null(),
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+            );
             if self.recipe.byref.has(k) {
                 l.kind = lane::KIND_BYREF;
             }
             w.set(k, l);
         }
-        w.set(natts, Lane::byval(self.vis.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode()));
-        w.set_page(bufmgr_seams::buffer_page_ptr(buf).as_ptr() as *const u8, self.flags);
+        w.set(
+            natts,
+            Lane::byval(
+                self.vis.as_ptr() as *const u8,
+                core::ptr::null(),
+                2,
+                lane::REGION_ARENA,
+                LaneId::Offset.encode(),
+            ),
+        );
+        w.set_page(
+            bufmgr_seams::buffer_page_ptr(buf).as_ptr() as *const u8,
+            self.flags,
+        );
         w.rows = nvis as u32;
         // a heap window has no granule: the word carries the pinned buffer (host_abi v4 m2 `PageWin::buf`)
-        w.set_base(WindowBase { pos: base, part_id: 0, dict_epoch: 0, granule: buf as u32, claim_id: self.lo as u32 });
+        w.set_base(WindowBase {
+            pos: base,
+            part_id: 0,
+            dict_epoch: 0,
+            granule: buf as u32,
+            claim_id: self.lo as u32,
+        });
         nvis as u32
     }
 
@@ -1309,16 +1591,39 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         if !self.raw {
             return Ok(0);
         }
-        let buf = self.buf.ok_or_else(|| err("gravity: lane request without a staged page"))?;
+        let buf = self
+            .buf
+            .ok_or_else(|| err("gravity: lane request without a staged page"))?;
         let (late, k) = (k as u32 & LANE_LATE != 0, (k as u32 & !LANE_LATE) as usize);
         if k >= self.recipe.natts {
-            *out = Lane::byval(self.vis.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode());
+            *out = Lane::byval(
+                self.vis.as_ptr() as *const u8,
+                core::ptr::null(),
+                2,
+                lane::REGION_ARENA,
+                LaneId::Offset.encode(),
+            );
             return Ok(self.nvis as u32);
         }
         // a system lane reads the headers only (upto 0), every row's once per window
         let sys = crate::ops::shared::heap_fetch::is_sys(self.recipe.attnos[k]);
-        let (upto, rows) = if sys { (0, None) } else { reach(late, self.recipe.attnos[k] as usize, self.recipe.want, sel, self.nvis) };
-        let covered = if sys { self.sys_filled } else { self.filled >= upto || rows.is_some_and(|r| self.sel_filled >= upto && self.sel_rows[..] == *r) };
+        let (upto, rows) = if sys {
+            (0, None)
+        } else {
+            reach(
+                late,
+                self.recipe.attnos[k] as usize,
+                self.recipe.want,
+                sel,
+                self.nvis,
+            )
+        };
+        let covered = if sys {
+            self.sys_filled
+        } else {
+            self.filled >= upto
+                || rows.is_some_and(|r| self.sel_filled >= upto && self.sel_rows[..] == *r)
+        };
         if !covered {
             let blk = (self.block - 1) as BlockNumber;
             // as `fill`
@@ -1342,7 +1647,17 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         let nvis = self.nvis;
         let words = &self.valid[k * PAGE_VALIDITY_WORDS..(k + 1) * PAGE_VALIDITY_WORDS];
         let all = (0..nvis).all(|r| (words[r / 64] >> (r % 64)) & 1 != 0);
-        let mut l = Lane::byval(self.lanes[k * PAGE_ROWS..].as_ptr() as *const u8, if all { core::ptr::null() } else { words.as_ptr() }, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
+        let mut l = Lane::byval(
+            self.lanes[k * PAGE_ROWS..].as_ptr() as *const u8,
+            if all {
+                core::ptr::null()
+            } else {
+                words.as_ptr()
+            },
+            8,
+            lane::REGION_ARENA,
+            lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+        );
         if self.recipe.byref.has(k) {
             l.kind = lane::KIND_BYREF;
         }
@@ -1351,7 +1666,13 @@ impl<S: SampleFilter> HeapRangeSource<S> {
 
     /// The staged page's rows `rows` (every visible one: `None`) deformed to attribute `upto` into the column arrays and the
     /// validity words; the window's first deform clears the words (a row it does not reach reads NULL).
-    fn deform(&mut self, page: PageRef<'_>, blk: BlockNumber, rows: Option<&[u32]>, upto: usize) -> PgResult<()> {
+    fn deform(
+        &mut self,
+        page: PageRef<'_>,
+        blk: BlockNumber,
+        rows: Option<&[u32]>,
+        upto: usize,
+    ) -> PgResult<()> {
         if self.filled == 0 && self.sel_filled == 0 {
             self.valid.fill(0);
         }
@@ -1359,10 +1680,28 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             DEFORMED_PAGES.fetch_add(1, Ordering::Relaxed);
         }
         let r = &self.recipe;
-        let shape = Shape { heap: r.heap, atts: &r.atts[..], missing: &r.missing[..], attnos: &r.attnos[..r.natts] };
-        let mut out = Lanes { lanes: &mut self.lanes, valid: &mut self.valid, vals: &mut self.vals, nulls: &mut self.nulls };
+        let shape = Shape {
+            heap: r.heap,
+            atts: &r.atts[..],
+            missing: &r.missing[..],
+            attnos: &r.attnos[..r.natts],
+        };
+        let mut out = Lanes {
+            lanes: &mut self.lanes,
+            valid: &mut self.valid,
+            vals: &mut self.vals,
+            nulls: &mut self.nulls,
+        };
         // the page stays pinned while it is staged; `vis` holds its normal line pointers
-        raw::deform_page(&page, blk, &shape, &mut out, &self.vis[..self.nvis], rows, upto)?;
+        raw::deform_page(
+            &page,
+            blk,
+            &shape,
+            &mut out,
+            &self.vis[..self.nvis],
+            rows,
+            upto,
+        )?;
         self.sys_filled |= rows.is_none();
         Ok(())
     }
@@ -1388,12 +1727,36 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             for (t, &off) in self.tids.iter_mut().zip(&self.vis[..nvis]) {
                 *t = gravity_kernels::ops::scan::entries::tid_word(blk, off);
             }
-            w.set(natts, Lane::byval(self.tids.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, LaneId::RowId.encode()));
+            w.set(
+                natts,
+                Lane::byval(
+                    self.tids.as_ptr() as *const u8,
+                    core::ptr::null(),
+                    8,
+                    lane::REGION_ARENA,
+                    LaneId::RowId.encode(),
+                ),
+            );
         } else {
-            w.set(natts, Lane::byval(self.vis.as_ptr() as *const u8, core::ptr::null(), 2, lane::REGION_ARENA, LaneId::Offset.encode()));
+            w.set(
+                natts,
+                Lane::byval(
+                    self.vis.as_ptr() as *const u8,
+                    core::ptr::null(),
+                    2,
+                    lane::REGION_ARENA,
+                    LaneId::Offset.encode(),
+                ),
+            );
         }
         w.rows = nvis as u32;
-        w.set_base(WindowBase { pos: base, part_id: 0, dict_epoch: 0, granule: 0, claim_id: self.lo as u32 });
+        w.set_base(WindowBase {
+            pos: base,
+            part_id: 0,
+            dict_epoch: 0,
+            granule: 0,
+            claim_id: self.lo as u32,
+        });
         if S::PAGE {
             w.set_page_flags(self.sample.page_flags());
         }
@@ -1407,7 +1770,11 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         self.unpin()?;
         self.hi = 0;
         self.block = 0;
-        if pos.rel != self.recipe.heap || !pos.is_valid() || pos.off == 0 || pos.block >= self.nblocks {
+        if pos.rel != self.recipe.heap
+            || !pos.is_valid()
+            || pos.off == 0
+            || pos.block >= self.nblocks
+        {
             return Ok(0);
         }
         let buf = self.read_block(pos.block)?;
@@ -1420,13 +1787,19 @@ impl<S: SampleFilter> HeapRangeSource<S> {
         }
         self.vis[0] = pos.off;
         self.nvis = 1;
-        self.fill(w, pos.block, ScanPos::row(self.recipe.heap, pos.block, pos.off))
+        self.fill(
+            w,
+            pos.block,
+            ScanPos::row(self.recipe.heap, pos.block, pos.off),
+        )
     }
 
     /// D3585: a claim `[lo, hi)` in the set's claims' space: the relation holding `lo` (a claim stays inside it; a
     /// whole-range read walks on through `next_rel`) and its blocks of the range.
     fn seek_set(&mut self, lo: u64, hi: u64) -> PgResult<()> {
-        let Some(set) = self.set.as_ref() else { return Ok(()) };
+        let Some(set) = self.set.as_ref() else {
+            return Ok(());
+        };
         let (total, last) = (set.total(), set.rels.len().saturating_sub(1));
         let hi = hi.min(total);
         self.set_hi = hi;
@@ -1465,14 +1838,25 @@ impl<S: SampleFilter> HeapRangeSource<S> {
                 // index-only walk fetches only off the pages the visibility map does not vouch for
                 // D3581: the bitmap morsel form of an order-free Index Scan: the bitmap's build counted the scan and its
                 // entries; the heap fetches go to the index, as the planned scan's `index_fetch_heap` counts them
-                Some((index, _)) if S::BITMAP => pgstat::relation::pgstat_count_index_scan_batched(index, shared, 0, 0, n),
+                Some((index, _)) if S::BITMAP => {
+                    pgstat::relation::pgstat_count_index_scan_batched(index, shared, 0, 0, n)
+                }
                 Some((index, only)) => {
-                    let fetches = if only { core::mem::take(&mut self.walk_fetched) } else { n };
+                    let fetches = if only {
+                        core::mem::take(&mut self.walk_fetched)
+                    } else {
+                        n
+                    };
                     pgstat::relation::pgstat_count_index_scan_batched(index, shared, 0, n, fetches);
                 }
                 None => {
                     let (returned, fetched_tuples) = if S::BITMAP { (0, n) } else { (n, 0) };
-                    pgstat::relation::pgstat_count_heap_scan_batched(self.recipe.heap, shared, returned, fetched_tuples);
+                    pgstat::relation::pgstat_count_heap_scan_batched(
+                        self.recipe.heap,
+                        shared,
+                        returned,
+                        fetched_tuples,
+                    );
                 }
             }
             pgstat::relation::pgstat_count_buffer_reads(self.recipe.heap, shared, fetched, hit);
@@ -1484,7 +1868,13 @@ impl<S: SampleFilter> HeapRangeSource<S> {
             pgstat::relation::pgstat_count_buffer_reads(oid, shared, fetched, hit);
         }
         if self.recent > 0 {
-            pgstat::io::pgstat_count_io_op(pgstat::io::IOObject::Relation, types_storage::buf::IOContext::IOCONTEXT_NORMAL, pgstat::io::IOOp::Hit, self.recent as u32, 0);
+            pgstat::io::pgstat_count_io_op(
+                pgstat::io::IOObject::Relation,
+                types_storage::buf::IOContext::IOCONTEXT_NORMAL,
+                pgstat::io::IOOp::Hit,
+                self.recent as u32,
+                0,
+            );
         }
         self.unpin()?;
         self.prune_deferred()?;
@@ -1526,11 +1916,15 @@ fn me() -> std::thread::ThreadId {
 /// Never larger than heapam's.
 fn bulk_read_ring() -> BufferAccessStrategy {
     let heapam = get_access_strategy::call(BufferAccessStrategyType::BasBulkread);
-    if !get_access_strategy_with_size::is_installed() || !get_access_strategy_buffer_count::is_installed() {
+    if !get_access_strategy_with_size::is_installed()
+        || !get_access_strategy_buffer_count::is_installed()
+    {
         return heapam;
     }
     let combine = crate::inputs::io_combine_blocks();
-    let Some(kb) = ring_kb(combine, get_access_strategy_buffer_count::call(&heapam)) else { return heapam };
+    let Some(kb) = ring_kb(combine, get_access_strategy_buffer_count::call(&heapam)) else {
+        return heapam;
+    };
     free_access_strategy::call(heapam);
     get_access_strategy_with_size::call(BufferAccessStrategyType::BasBulkread, kb)
 }
@@ -1571,7 +1965,11 @@ impl<S: SampleFilter> Source for HeapRangeSource<S> {
         self.claim_thread = Some(me);
         self.unpin().map_err(crate::stash)?;
         self.on_bind_thread = self.bind_thread == Some(me);
-        self.rel = if self.on_bind_thread { self.parked.as_ref().and_then(|w| w.upgrade()) } else { None };
+        self.rel = if self.on_bind_thread {
+            self.parked.as_ref().and_then(|w| w.upgrade())
+        } else {
+            None
+        };
         if self.substituted.is_some() {
             return Ok(());
         }
@@ -1652,7 +2050,15 @@ impl<S: SampleFilter> Source for HeapRangeSource<S> {
     /// D3213: the lanes and the deform buffers, kept between statements.
     fn kept_bytes(&self) -> usize {
         use gravity_driver::vec_bytes as v;
-        v(&self.lanes) + v(&self.valid) + v(&self.vals) + v(&self.nulls) + v(&self.sel_rows) + v(&self.defer_prune) + v(&self.tids) + v(&self.set_counts) + v(&self.set_prune)
+        v(&self.lanes)
+            + v(&self.valid)
+            + v(&self.vals)
+            + v(&self.nulls)
+            + v(&self.sel_rows)
+            + v(&self.defer_prune)
+            + v(&self.tids)
+            + v(&self.set_counts)
+            + v(&self.set_prune)
     }
 
     fn pins(&self) -> u64 {
@@ -1666,7 +2072,9 @@ impl<S: SampleFilter> Source for HeapRangeSource<S> {
     /// D3196 (rearm E1): a warm worker slot's next section: the pages its claims staged with a prune xid are pruned now, on
     /// the bind thread, as the unbind did after every section (the list would grow by the same pages at every rescan).
     fn rearm(&mut self) -> Result<()> {
-        self.unpin().and_then(|()| self.prune_deferred()).map_err(crate::stash)
+        self.unpin()
+            .and_then(|()| self.prune_deferred())
+            .map_err(crate::stash)
     }
 
     /// D3670: a member run of the site this leader's bind left its count to (`run_counted`): the bound relation's scan
@@ -1714,7 +2122,11 @@ mod tests {
             let mut h = super::HeldCharge::new();
             h.sync(100);
             h.home(None);
-            assert_eq!((c(stmt), c(op), h.owner()), (0, 0, None), "no window named an owner: nothing charged");
+            assert_eq!(
+                (c(stmt), c(op), h.owner()),
+                (0, 0, None),
+                "no window named an owner: nothing charged"
+            );
             h.home(Some((op, Kind::HashAgg)));
             h.sync(4096);
             assert_eq!((c(op), h.owner()), (4096, Some((op, Kind::HashAgg))));
@@ -1723,25 +2135,53 @@ mod tests {
             h.home(Some((op, Kind::HashAgg)));
             assert_eq!(c(op), 1024, "the same owner: kept");
             h.home(Some((stmt, Kind::Region)));
-            assert_eq!((c(op), c(stmt)), (0, 1024), "another owner: its bytes move from the first to the second in one step (D4536)");
+            assert_eq!(
+                (c(op), c(stmt)),
+                (0, 1024),
+                "another owner: its bytes move from the first to the second in one step (D4536)"
+            );
             h.sync(2048);
             assert_eq!(c(stmt), 2048);
             h.grow(1 << 20);
-            assert_eq!(c(stmt), 2048 + (1 << 20), "a buffer made between two syncs: its owner's at once (D4536)");
+            assert_eq!(
+                c(stmt),
+                2048 + (1 << 20),
+                "a buffer made between two syncs: its owner's at once (D4536)"
+            );
             h.sync(2048 + (1 << 20));
             assert_eq!(c(stmt), 2048 + (1 << 20), "the next sync finds it charged");
             h.sync(2048);
             h.transfer(depot, Release::Evict);
-            assert_eq!((c(stmt), c(depot) - d0), (2048, 0), "a bound source's bytes stay its owner's");
+            assert_eq!(
+                (c(stmt), c(depot) - d0),
+                (2048, 0),
+                "a bound source's bytes stay its owner's"
+            );
             h.park(3000);
-            assert_eq!((c(stmt), c(session) - s0, h.owner()), (0, 3000, None), "parked: the session's");
+            assert_eq!(
+                (c(stmt), c(session) - s0, h.owner()),
+                (0, 3000, None),
+                "parked: the session's"
+            );
             h.transfer(depot, Release::Evict);
-            assert_eq!((c(session) - s0, c(depot) - d0), (0, 3000), "a parked worker set's: the depot's");
+            assert_eq!(
+                (c(session) - s0, c(depot) - d0),
+                (0, 3000),
+                "a parked worker set's: the depot's"
+            );
             h.transfer(stmt, Release::Statement);
-            assert_eq!((c(depot) - d0, c(stmt)), (0, 3000), "taken from the depot: the taking statement's");
+            assert_eq!(
+                (c(depot) - d0, c(stmt)),
+                (0, 3000),
+                "taken from the depot: the taking statement's"
+            );
             h.home(Some((stmt, Kind::Region)));
             h.sync(512);
-            assert_eq!((c(depot) - d0, c(stmt)), (0, 512), "bound again: the binding's owner, re-synced");
+            assert_eq!(
+                (c(depot) - d0, c(stmt)),
+                (0, 512),
+                "bound again: the binding's owner, re-synced"
+            );
             drop(h);
             assert_eq!(c(stmt), 0, "dropped with the source");
             charge::op_end(op);
@@ -1766,8 +2206,20 @@ mod tests {
         for &b in blocks {
             starts.push(starts.last().copied().unwrap_or(0) + b as u64); // alloc: Cold
         }
-        let rels = blocks.iter().enumerate().map(|(i, &nblocks)| super::SetRel { oid: i as u32 + 1, locator: super::RelFileLocator::new(0, 0, 0), nblocks, shared: false, stats: true });
-        super::RelSet { rels: rels.collect(), starts: starts.into_boxed_slice() }
+        let rels = blocks
+            .iter()
+            .enumerate()
+            .map(|(i, &nblocks)| super::SetRel {
+                oid: i as u32 + 1,
+                locator: super::RelFileLocator::new(0, 0, 0),
+                nblocks,
+                shared: false,
+                stats: true,
+            });
+        super::RelSet {
+            rels: rels.collect(),
+            starts: starts.into_boxed_slice(),
+        }
     }
 
     #[test]

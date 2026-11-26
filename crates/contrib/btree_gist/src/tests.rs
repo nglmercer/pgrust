@@ -143,7 +143,10 @@ fn bit_sortsupport_orders_leaf_keys_by_bitcmp() {
     assert!(BitV::ssup_cmp(d(&zero), d(&one), 0, m).unwrap() < 0);
     assert!(BitV::ssup_cmp(d(&zero), d(&zero9), 0, m).unwrap() < 0);
     let leaf = BitV::leaf_cmp(&varbit_image("1"), &varbit_image("011111111"), &mut ctx());
-    assert_eq!(BitV::ssup_cmp(d(&one), d(&zero9), 0, m).unwrap(), leaf.unwrap());
+    assert_eq!(
+        BitV::ssup_cmp(d(&one), d(&zero9), 0, m).unwrap(),
+        leaf.unwrap()
+    );
 }
 
 fn numeric_image(v: i64) -> Vec<u8> {
@@ -165,8 +168,12 @@ fn not_equal_descends_through_truncated_internal_keys() {
     let node = var::key_copy(&bit_xfrm(&one).unwrap(), &bit_xfrm(&ten).unwrap()).unwrap();
     let nk = var::key_readable(&node);
     assert_eq!(nk.lower, nk.upper);
-    assert!(var::consistent::<BitV>(&nk, &bit_xfrm(&one).unwrap(), BT_NOT_EQUAL, false, c).unwrap());
-    assert!(var::consistent::<BitV>(&nk, &bit_xfrm(&ten).unwrap(), BT_NOT_EQUAL, false, c).unwrap());
+    assert!(
+        var::consistent::<BitV>(&nk, &bit_xfrm(&one).unwrap(), BT_NOT_EQUAL, false, c).unwrap()
+    );
+    assert!(
+        var::consistent::<BitV>(&nk, &bit_xfrm(&ten).unwrap(), BT_NOT_EQUAL, false, c).unwrap()
+    );
     let leaf = var::key_from_datum(&one).unwrap();
     let lk = var::key_readable(&leaf);
     assert!(!var::consistent::<BitV>(&lk, &one, BT_NOT_EQUAL, true, c).unwrap());
@@ -212,10 +219,19 @@ fn var_ssup_cmp_leaves_nothing_in_the_sort_context() {
         k
     }
     let (ka, kb) = (short_key(b"abc"), short_key(b"abd"));
-    let (da, db) = (Datum::from_usize(ka.as_ptr() as usize), Datum::from_usize(kb.as_ptr() as usize));
+    let (da, db) = (
+        Datum::from_usize(ka.as_ptr() as usize),
+        Datum::from_usize(kb.as_ptr() as usize),
+    );
     // varbit payload: bit count, then the bits.
-    let (va, vb) = (short_key(&[8, 0, 0, 0, 0x61]), short_key(&[8, 0, 0, 0, 0x62]));
-    let (dva, dvb) = (Datum::from_usize(va.as_ptr() as usize), Datum::from_usize(vb.as_ptr() as usize));
+    let (va, vb) = (
+        short_key(&[8, 0, 0, 0, 0x61]),
+        short_key(&[8, 0, 0, 0, 0x62]),
+    );
+    let (dva, dvb) = (
+        Datum::from_usize(va.as_ptr() as usize),
+        Datum::from_usize(vb.as_ptr() as usize),
+    );
     let ctx = mcx::MemoryContext::new("gbt ssup test");
     assert!(ByteaV::ssup_cmp(da, db, 0, ctx.mcx()).unwrap() < 0);
     assert!(BitV::ssup_cmp(dvb, dva, 0, ctx.mcx()).unwrap() > 0);

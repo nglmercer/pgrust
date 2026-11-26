@@ -133,7 +133,10 @@ fn scalar_fixture(g: &mut Gen, action: &str) -> (String, String, Vec<StmtKind>) 
     let p = format!("fz_rip_{}", n);
     let c = format!("fz_ric_{}", n);
     let out = vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (id int4 PRIMARY KEY, tag text);", p)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (id int4 PRIMARY KEY, tag text);",
+            p
+        )),
         StmtKind::Raw(format!(
             "CREATE TABLE {} (cid int4 PRIMARY KEY, pid int4 REFERENCES {}(id) {}, note text);",
             c, p, action
@@ -157,7 +160,10 @@ fn gen_cascade_group(g: &mut Gen) -> Vec<StmtKind> {
     let (p, c, mut out) = scalar_fixture(g, "ON DELETE CASCADE ON UPDATE CASCADE");
     if g.rng.chance(1, 2) {
         g.fire("ritrig:cascade:upd");
-        out.push(StmtKind::Raw(format!("UPDATE {} SET id = 100 WHERE id = 1;", p)));
+        out.push(StmtKind::Raw(format!(
+            "UPDATE {} SET id = 100 WHERE id = 1;",
+            p
+        )));
     }
     g.fire("ritrig:cascade:del");
     out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE id = 2;", p)));
@@ -215,7 +221,10 @@ fn gen_setnull_group(g: &mut Gen) -> Vec<StmtKind> {
     if action.contains("DELETE") {
         out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE id = 1;", p)));
     } else {
-        out.push(StmtKind::Raw(format!("UPDATE {} SET id = 100 WHERE id = 1;", p)));
+        out.push(StmtKind::Raw(format!(
+            "UPDATE {} SET id = 100 WHERE id = 1;",
+            p
+        )));
     }
     out.extend(probe_pair(&p, &c));
     out.extend(drop_pair(&p, &c));
@@ -231,7 +240,10 @@ fn gen_setdefault_group(g: &mut Gen) -> Vec<StmtKind> {
     let p = format!("fz_rip_{}", n);
     let c = format!("fz_ric_{}", n);
     let mut out = vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (id int4 PRIMARY KEY, tag text);", p)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (id int4 PRIMARY KEY, tag text);",
+            p
+        )),
         StmtKind::Raw(format!(
             "CREATE TABLE {} (cid int4 PRIMARY KEY, pid int4 DEFAULT 3 REFERENCES {}(id) \
              ON DELETE SET DEFAULT ON UPDATE SET DEFAULT, note text);",
@@ -269,7 +281,10 @@ fn gen_restrict_group(g: &mut Gen) -> Vec<StmtKind> {
     // Referenced-key delete + update both must fail (each its own implicit
     // txn, so the following probe/drop still run).
     out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE id = 1;", p)));
-    out.push(StmtKind::Raw(format!("UPDATE {} SET id = 99 WHERE id = 2;", p)));
+    out.push(StmtKind::Raw(format!(
+        "UPDATE {} SET id = 99 WHERE id = 2;",
+        p
+    )));
     // Unreferenced key 3 deletes cleanly.
     out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE id = 3;", p)));
     out.extend(probe_pair(&p, &c));
@@ -302,13 +317,22 @@ fn gen_match_group(g: &mut Gen) -> Vec<StmtKind> {
              FOREIGN KEY (fa, fb) REFERENCES {}(a, b) {} ON DELETE CASCADE);",
             c, p, match_clause
         )),
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (1, 1, 'a'), (2, 2, 'b');", p)),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (1, 1, 'a'), (2, 2, 'b');",
+            p
+        )),
         // Both-null row: allowed under BOTH match types (no check).
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (10, NULL, NULL, 'both-null');", c)),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (10, NULL, NULL, 'both-null');",
+            c
+        )),
         // Fully-present matching row: allowed under both.
         StmtKind::Raw(format!("INSERT INTO {} VALUES (11, 1, 1, 'present');", c)),
         // Partial-null row: SIMPLE allows it, FULL rejects with 23503.
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (12, 1, NULL, 'partial');", c)),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (12, 1, NULL, 'partial');",
+            c
+        )),
         // A cascading delete of key (1,1) removes only the fully-matching
         // child (11); the null-bearing rows survive under either match type.
         StmtKind::Raw(format!("DELETE FROM {} WHERE a = 1 AND b = 1;", p)),
@@ -344,7 +368,10 @@ fn gen_composite_group(g: &mut Gen) -> Vec<StmtKind> {
             "INSERT INTO {} VALUES (10, 1, 1, 'x'), (11, 1, 2, 'y'), (12, 2, 2, 'z');",
             c
         )),
-        StmtKind::Raw(format!("UPDATE {} SET a = 5, b = 9 WHERE a = 1 AND b = 1;", p)),
+        StmtKind::Raw(format!(
+            "UPDATE {} SET a = 5, b = 9 WHERE a = 1 AND b = 1;",
+            p
+        )),
         StmtKind::Raw(format!("DELETE FROM {} WHERE a = 2 AND b = 2;", p)),
         StmtKind::Raw(format!("SELECT a, b, tag FROM {} ORDER BY a, b;", p)),
         StmtKind::Raw(format!("SELECT cid, fa, fb, note FROM {} ORDER BY cid;", c)),
@@ -397,18 +424,28 @@ fn gen_deferred_group(g: &mut Gen) -> Vec<StmtKind> {
     let p = format!("fz_rip_{}", n);
     let c = format!("fz_ric_{}", n);
     let mut out = vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (id int4 PRIMARY KEY, tag text);", p)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (id int4 PRIMARY KEY, tag text);",
+            p
+        )),
         StmtKind::Raw(format!(
             "CREATE TABLE {} (cid int4 PRIMARY KEY, pid int4 REFERENCES {}(id) \
              DEFERRABLE INITIALLY DEFERRED, note text);",
             c, p
         )),
         StmtKind::Raw(format!("INSERT INTO {} VALUES (1, 'a'), (2, 'b');", p)),
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (10, 1, 'x'), (11, 2, 'y');", c)),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (10, 1, 'x'), (11, 2, 'y');",
+            c
+        )),
     ];
     match g.weights.pick(
         g.rng,
-        &["ritrig:deferred:satisfy", "ritrig:deferred:commitfail", "ritrig:deferred:setimm"],
+        &[
+            "ritrig:deferred:satisfy",
+            "ritrig:deferred:commitfail",
+            "ritrig:deferred:setimm",
+        ],
     ) {
         "ritrig:deferred:commitfail" => {
             g.fire("ritrig:deferred:commitfail");
@@ -465,9 +502,18 @@ fn gen_notvalid_group(g: &mut Gen) -> Vec<StmtKind> {
         "(10, 1, 'x'), (11, 2, 'y'), (12, 3, 'z')"
     };
     let mut out = vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (id int4 PRIMARY KEY, tag text);", p)),
-        StmtKind::Raw(format!("CREATE TABLE {} (cid int4 PRIMARY KEY, pid int4, note text);", c)),
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (1, 'a'), (2, 'b'), (3, 'c');", p)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (id int4 PRIMARY KEY, tag text);",
+            p
+        )),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (cid int4 PRIMARY KEY, pid int4, note text);",
+            c
+        )),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (1, 'a'), (2, 'b'), (3, 'c');",
+            p
+        )),
         StmtKind::Raw(format!("INSERT INTO {} VALUES {};", c, child_rows)),
         // NOT VALID add: no scan, always succeeds even with the dangling row.
         StmtKind::Raw(format!(
@@ -623,7 +669,10 @@ fn gen_unique_group(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE TABLE {} (id int4 PRIMARY KEY, code int4 UNIQUE, tag text);",
             t
         )),
-        StmtKind::Raw(format!("INSERT INTO {} VALUES (1, 100, 'a'), (2, 200, 'b');", t)),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} VALUES (1, 100, 'a'), (2, 200, 'b');",
+            t
+        )),
         // Duplicate PK: 23505.
         StmtKind::Raw(format!("INSERT INTO {} VALUES (1, 300, 'dup-pk');", t)),
         // Duplicate UNIQUE code: 23505.
@@ -793,7 +842,10 @@ mod tests {
                 .filter(|s| s.contains("CREATE TABLE ") && !s.contains("PARTITION OF"))
                 .count();
             let drops = hay.matches("DROP TABLE ").count();
-            assert_eq!(creates, drops, "unbalanced top-level CREATE/DROP TABLE:\n{hay}");
+            assert_eq!(
+                creates, drops,
+                "unbalanced top-level CREATE/DROP TABLE:\n{hay}"
+            );
         }
     }
 }

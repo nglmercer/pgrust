@@ -69,7 +69,11 @@ fn road_watch() {
 /// text is the one `tier_salt` keys the program tiers by, so a program never serves the other setting.
 pub fn road_named_off(name: &str) -> bool {
     road_watch();
-    ROAD_SEEN.with(|s| s.borrow().as_deref().is_some_and(|t| t.split(',').map(str::trim).any(|id| id == name)))
+    ROAD_SEEN.with(|s| {
+        s.borrow()
+            .as_deref()
+            .is_some_and(|t| t.split(',').map(str::trim).any(|id| id == name))
+    })
 }
 
 /// Whether this session's `ROAD_OFF_GUC` text turns default-off road `name` on (`+<name>`, lowerv4 road_off.rs `DEFAULT_OFF`
@@ -77,7 +81,13 @@ pub fn road_named_off(name: &str) -> bool {
 /// `scan.mergefree.build`); the same text `tier_salt` keys the program tiers by.
 pub fn road_named_on(name: &str) -> bool {
     road_watch();
-    ROAD_SEEN.with(|s| s.borrow().as_deref().is_some_and(|t| t.split(',').map(str::trim).any(|id| id.strip_prefix('+').is_some_and(|r| r.trim() == name))))
+    ROAD_SEEN.with(|s| {
+        s.borrow().as_deref().is_some_and(|t| {
+            t.split(',')
+                .map(str::trim)
+                .any(|id| id.strip_prefix('+').is_some_and(|r| r.trim() == name))
+        })
+    })
 }
 
 /// C3 S3: whether this thread may read (`publish` false) or publish the process-wide program tier: the tier is on
@@ -86,7 +96,8 @@ pub fn road_named_on(name: &str) -> bool {
 /// whose entry is served only when that DDL touches none of the entry's dependencies (C3 S4b: gravity_deps
 /// `Deps::current`); what this backend lowers under its own DDL stays its own.
 pub fn shared_tier(publish: bool) -> bool {
-    l2cache::enabled() && (!l2cache::private_build_mode() || !publish && l2cache::private_by_own_ddl_only())
+    l2cache::enabled()
+        && (!l2cache::private_build_mode() || !publish && l2cache::private_by_own_ddl_only())
 }
 
 /// D3866 (step 2): this backend builds privately (l2cache `private_build_mode`): the report's `tier=own-ddl`.
@@ -115,7 +126,10 @@ pub fn tier_salt() -> u64 {
 pub fn ensure_release_registered() -> PgResult<()> {
     RELEASE_REGISTERED.with(|c| -> PgResult<()> {
         if !c.get() {
-            inval::invalidate::CacheRegisterRelcacheCallback(relcache_callback, datum::Datum::null())?;
+            inval::invalidate::CacheRegisterRelcacheCallback(
+                relcache_callback,
+                datum::Datum::null(),
+            )?;
             c.set(true);
         }
         Ok(())
@@ -132,7 +146,10 @@ pub fn ensure_registered() -> PgResult<()> {
 /// (`pgrc_am::catalog`, no file touched), its part list built once per generation and kept.
 /// A hot standby reads the relation too: its catalog is kept live by redo (`prime::prime_columnar`), so a standby's
 /// read is served, never refused.
-pub fn resident_parts(rel: &Relation<'_>, snapshot: Option<&SnapshotData<'_>>) -> PgResult<Arc<PartList>> {
+pub fn resident_parts(
+    rel: &Relation<'_>,
+    snapshot: Option<&SnapshotData<'_>>,
+) -> PgResult<Arc<PartList>> {
     ensure_registered()?;
     listen();
     let locator = rel.rd_locator.get();
@@ -221,23 +238,43 @@ impl Default for Lists {
 
 impl Lists {
     pub const fn new() -> Lists {
-        Lists { state: pgsync::Mutex::new(ListState { lists: BTreeMap::new(), floor: BTreeMap::new() }), recent: pgsync::Mutex::new(([((0, 0, 0), 0); RECENT_LISTS], 0)), empty: pgsync::Mutex::new(None), built: AtomicU64::new(0) }
+        Lists {
+            state: pgsync::Mutex::new(ListState {
+                lists: BTreeMap::new(),
+                floor: BTreeMap::new(),
+            }),
+            recent: pgsync::Mutex::new(([((0, 0, 0), 0); RECENT_LISTS], 0)),
+            empty: pgsync::Mutex::new(None),
+            built: AtomicU64::new(0),
+        }
     }
 
     fn empty(&self) -> Arc<PartList> {
         let mut e = pgsync::lock(&self.empty);
-        Arc::clone(e.get_or_insert_with(|| Arc::new(PartList::new(Vec::new()).arc_held()))) // alloc: Cold
+        Arc::clone(e.get_or_insert_with(|| Arc::new(PartList::new(Vec::new()).arc_held())))
+        // alloc: Cold
     }
 
     /// The list of `gen` as the statement resolved it. COMPOSED: a composed view's list is built once per view and lives
     /// with it (`Generation::reader_state`): the view shares its number with a published generation, so it is never
     /// kept here; a published generation's is kept by `(slot, view_key)`, its number, while it is that allocation (D843).
-    fn list_for(&self, slot: pgrc_am::catalog::RelSlot, gen: &Arc<pgrc_am::catalog::Generation>, relid: Oid) -> PgResult<Arc<PartList>> {
+    fn list_for(
+        &self,
+        slot: pgrc_am::catalog::RelSlot,
+        gen: &Arc<pgrc_am::catalog::Generation>,
+        relid: Oid,
+    ) -> PgResult<Arc<PartList>> {
         if gen.composed() {
-            return Ok(gen.reader_state(|| self.build(gen, relid)).unwrap_or_else(|| self.build(gen, relid)));
+            return Ok(gen
+                .reader_state(|| self.build(gen, relid))
+                .unwrap_or_else(|| self.build(gen, relid)));
         }
         let key = (slot, gen.view_key());
-        if let Some((_, l, _)) = pgsync::lock(&self.state).lists.get(&key).filter(|(w, _, _)| Weak::as_ptr(w) == Arc::as_ptr(gen)) {
+        if let Some((_, l, _)) = pgsync::lock(&self.state)
+            .lists
+            .get(&key)
+            .filter(|(w, _, _)| Weak::as_ptr(w) == Arc::as_ptr(gen))
+        {
             return Ok(Arc::clone(l));
         }
         let list = self.build(gen, relid);
@@ -247,9 +284,17 @@ impl Lists {
         }
         // D2873 step B: the lists of generations the catalog dropped go (one list per generation would grow with
         // generations x parts again); freed after the lock, as invalidate_relid does
-        let dead: Vec<_> = st.lists.iter().filter(|((s, _), e)| *s == slot && e.0.strong_count() == 0).map(|(k, _)| *k).collect(); // alloc: Cold
+        let dead: Vec<_> = st
+            .lists
+            .iter()
+            .filter(|((s, _), e)| *s == slot && e.0.strong_count() == 0)
+            .map(|(k, _)| *k)
+            .collect(); // alloc: Cold
         let gone: Vec<_> = dead.iter().filter_map(|k| st.lists.remove(k)).collect(); // alloc: Cold
-        let e = st.lists.entry(key).or_insert_with(|| (Arc::downgrade(gen), Arc::clone(&list), relid));
+        let e = st
+            .lists
+            .entry(key)
+            .or_insert_with(|| (Arc::downgrade(gen), Arc::clone(&list), relid));
         if Weak::as_ptr(&e.0) != Arc::as_ptr(gen) {
             *e = (Arc::downgrade(gen), Arc::clone(&list), relid); // a republished number: the rolled-back generation's list goes
         }
@@ -268,7 +313,14 @@ impl Lists {
             .map(|(p, rec)| {
                 let ident = p.part.ident();
                 pgrc_am::inval::record_part_key(relid, (ident.dev, ident.ino, ident.len));
-                PartSpec { io: PartIoSpec::Path(p.path.clone()), expect: p.expect, rows: rec.rows, granules: rec.granule_count, deletes: p.deletes.clone(), part: Some(Arc::clone(&p.part)) }
+                PartSpec {
+                    io: PartIoSpec::Path(p.path.clone()),
+                    expect: p.expect,
+                    rows: rec.rows,
+                    granules: rec.granule_count,
+                    deletes: p.deletes.clone(),
+                    part: Some(Arc::clone(&p.part)),
+                }
             })
             .collect(); // alloc: Cold
         let list = Arc::new(PartList::with_answers(parts, gen.answers()).arc_held()); // alloc: Cold
@@ -284,7 +336,12 @@ impl Lists {
             let mut st = pgsync::lock(&self.state);
             let f = st.floor.entry(slot).or_insert(0);
             *f = (*f).max(keep_from);
-            let keys: Vec<_> = st.lists.keys().filter(|(s, g)| *s == slot && *g < keep_from).copied().collect(); // alloc: Cold
+            let keys: Vec<_> = st
+                .lists
+                .keys()
+                .filter(|(s, g)| *s == slot && *g < keep_from)
+                .copied()
+                .collect(); // alloc: Cold
             keys.iter().filter_map(|k| st.lists.remove(k)).collect() // alloc: Cold
         };
         gone.len()
@@ -296,7 +353,12 @@ impl Lists {
         let gone: Vec<Kept> = {
             let mut st = pgsync::lock(&self.state);
             st.floor.remove(&slot);
-            let keys: Vec<_> = st.lists.keys().filter(|(s, _)| *s == slot).copied().collect(); // alloc: Cold
+            let keys: Vec<_> = st
+                .lists
+                .keys()
+                .filter(|(s, _)| *s == slot)
+                .copied()
+                .collect(); // alloc: Cold
             keys.iter().filter_map(|k| st.lists.remove(k)).collect() // alloc: Cold
         };
         drop(gone);
@@ -334,10 +396,21 @@ impl Lists {
     /// The lists `pick(slot, relid)` names go, each built-for relation noted released when `released`, and remembered
     /// (`recent`, D4768). The dropped lists with their relations, for the caller to free after the lock (an `OpenPart`'s
     /// drop closes its file).
-    fn drop_lists(&self, pick: &dyn Fn(pgrc_am::catalog::RelSlot, Oid) -> bool, released: bool) -> Vec<(Arc<PartList>, Oid)> {
+    fn drop_lists(
+        &self,
+        pick: &dyn Fn(pgrc_am::catalog::RelSlot, Oid) -> bool,
+        released: bool,
+    ) -> Vec<(Arc<PartList>, Oid)> {
         // D4398: on the memory ladder's pass (the part cache's evicted hook), nothing while another thread holds them
-        let Some(mut st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return Vec::new() }; // alloc: Cold
-        let keys: Vec<_> = st.lists.iter().filter(|((s, _), e)| pick(*s, e.2)).map(|(k, _)| *k).collect(); // alloc: Cold
+        let Some(mut st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
+            return Vec::new();
+        }; // alloc: Cold
+        let keys: Vec<_> = st
+            .lists
+            .iter()
+            .filter(|((s, _), e)| pick(*s, e.2))
+            .map(|(k, _)| *k)
+            .collect(); // alloc: Cold
         let mut recent = pgsync::lock(&self.recent);
         keys.iter()
             .filter_map(|k| st.lists.remove(k).map(|e| (k.0, e)))
@@ -432,7 +505,9 @@ fn sizer_now() -> Sizer {
 }
 
 // The part cache's budget at a statement start and the short hook's pressure level are the memory policy's.
-use mempolicy::cache::{part_cache_budget, part_cache_sizer, short_pressure, short_release, ShortRelease, Sizer};
+use mempolicy::cache::{
+    part_cache_budget, part_cache_sizer, short_pressure, short_release, ShortRelease, Sizer,
+};
 
 /// The part cache's evicted hook: the part lists go (their dictionary handles keep the evicted dictionary images
 /// alive); a running statement keeps its own list, the next one builds its list again from the catalog's open parts
@@ -489,13 +564,25 @@ fn part_cache_short() -> bool {
     static LAST: AtomicU64 = AtomicU64::new(0);
     static LAST_OLDER: AtomicU64 = AtomicU64::new(0);
     let bar = mcx::governor::bar() as u64;
-    let projected = if bar == 0 { 0 } else { mcx::governor::projected() as u64 };
-    let (bytes, budget) = (pgrc_read::partcache::bytes(), pgrc_read::partcache::budget());
+    let projected = if bar == 0 {
+        0
+    } else {
+        mcx::governor::projected() as u64
+    };
+    let (bytes, budget) = (
+        pgrc_read::partcache::bytes(),
+        pgrc_read::partcache::budget(),
+    );
     let epoch = pgrc_read::partcache::epoch();
     let depot = &gravity_driver::slots::DEPOT;
     let pressure = short_pressure(bar, projected, bytes, budget);
     let sets = if pressure { 0 } else { depot.stats().entries };
-    match short_release(pressure, sets, || LAST_OLDER.swap(epoch, Ordering::Relaxed) == epoch, || LAST.swap(epoch, Ordering::Relaxed) == epoch) {
+    match short_release(
+        pressure,
+        sets,
+        || LAST_OLDER.swap(epoch, Ordering::Relaxed) == epoch,
+        || LAST.swap(epoch, Ordering::Relaxed) == epoch,
+    ) {
         ShortRelease::None => return false,
         ShortRelease::Older => {
             depot.trim_but_newest(usize::MAX);
@@ -508,7 +595,8 @@ fn part_cache_short() -> bool {
     if gravity_driver::env::set("PGRUST_GRAVITY_REPORT") {
         // the server log's line, before the statement's own `gravity: served` line: which statements reach the level
         let mib = |b: u64| b >> 20;
-        eprintln!("LOG:  gravity: part cache short release past the pressure level: projected={} bar={} part_cache={}/{} (MiB)", mib(projected), mib(bar), mib(bytes), mib(budget)); // alloc: Cold
+        eprintln!("LOG:  gravity: part cache short release past the pressure level: projected={} bar={} part_cache={}/{} (MiB)", mib(projected), mib(bar), mib(bytes), mib(budget));
+        // alloc: Cold
     }
     gravity_driver::slots::note_released(0);
     gravity_driver::slots::drain_released();
@@ -530,7 +618,8 @@ pub fn part_cache_short_releases() -> u64 {
 
 /// D3994 (B.1 W): `PGRUST_GRAVITY_PARK_EVICT=1` lets every content trim evict the parts only parked executors use, memory
 /// pressure or not (a check run's lever: every rebound kept cursor then faults its images again); read at the arm.
-static PARK_EVICT_ALWAYS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+static PARK_EVICT_ALWAYS: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
 
 /// D3994 (B.1 W): the part cache's parked gate (`pgrc_read::partcache::set_parked_hook`): whether a trim evicts the parts
 /// only parked executors use (their kept cursors hold none of their images), the memory policy's one switch
@@ -553,7 +642,11 @@ fn pressure_signals() -> mempolicy::cache::ParkedSignals {
     };
     mempolicy::cache::ParkedSignals {
         bar,
-        projected: if bar == 0 { 0 } else { mcx::governor::projected() as u64 },
+        projected: if bar == 0 {
+            0
+        } else {
+            mcx::governor::projected() as u64
+        },
         free_b: gravity_driver::mem::budget::free_now(),
         b: mempolicy::snapshot::b_now(limit, bar),
         broker: sizer_now() == Sizer::Broker,
@@ -577,7 +670,13 @@ pub(crate) fn release_short() -> bool {
         0 => mempolicy::snapshot::b_now(limit(), bar),
         b => b,
     };
-    mempolicy::cache::release_short_by(mempolicy::cache::PARKED_GATE, bar, || mcx::governor::projected() as u64, gravity_driver::mem::budget::free_now, b)
+    mempolicy::cache::release_short_by(
+        mempolicy::cache::PARKED_GATE,
+        bar,
+        || mcx::governor::projected() as u64,
+        gravity_driver::mem::budget::free_now,
+        b,
+    )
 }
 
 /// D3063 residual: the part cache down to its trim target outside a statement's start (the process idle release, the
@@ -623,7 +722,8 @@ fn part_cache_load(n: u64, kind: pgrc_read::partcache::Load) {
     }
     let budget = mempolicy::consts::get_ms(mempolicy::consts::K::BytesWaitMs);
     let t0 = pg_clock::MonoStamp::now();
-    let mut step = cancelpoll::step("part cache load gate: a wait for other statements' pinned parts");
+    let mut step =
+        cancelpoll::step("part cache load gate: a wait for other statements' pinned parts");
     let mut pinned = registry.in_use_bytes();
     let mut polls = 0u32;
     let ran_out = loop {
@@ -637,7 +737,7 @@ fn part_cache_load(n: u64, kind: pgrc_read::partcache::Load) {
         // every fifth poll (10 ms): a statement's end or a part every claim of it left unpins bytes; they are elastic
         // now and the trim makes the room
         polls += 1;
-        if polls.is_multiple_of( 5) {
+        if polls.is_multiple_of(5) {
             let now = registry.in_use_bytes();
             if now < pinned && registry.load_room(n) == 0 {
                 break false;
@@ -658,7 +758,10 @@ fn part_cache_ladder_hold() -> (u64, u64) {
     if mempolicy::consts::get(mempolicy::consts::K::CacheHold) == 0 {
         return (0, 0);
     }
-    (mcx::ladder::sized_floors()[mcx::ladder::SIZED_PART], mcx::ladder::part_hold_reach())
+    (
+        mcx::ladder::sized_floors()[mcx::ladder::SIZED_PART],
+        mcx::ladder::part_hold_reach(),
+    )
 }
 
 /// The LOAD GATE's process counters (`pgrc_read::partcache::load_counters`): loads that asked past the budget, bytes their
@@ -674,13 +777,21 @@ pub fn load_counts() -> [u64; 5] {
 /// D4795 (2a): `rec` (the holder's) carries the charging statement's part, which a free takes back while it runs.
 fn part_cache_account(n: u64, charged: bool, rec: &mut pgrc_read::partcache::Charged) {
     let n = usize::try_from(n).unwrap_or(usize::MAX);
-    let mut c = mcx::governor::CacheCharge { slot: rec.slot, epoch: rec.epoch, bytes: rec.bytes };
+    let mut c = mcx::governor::CacheCharge {
+        slot: rec.slot,
+        epoch: rec.epoch,
+        bytes: rec.bytes,
+    };
     if charged {
         mcx::governor::charge_cache(n, "pgrc part cache", &mut c);
     } else {
         mcx::governor::release_cache(n, &mut c);
     }
-    *rec = pgrc_read::partcache::Charged { slot: c.slot, epoch: c.epoch, bytes: c.bytes };
+    *rec = pgrc_read::partcache::Charged {
+        slot: c.slot,
+        epoch: c.epoch,
+        bytes: c.bytes,
+    };
 }
 
 /// D3003: at a statement's start (`runner::portal::prime_once`): the part cache's budget from the server's `PART_CACHE_GUC`
@@ -696,7 +807,10 @@ pub fn arm_part_cache() {
         pgrc_read::partcache::set_short_hook(part_cache_short);
         // D4315: a scan's passed extents go back as they pass, past the budget
         pgrc_read::partcache::set_trim_hook(part_cache_trim);
-        PARK_EVICT_ALWAYS.store(gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PARK_EVICT") == Some(1), Ordering::Relaxed);
+        PARK_EVICT_ALWAYS.store(
+            gravity_driver::env::num::<u32>("PGRUST_GRAVITY_PARK_EVICT") == Some(1),
+            Ordering::Relaxed,
+        );
         pgrc_read::partcache::set_parked_hook(part_cache_parked);
         // D3994 (B.1 W) under D3823's switch: a trim poisons the images it evicts from a parked-only part
         pgrc_read::partcache::set_park_poison(crate::inputs::release_poison());
@@ -707,7 +821,10 @@ pub fn arm_part_cache() {
         mcx::set_idle_release(gravity_driver::mem::grant::idle_release);
         mcx::set_pressure_trim(gravity_driver::mem::grant::pressure_trim);
         // P3 (`parked_trim_rung`): the ladder's R2p over the parked regions and slot sets
-        mcx::ladder::set_parked_trim(gravity_driver::mem::grant::parked_bytes, gravity_driver::mem::grant::trim_parked);
+        mcx::ladder::set_parked_trim(
+            gravity_driver::mem::grant::parked_bytes,
+            gravity_driver::mem::grant::trim_parked,
+        );
     }
     let (budget, sized) = budget_now();
     crate::dict::text_hosts::reuse::note_statement();
@@ -732,16 +849,28 @@ fn budget_now() -> (u64, bool) {
     // bound its raises; a server setting stays its minimum, and its own trim stops `cache_trim_step_mb` under the budget
     let sizer = sizer_now();
     let (follows, ladder) = (sizer == Sizer::Broker, sizer == Sizer::Ladder);
-    let derived = || crate::dict::text_hosts::reuse::store_bytes(gravity_program::cost::part_cache_cap) as u64;
+    let derived = || {
+        crate::dict::text_hosts::reuse::store_bytes(gravity_program::cost::part_cache_cap) as u64
+    };
     let target = if follows {
         gravity_driver::mem::budget::target(gravity_driver::mem::budget::Consumer::PartCache)
     } else if ladder {
-        Some(mcx::ladder::sized_budget(mcx::ladder::SIZED_PART, server.unwrap_or_else(derived)))
+        Some(mcx::ladder::sized_budget(
+            mcx::ladder::SIZED_PART,
+            server.unwrap_or_else(derived),
+        ))
     } else {
         None
     };
-    pgrc_read::partcache::set_trim_step(if ladder { mempolicy::consts::get(mempolicy::consts::K::CacheTrimStepMb) << 20 } else { 0 });
-    (part_cache_budget(server, target, derived), follows || ladder)
+    pgrc_read::partcache::set_trim_step(if ladder {
+        mempolicy::consts::get(mempolicy::consts::K::CacheTrimStepMb) << 20
+    } else {
+        0
+    });
+    (
+        part_cache_budget(server, target, derived),
+        follows || ladder,
+    )
 }
 
 /// C3 (`cache_purge_now`): the part cache's cut applied off every query thread (memruntime's purger, through
@@ -784,12 +913,23 @@ mod tests {
         let _one = pgsync::lock(&mempolicy::consts::TEST_LOCK);
         let _on = HoldOn;
         assert_eq!(get(K::CacheHold), 1, "on by default");
-        assert_eq!(part_cache_ladder_hold(), (mcx::ladder::sized_floors()[mcx::ladder::SIZED_PART], mcx::ladder::part_hold_reach()), "on: the ladder's floor and reach");
+        assert_eq!(
+            part_cache_ladder_hold(),
+            (
+                mcx::ladder::sized_floors()[mcx::ladder::SIZED_PART],
+                mcx::ladder::part_hold_reach()
+            ),
+            "on: the ladder's floor and reach"
+        );
         set(K::CacheHold, 0);
         let off = part_cache_ladder_hold();
         set(K::CacheHold, 1);
         assert_eq!(off, (0, 0), "off: no floor, no reach");
-        assert_eq!(mempolicy::cache::part_cache_own_cushion(1 << 30, off.0, 256 << 20, off.1), None, "so no cushion: the budget bounds the own trims");
+        assert_eq!(
+            mempolicy::cache::part_cache_own_cushion(1 << 30, off.0, 256 << 20, off.1),
+            None,
+            "so no cushion: the budget bounds the own trims"
+        );
     }
 
     /// COMPOSED: two statements resolving one composed view at once share one list built for it; it is not kept by
@@ -797,8 +937,23 @@ mod tests {
     #[test]
     fn a_composed_views_list_is_built_once_and_lives_with_the_view() {
         let lists = Lists::new();
-        let header = ManifestHeader { gen: 3, prev_gen: 2, publisher_fxid: 30, relfilenumber: 9, schema_fingerprint: 1, magic: 0, format_version: 0, spc: 1663, db: 5, part_count: 0, next_part_no: 0, flags: 0, reserved: 0 };
-        let view = pgrc_am::catalog::Generation::detached_view(Manifest::new(header, Vec::new())).unwrap(); // alloc: Cold
+        let header = ManifestHeader {
+            gen: 3,
+            prev_gen: 2,
+            publisher_fxid: 30,
+            relfilenumber: 9,
+            schema_fingerprint: 1,
+            magic: 0,
+            format_version: 0,
+            spc: 1663,
+            db: 5,
+            part_count: 0,
+            next_part_no: 0,
+            flags: 0,
+            reserved: 0,
+        };
+        let view =
+            pgrc_am::catalog::Generation::detached_view(Manifest::new(header, Vec::new())).unwrap(); // alloc: Cold
         let slot = (1663, 5, 9_160);
         let gate = std::sync::Barrier::new(2);
         let got: Vec<Arc<PartList>> = std::thread::scope(|s| {
@@ -812,12 +967,26 @@ mod tests {
                 .collect();
             hs.into_iter().map(|h| h.join().unwrap()).collect()
         });
-        assert!(Arc::ptr_eq(&got[0], &got[1]) && lists.built() == 1, "one build, one list");
-        assert!(pgsync::lock(&lists.state).lists.is_empty(), "a composed view's list is not kept by number");
-        let plain = Arc::new(pgrc_am::catalog::Generation::detached(Manifest::new(header, Vec::new())).unwrap()); // alloc: Cold
+        assert!(
+            Arc::ptr_eq(&got[0], &got[1]) && lists.built() == 1,
+            "one build, one list"
+        );
+        assert!(
+            pgsync::lock(&lists.state).lists.is_empty(),
+            "a composed view's list is not kept by number"
+        );
+        let plain = Arc::new(
+            pgrc_am::catalog::Generation::detached(Manifest::new(header, Vec::new())).unwrap(),
+        ); // alloc: Cold
         let p = lists.list_for(slot, &plain, 1).unwrap();
-        assert!(!Arc::ptr_eq(&p, &got[0]) && lists.built() == 2, "generation 3 itself: its own list");
-        assert!(Arc::ptr_eq(&lists.list_for(slot, &view, 1).unwrap(), &got[0]) && lists.built() == 2, "the view's again");
+        assert!(
+            !Arc::ptr_eq(&p, &got[0]) && lists.built() == 2,
+            "generation 3 itself: its own list"
+        );
+        assert!(
+            Arc::ptr_eq(&lists.list_for(slot, &view, 1).unwrap(), &got[0]) && lists.built() == 2,
+            "the view's again"
+        );
     }
 
     /// D3675 / memory step 7: the server's setting or the auto cap; under the broker its target, never under the setting.
@@ -825,11 +994,30 @@ mod tests {
     fn the_budget_is_the_servers_setting_and_under_the_broker_its_target_never_under_the_setting() {
         const M: u64 = 1 << 20;
         assert_eq!(part_cache_budget(None, None, || 77 * M), 77 * M, "derived");
-        assert_eq!(part_cache_budget(Some(6 * M), None, || 77 * M), 6 * M, "the server's setting");
-        assert_eq!(part_cache_budget(Some(0), None, || 77 * M), 0, "0 keeps only the parts in use");
-        assert_eq!(part_cache_budget(None, Some(40 * M), || 77 * M), 40 * M, "the broker's target");
-        assert_eq!(part_cache_budget(Some(60 * M), Some(40 * M), || 77 * M), 60 * M, "a setting is the minimum");
-        assert_eq!(part_cache_budget(Some(20 * M), Some(40 * M), || 77 * M), 40 * M);
+        assert_eq!(
+            part_cache_budget(Some(6 * M), None, || 77 * M),
+            6 * M,
+            "the server's setting"
+        );
+        assert_eq!(
+            part_cache_budget(Some(0), None, || 77 * M),
+            0,
+            "0 keeps only the parts in use"
+        );
+        assert_eq!(
+            part_cache_budget(None, Some(40 * M), || 77 * M),
+            40 * M,
+            "the broker's target"
+        );
+        assert_eq!(
+            part_cache_budget(Some(60 * M), Some(40 * M), || 77 * M),
+            60 * M,
+            "a setting is the minimum"
+        );
+        assert_eq!(
+            part_cache_budget(Some(20 * M), Some(40 * M), || 77 * M),
+            40 * M
+        );
     }
 
     /// D3268 (B): the short hook releases the parked sets' parts only past its pressure level: three quarters of the

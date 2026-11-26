@@ -1,26 +1,29 @@
 //! fmgr-shaped wrappers (`fc_<cname>`) and the registry table (`INT_BUILTINS`)
 //! the fmgr-core unit consumes; value cores live in the crate root.
 
-
 use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
 use core::ptr::NonNull;
 
 use ::types_fmgr::{
-    thin_arg, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    OutInto, PGFunction, ThinBuiltin, ThinFcinfo, OUT_CHARS_INT,
+    thin_arg, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto,
+    PGFunction, ThinBuiltin, ThinFcinfo, OUT_CHARS_INT,
 };
 
 // C pallocs each cstring result into the caller's context (fmgr's result
 // contract: fresh in the given context, or an input); rendered in place.
 #[inline(always)]
-fn out_cstring(fcinfo: &Fcinfo, cap: usize, render: impl FnOnce(&mut [u8]) -> usize) -> PgResult<Datum> {
+fn out_cstring(
+    fcinfo: &Fcinfo,
+    cap: usize,
+    render: impl FnOnce(&mut [u8]) -> usize,
+) -> PgResult<Datum> {
     ::types_fmgr::out_cstring(fcinfo, cap, render)
 }
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its messages.
-fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
+fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
     // SAFETY: catalog arg 0 of the in-functions is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }
@@ -663,17 +666,31 @@ fn int2_bound(_: Datum) -> Option<usize> {
 }
 unsafe fn int2_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: the caller's 6 writable bytes (int2_bound).
-    Ok(crate::int2out(v.as_i16(), unsafe { core::slice::from_raw_parts_mut(dst, 6) }))
+    Ok(crate::int2out(v.as_i16(), unsafe {
+        core::slice::from_raw_parts_mut(dst, 6)
+    }))
 }
 fn int4_bound(_: Datum) -> Option<usize> {
     Some(11)
 }
 unsafe fn int4_render(v: Datum, dst: *mut u8) -> PgResult<usize> {
     // SAFETY: the caller's 11 writable bytes (int4_bound).
-    Ok(crate::int4out(v.as_i32(), unsafe { core::slice::from_raw_parts_mut(dst, 11) }))
+    Ok(crate::int4out(v.as_i32(), unsafe {
+        core::slice::from_raw_parts_mut(dst, 11)
+    }))
 }
 
 pub static INT_OUT_INTO: &[OutInto] = &[
-    OutInto { foid: 39, bound: int2_bound, render: int2_render, chars: Some(OUT_CHARS_INT) },
-    OutInto { foid: 43, bound: int4_bound, render: int4_render, chars: Some(OUT_CHARS_INT) },
+    OutInto {
+        foid: 39,
+        bound: int2_bound,
+        render: int2_render,
+        chars: Some(OUT_CHARS_INT),
+    },
+    OutInto {
+        foid: 43,
+        bound: int4_bound,
+        render: int4_render,
+        chars: Some(OUT_CHARS_INT),
+    },
 ];

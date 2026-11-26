@@ -9,9 +9,9 @@ use gravity_ir::builder::FunctionBuilder;
 use mcx::PgBox;
 
 use crate::face::end::EndMech;
+use crate::face::fold::FoldClass;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
-use crate::face::fold::FoldClass;
 use crate::ops::shared::twopass::{Admit, AdmitLive};
 use crate::table::keyimg::ImageWords;
 use crate::table::rec::GroupRec;
@@ -35,35 +35,67 @@ pub(crate) fn group_end_of<'g, 'p>(
 }
 
 /// Aggregate `a`'s fold class in an end that folds num.window trees (`trees`) or none (agg trans class_of.rs `class_in`).
-pub(crate) fn fold_class_in(cx: &impl crate::admit::refusal::Site, a: &AggDecl<'_>, trees: bool, mcx: mcx::Mcx<'_>) -> &'static dyn FoldClass {
+pub(crate) fn fold_class_in(
+    cx: &impl crate::admit::refusal::Site,
+    a: &AggDecl<'_>,
+    trees: bool,
+    mcx: mcx::Mcx<'_>,
+) -> &'static dyn FoldClass {
     crate::ops::agg::trans::class_of::class_in(cx, a, trees, mcx)
 }
 
 /// The keyed end of pipeline `k` for group `g` split into two passes by the count its one top orders first, when
 /// twopass.count takes it (ops/sort/topn/strategies/twopass_count.rs `split`).
-pub(crate) fn twopass_count_split<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>, rec: &GroupRec<'g, 'p>) -> Option<PgBox<'g, dyn EndMech + 'g>> {
+pub(crate) fn twopass_count_split<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    g: &'g GroupDecl<'p>,
+    rec: &GroupRec<'g, 'p>,
+) -> Option<PgBox<'g, dyn EndMech + 'g>> {
     crate::ops::sort::topn::strategies::twopass_count::split(px, k, g, rec)
 }
 
 /// The keyed end of pipeline `k` for group `g` split by its HAVING into two passes, when twopass.having takes it
 /// (ops/sort/topn/strategies/twopass.rs `having_split`).
-pub(crate) fn twopass_having_split<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, g: &'g GroupDecl<'p>, rec: &GroupRec<'g, 'p>) -> Option<PgBox<'g, dyn EndMech + 'g>> {
+pub(crate) fn twopass_having_split<'g, 'p>(
+    px: &mut Px<'g, 'p>,
+    k: usize,
+    g: &'g GroupDecl<'p>,
+    rec: &GroupRec<'g, 'p>,
+) -> Option<PgBox<'g, dyn EndMech + 'g>> {
     crate::ops::sort::topn::strategies::twopass::having_split(px, k, g, rec)
 }
 
 /// Pass 2's admission when pipeline `k` folds the planner's pass 2 of group `g` (twopass.rs `planner_pass2`).
-pub(crate) fn twopass_pass2(px: &mut Px<'_, '_>, k: usize, g: &GroupDecl<'_>, rec: &GroupRec<'_, '_>) -> Option<Admit> {
+pub(crate) fn twopass_pass2(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    g: &GroupDecl<'_>,
+    rec: &GroupRec<'_, '_>,
+) -> Option<Admit> {
     crate::ops::sort::topn::strategies::twopass::planner_pass2(px, k, g, rec)
 }
 
 /// D3148: the admission a finished hash build's keys give the keyed end of pipeline `k` for group `g`, when the join
 /// above the group probes that build on a group key (ops/hashjoin/strategies/domain.rs `admit`, road join.domain).
-pub(crate) fn join_domain(px: &mut Px<'_, '_>, k: usize, g: &GroupDecl<'_>, rec: &GroupRec<'_, '_>) -> Option<Admit> {
+pub(crate) fn join_domain(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    g: &GroupDecl<'_>,
+    rec: &GroupRec<'_, '_>,
+) -> Option<Admit> {
     crate::ops::hashjoin::strategies::domain::admit(px, k, g, rec)
 }
 
 /// Pass 2's probe of a group's image `img` against the admitted set (twopass.rs `admitted_at`): the block a group that is
 /// not admitted joins. `live`: the set's header words its row loop read (D3326).
-pub(crate) fn twopass_admitted_at(admit: Option<Admit>, b: &mut FunctionBuilder<'_>, env: &mut Env, rec: &GroupRec<'_, '_>, img: &ImageWords, live: Option<AdmitLive>) -> Option<gravity_ir::Block> {
+pub(crate) fn twopass_admitted_at(
+    admit: Option<Admit>,
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    rec: &GroupRec<'_, '_>,
+    img: &ImageWords,
+    live: Option<AdmitLive>,
+) -> Option<gravity_ir::Block> {
     crate::ops::sort::topn::strategies::twopass::admitted_at(admit, b, env, rec, img, live)
 }

@@ -12,8 +12,21 @@ const SUBSELECT_124: &str = "regress-full-subselect-050";
 
 /// Every decompose plan fixture, top level and regress-full, by its `-- name:` line.
 fn corpus() -> Vec<(String, String)> {
-    let dirs = [common::plans_dir(), common::plans_dir().join("regress-full")];
-    dirs.iter().flat_map(|d| common::files(d, "plan")).map(|(stem, text)| (text.lines().find_map(|l| l.strip_prefix("-- name: ")).map_or(stem, str::to_owned), text)).collect()
+    let dirs = [
+        common::plans_dir(),
+        common::plans_dir().join("regress-full"),
+    ];
+    dirs.iter()
+        .flat_map(|d| common::files(d, "plan"))
+        .map(|(stem, text)| {
+            (
+                text.lines()
+                    .find_map(|l| l.strip_prefix("-- name: "))
+                    .map_or(stem, str::to_owned),
+                text,
+            )
+        })
+        .collect()
 }
 
 /// The printed IR with every integer literal of ten or more digits (an embedded address) masked, hashed.
@@ -51,8 +64,14 @@ fn outcome(text: &str) -> String {
 
 #[test]
 fn subselect_124_lowers() {
-    let (_, text) = corpus().into_iter().find(|(n, _)| n == SUBSELECT_124).expect("regress-full/subselect-050.plan");
-    assert!(text.contains("group by f1,f2,fs"), "the fixture is #124's statement");
+    let (_, text) = corpus()
+        .into_iter()
+        .find(|(n, _)| n == SUBSELECT_124)
+        .expect("regress-full/subselect-050.plan");
+    assert!(
+        text.contains("group by f1,f2,fs"),
+        "the fixture is #124's statement"
+    );
     match common::lower_fixture(&text) {
         Some(Ok(_)) => {}
         Some(Err(r)) => panic!("#124 refused: {r}"),
@@ -66,13 +85,33 @@ fn corpus_keeps_its_programs() {
     if std::env::var_os("D1391_MANIFEST").is_none() && std::env::var_os("D1391_BASE").is_none() {
         return;
     }
-    let tip: BTreeMap<String, String> = corpus().into_iter().map(|(n, t)| (n, outcome(&t))).collect();
-    assert!(tip.len() > 5000, "the decompose corpus: {} fixtures", tip.len());
+    let tip: BTreeMap<String, String> = corpus()
+        .into_iter()
+        .map(|(n, t)| (n, outcome(&t)))
+        .collect();
+    assert!(
+        tip.len() > 5000,
+        "the decompose corpus: {} fixtures",
+        tip.len()
+    );
     if let Some(p) = std::env::var_os("D1391_MANIFEST") {
-        std::fs::write(&p, tip.iter().map(|(n, o)| format!("{n}\t{o}\n")).collect::<String>()).expect("D1391_MANIFEST");
+        std::fs::write(
+            &p,
+            tip.iter()
+                .map(|(n, o)| format!("{n}\t{o}\n"))
+                .collect::<String>(),
+        )
+        .expect("D1391_MANIFEST");
     }
-    let Some(base) = std::env::var_os("D1391_BASE") else { return };
-    let base: BTreeMap<String, String> = std::fs::read_to_string(base).expect("D1391_BASE").lines().filter_map(|l| l.split_once('\t')).map(|(n, o)| (n.to_owned(), o.to_owned())).collect();
+    let Some(base) = std::env::var_os("D1391_BASE") else {
+        return;
+    };
+    let base: BTreeMap<String, String> = std::fs::read_to_string(base)
+        .expect("D1391_BASE")
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .map(|(n, o)| (n.to_owned(), o.to_owned()))
+        .collect();
     let (mut bad, mut changed, mut same) = (Vec::new(), Vec::new(), 0usize);
     for (n, t) in &tip {
         let b = base.get(n).map_or("MISSING", String::as_str);
@@ -83,8 +122,23 @@ fn corpus_keeps_its_programs() {
             (false, _) => changed.push(format!("{n}: base {b} / tip {t}")),
         }
     }
-    eprintln!("D1391-CORPUS fixtures {} same {same} changed {} (each refused at the base) bad {}", tip.len(), changed.len(), bad.len());
-    changed.iter().chain(&bad).for_each(|l| eprintln!("D1391-CORPUS {l}"));
-    assert!(bad.is_empty(), "a fixture the base lowers changed its program or turned refused:\n{}", bad.join("\n"));
-    assert!(changed.iter().any(|l| l.starts_with(SUBSELECT_124)), "#124 changed from the base");
+    eprintln!(
+        "D1391-CORPUS fixtures {} same {same} changed {} (each refused at the base) bad {}",
+        tip.len(),
+        changed.len(),
+        bad.len()
+    );
+    changed
+        .iter()
+        .chain(&bad)
+        .for_each(|l| eprintln!("D1391-CORPUS {l}"));
+    assert!(
+        bad.is_empty(),
+        "a fixture the base lowers changed its program or turned refused:\n{}",
+        bad.join("\n")
+    );
+    assert!(
+        changed.iter().any(|l| l.starts_with(SUBSELECT_124)),
+        "#124 changed from the base"
+    );
 }

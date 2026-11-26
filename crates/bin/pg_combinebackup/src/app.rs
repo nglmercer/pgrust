@@ -12,9 +12,7 @@
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
-use manifest::{
-    pg_checksum_parse_type, PgChecksumContext, PgChecksumType, PG_CHECKSUM_MAX_LENGTH,
-};
+use manifest::{pg_checksum_parse_type, PgChecksumContext, PgChecksumType, PG_CHECKSUM_MAX_LENGTH};
 
 mod backup_label;
 mod copy_file;
@@ -238,7 +236,10 @@ pub fn main() {
 
     /* Process user-defined tablespaces. */
     for ts in &tablespaces {
-        log_debug(&format!("processing tablespace directory \"{}\"", ts.old_dir));
+        log_debug(&format!(
+            "processing tablespace directory \"{}\"",
+            ts.old_dir
+        ));
 
         /*
          * Normal tablespace: symlink pg_tblspc/${OID} -> target; in-place
@@ -724,7 +725,10 @@ fn create_output_directory(dirname: &Path, opt: &CbOptions) {
             flog::remember_to_cleanup_directory(dirname, true);
         }
         1 => {
-            log_debug(&format!("using existing directory \"{}\"", dirname.display()));
+            log_debug(&format!(
+                "using existing directory \"{}\"",
+                dirname.display()
+            ));
             flog::remember_to_cleanup_directory(dirname, false);
         }
         -1 => {
@@ -735,7 +739,10 @@ fn create_output_directory(dirname: &Path, opt: &CbOptions) {
                 errno_message(&e)
             );
         }
-        _ => pg_fatal!("directory \"{}\" exists but is not empty", dirname.display()),
+        _ => pg_fatal!(
+            "directory \"{}\" exists but is not empty",
+            dirname.display()
+        ),
     }
 }
 
@@ -816,7 +823,10 @@ fn scan_for_existing_tablespaces(
             };
             let link_target = link_target.to_string_lossy().into_owned();
             if !link_target.starts_with('/') {
-                pg_fatal!("target of symbolic link \"{}\" is relative", tblspcdir.display());
+                pg_fatal!(
+                    "target of symbolic link \"{}\" is relative",
+                    tblspcdir.display()
+                );
             }
 
             /* Canonicalize the link target. */
@@ -882,7 +892,9 @@ fn read_pg_version_file(directory: &str) -> i32 {
     let start = i;
     let mut version: u64 = 0;
     while i < buf.len() && buf[i].is_ascii_digit() {
-        version = version.saturating_mul(10).saturating_add(u64::from(buf[i] - b'0'));
+        version = version
+            .saturating_mul(10)
+            .saturating_add(u64::from(buf[i] - b'0'));
         i += 1;
     }
     let parsed_some = i > start;
@@ -898,7 +910,9 @@ fn read_pg_version_file(directory: &str) -> i32 {
         pg_fatal!("{}: could not parse version number", filename);
     }
 
-    log_debug(&format!("read server version {version} from file \"{filename}\""));
+    log_debug(&format!(
+        "read server version {version} from file \"{filename}\""
+    ));
     (version as i32) * 10000
 }
 
@@ -973,7 +987,10 @@ fn process_directory_recursively(
      */
     if relative_path.is_some() {
         if opt.dry_run {
-            log_debug(&format!("would create directory \"{}\"", ofulldir.display()));
+            log_debug(&format!(
+                "would create directory \"{}\"",
+                ofulldir.display()
+            ));
         } else {
             log_debug(&format!("creating directory \"{}\"", ofulldir.display()));
             if let Err(e) = fsutil::mkdir_mode(&ofulldir) {
@@ -1047,9 +1064,15 @@ fn process_directory_recursively(
         /* Skip anything that's not a regular file. */
         if ftype != fsutil::PgFileType::Reg {
             if ftype == fsutil::PgFileType::Lnk {
-                log_warning(&format!("skipping symbolic link \"{}\"", ifullpath.display()));
+                log_warning(&format!(
+                    "skipping symbolic link \"{}\"",
+                    ifullpath.display()
+                ));
             } else {
-                log_warning(&format!("skipping special file \"{}\"", ifullpath.display()));
+                log_warning(&format!(
+                    "skipping special file \"{}\"",
+                    ifullpath.display()
+                ));
             }
             continue;
         }
@@ -1245,9 +1268,15 @@ INCREMENTAL FROM TLI: 1\n";
     #[test]
     fn format_gmtime_matches_strftime() {
         /* date -u -r 1786247466 => 2026-08-09 03:51:06 UTC (glibc %Z of gmtime prints GMT) */
-        assert_eq!(write_manifest::format_gmtime(1786247466), "2026-08-09 03:51:06 GMT");
+        assert_eq!(
+            write_manifest::format_gmtime(1786247466),
+            "2026-08-09 03:51:06 GMT"
+        );
         assert_eq!(write_manifest::format_gmtime(0), "1970-01-01 00:00:00 GMT");
-        assert_eq!(write_manifest::format_gmtime(951827696), "2000-02-29 12:34:56 GMT");
+        assert_eq!(
+            write_manifest::format_gmtime(951827696),
+            "2000-02-29 12:34:56 GMT"
+        );
     }
 
     #[test]

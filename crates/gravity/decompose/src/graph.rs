@@ -5,11 +5,11 @@ use types_nodes::plannodes::Plan;
 use types_nodes::primnodes::{SubLinkType, SubPlan, INDEX_VAR, OUTER_VAR};
 use types_nodes::Node;
 
-use crate::ops::shared::agg::GroupDecl;
-use crate::ops::scan::closure::SampleDesc;
-use crate::ops::shared::scan::{BitmapPlan, TidForm};
 use crate::catalog::{Am, ExprFp};
 use crate::ledger::Kind;
+use crate::ops::scan::closure::SampleDesc;
+use crate::ops::shared::agg::GroupDecl;
+use crate::ops::shared::scan::{BitmapPlan, TidForm};
 
 #[derive(Clone, Copy, Debug)]
 pub struct IndexKey<'p> {
@@ -68,25 +68,105 @@ impl<'p> IndexKey<'p> {
 }
 
 pub enum Source<'p> {
-    Range { site: SiteDesc, am: Am, scanrelid: u16, relid: u32 },
-    Index { site: SiteDesc, am: Am, scanrelid: u16, relid: u32, indexid: u32, keys: ArenaVec<IndexKey<'p>>, only: bool, backward: bool, recheck: &'p NodeList<'p>, iam: crate::catalog::IndexAm },
+    Range {
+        site: SiteDesc,
+        am: Am,
+        scanrelid: u16,
+        relid: u32,
+    },
+    Index {
+        site: SiteDesc,
+        am: Am,
+        scanrelid: u16,
+        relid: u32,
+        indexid: u32,
+        keys: ArenaVec<IndexKey<'p>>,
+        only: bool,
+        backward: bool,
+        recheck: &'p NodeList<'p>,
+        iam: crate::catalog::IndexAm,
+    },
     Const,
-    Values { scanrelid: u16, lists: &'p NodeList<'p> },
-    Breaker { slot: u8 },
-    Named { scanrelid: u16, relid: u32, name: &'p str },
+    Values {
+        scanrelid: u16,
+        lists: &'p NodeList<'p>,
+    },
+    Breaker {
+        slot: u8,
+    },
+    Named {
+        scanrelid: u16,
+        relid: u32,
+        name: &'p str,
+    },
     /// `morsel`: the morsel form (decompose closure.rs `morsel_form`): a heap range walk over the leader's
     /// frozen bitmap, `recheck` a filter on every row.
-    Bitmap { site: SiteDesc, am: Am, scanrelid: u16, relid: u32, plan: BitmapPlan<'p>, recheck: &'p NodeList<'p>, morsel: bool },
-    Tid { site: SiteDesc, am: Am, scanrelid: u16, relid: u32, form: TidForm, quals: &'p NodeList<'p> },
-    Sample { site: SiteDesc, am: Am, scanrelid: u16, relid: u32, sample: SampleDesc<'p> },
-    TableFunc { scanrelid: u16, func: &'p types_nodes::primnodes::TableFunc<'p>, cols: u16, ordinality: i32 },
+    Bitmap {
+        site: SiteDesc,
+        am: Am,
+        scanrelid: u16,
+        relid: u32,
+        plan: BitmapPlan<'p>,
+        recheck: &'p NodeList<'p>,
+        morsel: bool,
+    },
+    Tid {
+        site: SiteDesc,
+        am: Am,
+        scanrelid: u16,
+        relid: u32,
+        form: TidForm,
+        quals: &'p NodeList<'p>,
+    },
+    Sample {
+        site: SiteDesc,
+        am: Am,
+        scanrelid: u16,
+        relid: u32,
+        sample: SampleDesc<'p>,
+    },
+    TableFunc {
+        scanrelid: u16,
+        func: &'p types_nodes::primnodes::TableFunc<'p>,
+        cols: u16,
+        ordinality: i32,
+    },
 }
 
 impl<'p> Source<'p> {
     /// The relation a source scans and its site: every source with attribute lanes (an index-only scan's are the index's columns).
     pub fn relation(&self) -> Option<(u16, u32, &SiteDesc)> {
         match self {
-            Source::Range { site, scanrelid, relid, .. } | Source::Index { site, scanrelid, relid, .. } | Source::Bitmap { site, scanrelid, relid, .. } | Source::Tid { site, scanrelid, relid, .. } | Source::Sample { site, scanrelid, relid, .. } => Some((*scanrelid, *relid, site)),
+            Source::Range {
+                site,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Index {
+                site,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Bitmap {
+                site,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Tid {
+                site,
+                scanrelid,
+                relid,
+                ..
+            }
+            | Source::Sample {
+                site,
+                scanrelid,
+                relid,
+                ..
+            } => Some((*scanrelid, *relid, site)),
             _ => None,
         }
     }
@@ -104,7 +184,11 @@ pub enum Op<'p> {
     Filter(Node<'p>),
     Gate(Node<'p>),
     Project(&'p NodeList<'p>),
-    Limit { count: Bound<'p>, offset: Bound<'p>, ties: Option<crate::ops::TieDesc> },
+    Limit {
+        count: Bound<'p>,
+        offset: Bound<'p>,
+        ties: Option<crate::ops::TieDesc>,
+    },
     Sort(crate::ops::shared::sort::SortDesc<'p>),
     Join(crate::join::JoinDesc<'p>),
     Window(crate::ops::window::WindowDesc<'p>),
@@ -144,8 +228,21 @@ pub struct PipelineNode<'p> {
 }
 
 impl<'p> PipelineNode<'p> {
-    pub fn new(arena: ArenaRef, node_id: i32, source: Source<'p>, desc: Pipeline) -> PipelineNode<'p> {
-        PipelineNode { node_id, source, ops: ArenaVec::new_in(arena), desc, union: None, node_ops: ArenaVec::new_in(arena), mark: 0 }
+    pub fn new(
+        arena: ArenaRef,
+        node_id: i32,
+        source: Source<'p>,
+        desc: Pipeline,
+    ) -> PipelineNode<'p> {
+        PipelineNode {
+            node_id,
+            source,
+            ops: ArenaVec::new_in(arena),
+            desc,
+            union: None,
+            node_ops: ArenaVec::new_in(arena),
+            mark: 0,
+        }
     }
 
     pub fn push(&mut self, op: Op<'p>) {
@@ -163,7 +260,11 @@ impl<'p> PipelineNode<'p> {
     }
 
     pub fn close_node(&mut self, node_id: i32) {
-        self.node_ops.push(NodeOps { node_id, first_op: self.mark, producer_top: false });
+        self.node_ops.push(NodeOps {
+            node_id,
+            first_op: self.mark,
+            producer_top: false,
+        });
         self.mark = self.ops.len() as u16;
     }
 
@@ -182,7 +283,10 @@ pub struct Col {
 
 impl Col {
     pub const fn outer(attno: i16) -> Col {
-        Col { varno: OUTER_VAR, attno }
+        Col {
+            varno: OUTER_VAR,
+            attno,
+        }
     }
 
     /// The column a bare `Var` (through relabels) names, or none.
@@ -191,7 +295,10 @@ impl Col {
             e = a;
         }
         let v = e.as_var()?;
-        (v.varlevelsup == 0 && v.varattno > 0).then_some(Col { varno: v.varno, attno: v.varattno })
+        (v.varlevelsup == 0 && v.varattno > 0).then_some(Col {
+            varno: v.varno,
+            attno: v.varattno,
+        })
     }
 }
 
@@ -234,7 +341,11 @@ impl EqClasses {
     const CAP: usize = 2 * MAX_ORDER_EQS;
 
     fn of(o: &Order) -> EqClasses {
-        let mut s = EqClasses { cols: [Col { varno: 0, attno: 0 }; EqClasses::CAP], label: [0; EqClasses::CAP], n: 0 };
+        let mut s = EqClasses {
+            cols: [Col { varno: 0, attno: 0 }; EqClasses::CAP],
+            label: [0; EqClasses::CAP],
+            n: 0,
+        };
         for [x, y] in &o.eqs[..o.neq as usize] {
             let (i, j) = (s.slot(*x), s.slot(*y));
             let (keep, gone) = (s.label[i], s.label[j]);
@@ -261,7 +372,10 @@ impl EqClasses {
 
     /// The class of `c`, or none when no equality names it.
     fn label(&self, c: Col) -> Option<usize> {
-        self.cols[..self.n].iter().position(|&x| x == c).map(|i| self.label[i] as usize)
+        self.cols[..self.n]
+            .iter()
+            .position(|&x| x == c)
+            .map(|i| self.label[i] as usize)
     }
 }
 
@@ -290,7 +404,18 @@ impl ClassFirsts {
 }
 
 impl Order {
-    pub const NONE: Order = Order { n: 0, keys: [OrderKey { col: Col { varno: 0, attno: 0 }, desc: false, nulls_first: false }; MAX_ORDER_KEYS], neq: 0, eqs: [[Col { varno: 0, attno: 0 }; 2]; MAX_ORDER_EQS], exprs: [ExprFp::NONE; MAX_ORDER_KEYS], fams: [0; MAX_ORDER_KEYS] };
+    pub const NONE: Order = Order {
+        n: 0,
+        keys: [OrderKey {
+            col: Col { varno: 0, attno: 0 },
+            desc: false,
+            nulls_first: false,
+        }; MAX_ORDER_KEYS],
+        neq: 0,
+        eqs: [[Col { varno: 0, attno: 0 }; 2]; MAX_ORDER_EQS],
+        exprs: [ExprFp::NONE; MAX_ORDER_KEYS],
+        fams: [0; MAX_ORDER_KEYS],
+    };
 
     pub fn keys(&self) -> &[OrderKey] {
         &self.keys[..self.n as usize]
@@ -340,7 +465,11 @@ impl Order {
 
     /// Whether a key or equality names the coordinates `varno` (a scan's own `Var`s, else a subquery scan's positions).
     fn mentions(&self, varno: i32) -> bool {
-        self.keys().iter().any(|k| k.col.varno == varno) || self.eqs[..self.neq as usize].iter().flatten().any(|c| c.varno == varno)
+        self.keys().iter().any(|k| k.col.varno == varno)
+            || self.eqs[..self.neq as usize]
+                .iter()
+                .flatten()
+                .any(|c| c.varno == varno)
     }
 
     /// D4666: the order once a filter `c = constant` (a btree equality, order.rs `pinned_col`) holds on every row: a
@@ -350,7 +479,11 @@ impl Order {
     /// after it). An expression key or another family's key stays. `c` in the filter's coordinates, a scan's own `Var`
     /// read as `project` reads it.
     pub fn pinned(self, c: Col) -> Order {
-        let c = if c.varno > 0 && !self.mentions(c.varno) { Col::outer(c.attno) } else { c };
+        let c = if c.varno > 0 && !self.mentions(c.varno) {
+            Col::outer(c.attno)
+        } else {
+            c
+        };
         let mut out = Order { n: 0, ..self };
         for i in 0..self.n as usize {
             if self.fams[i] == 0 && !self.exprs[i].is_some() && self.same(self.keys[i].col, c) {
@@ -391,11 +524,33 @@ impl Order {
     pub fn project(&self, tlist: &NodeList<'_>) -> Order {
         let col_of = |e: Node<'_>| -> Option<Col> {
             let v = e.as_target_entry().and_then(|t| Col::of(t.expr))?;
-            Some(if v.varno > 0 && !self.mentions(v.varno) { Col::outer(v.attno) } else { v })
+            Some(if v.varno > 0 && !self.mentions(v.varno) {
+                Col::outer(v.attno)
+            } else {
+                v
+            })
         };
-        let exact = |c: Col| tlist.iter().position(|e| col_of(e) == Some(c)).map(|i| Col::outer(i as i16 + 1));
-        let equal = |c: Col| tlist.iter().position(|e| col_of(e).is_some_and(|v| self.same(v, c))).map(|i| Col::outer(i as i16 + 1));
-        let expr = |c: Col, fp: ExprFp| tlist.iter().position(|e| e.as_target_entry().is_some_and(|t| crate::catalog::expr_fp(t.expr, c.varno) == Some(fp))).map(|i| Col::outer(i as i16 + 1));
+        let exact = |c: Col| {
+            tlist
+                .iter()
+                .position(|e| col_of(e) == Some(c))
+                .map(|i| Col::outer(i as i16 + 1))
+        };
+        let equal = |c: Col| {
+            tlist
+                .iter()
+                .position(|e| col_of(e).is_some_and(|v| self.same(v, c)))
+                .map(|i| Col::outer(i as i16 + 1))
+        };
+        let expr = |c: Col, fp: ExprFp| {
+            tlist
+                .iter()
+                .position(|e| {
+                    e.as_target_entry()
+                        .is_some_and(|t| crate::catalog::expr_fp(t.expr, c.varno) == Some(fp))
+                })
+                .map(|i| Col::outer(i as i16 + 1))
+        };
         let mut out = Order::NONE;
         for (i, key) in self.keys().iter().enumerate() {
             // a key of another family's order goes by its own column only: an equality (the default family's `=`) does
@@ -418,7 +573,10 @@ impl Order {
             let mut x = e.as_target_entry()?.expr;
             while let Some(r) = x.as_relabel_type() {
                 let a = crate::expr::through_relabel(x)?;
-                let coll = a.as_var().map(|v| v.varcollid).or_else(|| a.as_relabel_type().map(|q| q.resultcollid))?;
+                let coll = a
+                    .as_var()
+                    .map(|v| v.varcollid)
+                    .or_else(|| a.as_relabel_type().map(|q| q.resultcollid))?;
                 if coll != r.resultcollid {
                     return None;
                 }
@@ -427,7 +585,12 @@ impl Order {
             x.as_var()?;
             col_of(e)
         };
-        let exact_eq = |c: Col| tlist.iter().position(|e| eq_of(e) == Some(c)).map(|i| Col::outer(i as i16 + 1));
+        let exact_eq = |c: Col| {
+            tlist
+                .iter()
+                .position(|e| eq_of(e) == Some(c))
+                .map(|i| Col::outer(i as i16 + 1))
+        };
         for [a, b] in &self.eqs[..self.neq as usize] {
             if let (Some(a), Some(b)) = (exact_eq(*a), exact_eq(*b)) {
                 out.push_eq(a, b);
@@ -443,7 +606,9 @@ impl Order {
             let Some(b) = eq_of(e) else { continue };
             let Some(l) = classes.label(b) else { continue };
             let i = firsts.pair(l, j, b);
-            if let Some(i) = i.filter(|&i| !out.same(Col::outer(i as i16 + 1), Col::outer(j as i16 + 1))) {
+            if let Some(i) =
+                i.filter(|&i| !out.same(Col::outer(i as i16 + 1), Col::outer(j as i16 + 1)))
+            {
                 out.push_eq(Col::outer(i as i16 + 1), Col::outer(j as i16 + 1));
             }
         }
@@ -465,7 +630,12 @@ impl Order {
             } else {
                 write!(out, "{}", key.col.attno)?;
             }
-            write!(out, "{}{}", if key.desc { "-" } else { "+" }, if key.nulls_first { "n" } else { "" })?;
+            write!(
+                out,
+                "{}{}",
+                if key.desc { "-" } else { "+" },
+                if key.nulls_first { "n" } else { "" }
+            )?;
             if self.fams[i] != 0 {
                 write!(out, "@{}", self.fams[i])?;
             }
@@ -493,14 +663,34 @@ pub struct Layout<'p> {
 pub const NO_SENTINEL: u16 = u16::MAX;
 
 impl<'p> Layout<'p> {
-    pub const ROW: Layout<'static> = Layout { keys: &[], slots: &[], nn: true, sentinel: NO_SENTINEL, ties: false };
+    pub const ROW: Layout<'static> = Layout {
+        keys: &[],
+        slots: &[],
+        nn: true,
+        sentinel: NO_SENTINEL,
+        ties: false,
+    };
 
-    pub fn new(arena: ArenaRef, keys: impl Iterator<Item = KeyKind>, slots: impl Iterator<Item = SlotKind>, nn: bool) -> Layout<'p> {
+    pub fn new(
+        arena: ArenaRef,
+        keys: impl Iterator<Item = KeyKind>,
+        slots: impl Iterator<Item = SlotKind>,
+        nn: bool,
+    ) -> Layout<'p> {
         let l = Layout::with_sentinel(arena, keys, slots, nn, NO_SENTINEL);
-        Layout { sentinel: gravity_abi::breaker::first_count(l.slots).map_or(NO_SENTINEL, |j| j as u16), ..l }
+        Layout {
+            sentinel: gravity_abi::breaker::first_count(l.slots).map_or(NO_SENTINEL, |j| j as u16),
+            ..l
+        }
     }
 
-    pub fn with_sentinel(arena: ArenaRef, keys: impl Iterator<Item = KeyKind>, slots: impl Iterator<Item = SlotKind>, nn: bool, sentinel: u16) -> Layout<'p> {
+    pub fn with_sentinel(
+        arena: ArenaRef,
+        keys: impl Iterator<Item = KeyKind>,
+        slots: impl Iterator<Item = SlotKind>,
+        nn: bool,
+        sentinel: u16,
+    ) -> Layout<'p> {
         let (mut ks, mut ss) = (ArenaVec::new_in(arena), ArenaVec::new_in(arena));
         for k in keys {
             ks.push(k);
@@ -508,8 +698,16 @@ impl<'p> Layout<'p> {
         for s in slots {
             ss.push(s);
         }
-        debug_assert!(sentinel == NO_SENTINEL || ss.get(sentinel as usize) == Some(&SlotKind::Count));
-        Layout { keys: ks.leak(), slots: ss.leak(), nn, sentinel, ties: false }
+        debug_assert!(
+            sentinel == NO_SENTINEL || ss.get(sentinel as usize) == Some(&SlotKind::Count)
+        );
+        Layout {
+            keys: ks.leak(),
+            slots: ss.leak(),
+            nn,
+            sentinel,
+            ties: false,
+        }
     }
 
     /// NEW-numeric-1: this layout with its order-key extremes marked (`ties`).
@@ -542,7 +740,13 @@ impl<'p> Layout<'p> {
 
     /// The abi's layout of this shape: the 8-key tier when it fits its arrays, else the wide tier (computed in `arena`, interned).
     pub fn record(&self, arena: ArenaRef) -> RecordLayout {
-        let mut l = gravity_program::record_layout_at(arena, self.keys, self.slots, !self.nn, (!self.implicit_sentinel()).then_some(self.sentinel as usize));
+        let mut l = gravity_program::record_layout_at(
+            arena,
+            self.keys,
+            self.slots,
+            !self.nn,
+            (!self.implicit_sentinel()).then_some(self.sentinel as usize),
+        );
         if self.ties {
             l.flags |= gravity_abi::breaker::LAYOUT_KEY_TIES;
         }
@@ -796,8 +1000,13 @@ impl<'p> InitCharge<'p> {
     /// to the node it hangs on. The one home of the charge for decompose's `init_costs` (ops/subplan) and a front hit's
     /// (exec inputs/front.rs), so both weigh one statement alike.
     pub fn of(s: &'p SubPlan<'p>) -> Self {
-        let cost = (s.subLinkType != SubLinkType::CTE_SUBLINK).then_some( s.startup_cost + s.per_call_cost);
-        InitCharge { plan_id: s.plan_id, sets: &s.setParam, cost }
+        let cost =
+            (s.subLinkType != SubLinkType::CTE_SUBLINK).then_some(s.startup_cost + s.per_call_cost);
+        InitCharge {
+            plan_id: s.plan_id,
+            sets: &s.setParam,
+            cost,
+        }
     }
 }
 
@@ -805,7 +1014,13 @@ impl<'p> InitCharge<'p> {
 /// (a scan at the top of its query level: SS_charge_for_initplans adds their charge to the top node's cost). The one
 /// home for decompose's `scan_costs` and a front hit's.
 pub fn scan_charge(plan: &Plan<'_>) -> f64 {
-    plan.total_cost - plan.initPlan.iter().filter_map(|n| n.as_sub_plan()).map(|s| s.startup_cost + s.per_call_cost).sum::<f64>()
+    plan.total_cost
+        - plan
+            .initPlan
+            .iter()
+            .filter_map(|n| n.as_sub_plan())
+            .map(|s| s.startup_cost + s.per_call_cost)
+            .sum::<f64>()
 }
 
 /// PS1-05 (mechanism C), the rule: which of `ids` (PARAM_EXEC ids, in a pgrc range scan's order) the scan may run at
@@ -820,8 +1035,12 @@ pub fn eager_mask(scan: Option<f64>, inits: &[InitCharge<'_>], ids: &[i32]) -> u
     for (b, &id) in ids.iter().enumerate().take(64) {
         let mut add = 0.0f64;
         for (n, i) in inits.iter().enumerate().filter(|(_, i)| sets(i, id)) {
-            let once = inits[..n].iter().any(|e| e.plan_id == i.plan_id && sets(e, id));
-            let early = ids[..b].iter().enumerate().any(|(e, &x)| mask & (1 << e) != 0 && inits.iter().any(|q| q.plan_id == i.plan_id && sets(q, x)));
+            let once = inits[..n]
+                .iter()
+                .any(|e| e.plan_id == i.plan_id && sets(e, id));
+            let early = ids[..b].iter().enumerate().any(|(e, &x)| {
+                mask & (1 << e) != 0 && inits.iter().any(|q| q.plan_id == i.plan_id && sets(q, x))
+            });
             if !once && !early {
                 add += i.cost.unwrap_or(f64::INFINITY);
             }
@@ -880,11 +1099,67 @@ impl<'p> PipelineGraph<'p> {
     /// (`effects::Licence::tagged`; program `Pipeline::ahead`): its index in EXPLAIN's node order and EXPLAIN's Node Type
     /// (`explain::explain_position`). `None` without the statement or outside EXPLAIN's walk.
     pub fn explain_of(&self, id: i32) -> Option<gravity_program::AheadTag> {
-        crate::explain::explain_position(self.stmt?, id).map(|(node, node_type)| gravity_program::AheadTag { node, node_type })
+        crate::explain::explain_position(self.stmt?, id)
+            .map(|(node, node_type)| gravity_program::AheadTag { node, node_type })
     }
 
     pub fn new(arena: ArenaRef) -> PipelineGraph<'p> {
-        PipelineGraph { stmt: None, pipelines: ArenaVec::new_in(arena), breakers: ArenaVec::new_in(arena), groups: ArenaVec::new_in(arena), streams: ArenaVec::new_in(arena), init_plans: ArenaVec::new_in(arena), shared_sets: ArenaVec::new_in(arena), reruns: ArenaVec::new_in(arena), held: ArenaVec::new_in(arena), kept: ArenaVec::new_in(arena), kept_by: ArenaVec::new_in(arena), refills: ArenaVec::new_in(arena), stale_reads: ArenaVec::new_in(arena), params: ArenaVec::new_in(arena), root: 0, mapped: 0, reads: [0; 256], scan_lanes: ArenaVec::new_in(arena), qual_only: ArenaVec::new_in(arena), outs: ArenaVec::new_in(arena), unions: ArenaVec::new_in(arena), record_rows: ArenaVec::new_in(arena), fault: None, cur_node: None, term_from: None, first_cte: None, spool_runs: ArenaVec::new_in(arena), cascades: ArenaVec::new_in(arena), user_hashes: ArenaVec::new_in(arena), acts: false, acts_read: None, recheck: false, licensed_nodes: ArenaVec::new_in(arena), exact: ArenaVec::new_in(arena), stops: ArenaVec::new_in(arena), srf_lits: ArenaVec::new_in(arena), arm_subs: ArenaVec::new_in(arena), in_order: ArenaVec::new_in(arena), held_incs: ArenaVec::new_in(arena), whole: ArenaVec::new_in(arena), cte_reads: ArenaVec::new_in(arena), recheck_inits: ArenaVec::new_in(arena), epq_fresh: ArenaVec::new_in(arena), recheck_node: -1, recheck_above: ArenaVec::new_in(arena), partial: false, init_costs: ArenaVec::new_in(arena), scan_costs: ArenaVec::new_in(arena), copy_unions: ArenaVec::new_in(arena), copy_one: ArenaVec::new_in(arena), copy_union_cols: ArenaVec::new_in(arena), raising_keys: ArenaVec::new_in(arena), values: ArenaVec::new_in(arena), union_nests: ArenaVec::new_in(arena) }
+        PipelineGraph {
+            stmt: None,
+            pipelines: ArenaVec::new_in(arena),
+            breakers: ArenaVec::new_in(arena),
+            groups: ArenaVec::new_in(arena),
+            streams: ArenaVec::new_in(arena),
+            init_plans: ArenaVec::new_in(arena),
+            shared_sets: ArenaVec::new_in(arena),
+            reruns: ArenaVec::new_in(arena),
+            held: ArenaVec::new_in(arena),
+            kept: ArenaVec::new_in(arena),
+            kept_by: ArenaVec::new_in(arena),
+            refills: ArenaVec::new_in(arena),
+            stale_reads: ArenaVec::new_in(arena),
+            params: ArenaVec::new_in(arena),
+            root: 0,
+            mapped: 0,
+            reads: [0; 256],
+            scan_lanes: ArenaVec::new_in(arena),
+            qual_only: ArenaVec::new_in(arena),
+            outs: ArenaVec::new_in(arena),
+            unions: ArenaVec::new_in(arena),
+            record_rows: ArenaVec::new_in(arena),
+            fault: None,
+            cur_node: None,
+            term_from: None,
+            first_cte: None,
+            spool_runs: ArenaVec::new_in(arena),
+            cascades: ArenaVec::new_in(arena),
+            user_hashes: ArenaVec::new_in(arena),
+            acts: false,
+            acts_read: None,
+            recheck: false,
+            licensed_nodes: ArenaVec::new_in(arena),
+            exact: ArenaVec::new_in(arena),
+            stops: ArenaVec::new_in(arena),
+            srf_lits: ArenaVec::new_in(arena),
+            arm_subs: ArenaVec::new_in(arena),
+            in_order: ArenaVec::new_in(arena),
+            held_incs: ArenaVec::new_in(arena),
+            whole: ArenaVec::new_in(arena),
+            cte_reads: ArenaVec::new_in(arena),
+            recheck_inits: ArenaVec::new_in(arena),
+            epq_fresh: ArenaVec::new_in(arena),
+            recheck_node: -1,
+            recheck_above: ArenaVec::new_in(arena),
+            partial: false,
+            init_costs: ArenaVec::new_in(arena),
+            scan_costs: ArenaVec::new_in(arena),
+            copy_unions: ArenaVec::new_in(arena),
+            copy_one: ArenaVec::new_in(arena),
+            copy_union_cols: ArenaVec::new_in(arena),
+            raising_keys: ArenaVec::new_in(arena),
+            values: ArenaVec::new_in(arena),
+            union_nests: ArenaVec::new_in(arena),
+        }
     }
 
     pub fn note(&mut self, k: Kind) {
@@ -896,26 +1171,51 @@ impl<'p> PipelineGraph<'p> {
     }
 
     pub fn mapped_kinds(&self) -> KindIter {
-        KindIter { mask: self.mapped, i: 0 }
+        KindIter {
+            mask: self.mapped,
+            i: 0,
+        }
     }
 
     /// PS1-05 (mechanism C): which of `ids` (PARAM_EXEC ids, in a pgrc range scan's order) scan node `node` may run at its
     /// open, on this graph's planner costs (`eager_mask` over `scan_costs` and the InitPlans' `init_costs`). lowerv4
     /// decides through lower inputs/key.rs `cost_decide`, which files it as a guard of the program.
     pub fn eager_initplans(&self, node: i32, ids: &[i32]) -> u64 {
-        let charge = |i: &InitPlan<'p>| InitCharge { plan_id: i.plan_id, sets: i.params, cost: self.init_costs.iter().find(|c| c.0 == i.plan_id).map(|c| c.1) };
+        let charge = |i: &InitPlan<'p>| InitCharge {
+            plan_id: i.plan_id,
+            sets: i.params,
+            cost: self
+                .init_costs
+                .iter()
+                .find(|c| c.0 == i.plan_id)
+                .map(|c| c.1),
+        };
         let inits: Vec<InitCharge<'p>> = self.init_plans.iter().map(charge).collect(); // alloc: Cold
-        eager_mask(self.scan_costs.iter().find(|c| c.0 == node).map(|c| c.1), &inits, ids)
+        eager_mask(
+            self.scan_costs.iter().find(|c| c.0 == node).map(|c| c.1),
+            &inits,
+            ids,
+        )
     }
 
     /// Push `p` (an open over a streamed union: one arm per child); the pipelines ending in `p`'s end, in push order.
     pub fn push(&mut self, mut p: PipelineNode<'p>) -> ArenaVec<u16> {
         if p.node_ops.is_empty() {
-            p.node_ops.push(NodeOps { node_id: p.node_id, first_op: 0, producer_top: false });
+            p.node_ops.push(NodeOps {
+                node_id: p.node_id,
+                first_op: 0,
+                producer_top: false,
+            });
         }
         let last = *p.node_ops.last().unwrap();
-        if let Some(cur) = self.cur_node.filter(|&c| matches!(p.desc.ends_in, End::Breaker(_)) && c != last.node_id && !last.producer_top) {
-            p.node_ops.push(NodeOps { node_id: cur, first_op: p.mark, producer_top: true });
+        if let Some(cur) = self.cur_node.filter(|&c| {
+            matches!(p.desc.ends_in, End::Breaker(_)) && c != last.node_id && !last.producer_top
+        }) {
+            p.node_ops.push(NodeOps {
+                node_id: cur,
+                first_op: p.mark,
+                producer_top: true,
+            });
         }
         let mut ends = ArenaVec::new_in(*self.pipelines.allocator()); // alloc: Cold
         self.push_into(p, &mut ends);
@@ -935,7 +1235,8 @@ impl<'p> PipelineGraph<'p> {
         }
         for op in p.ops.iter() {
             if let Op::GroupRun(i) = op {
-                self.streams[*i as usize].producer = gravity_program::LifeId(self.pipelines.len() as u16);
+                self.streams[*i as usize].producer =
+                    gravity_program::LifeId(self.pipelines.len() as u16);
             }
         }
         ends.push(self.pipelines.len() as u16);
@@ -952,11 +1253,17 @@ impl<'p> PipelineGraph<'p> {
     /// An expression node's output: its Rep, type and life.
     pub fn out_of(&self, n: Node<'_>) -> Option<gravity_program::ExprOut> {
         let a = n.as_raw().as_ptr() as usize;
-        self.outs.binary_search_by_key(&a, |(k, _)| *k).ok().map(|i| self.outs[i].1)
+        self.outs
+            .binary_search_by_key(&a, |(k, _)| *k)
+            .ok()
+            .map(|i| self.outs[i].1)
     }
 
     /// The group whose records live in `life`.
-    pub fn group_of(&self, life: gravity_program::LifeId) -> Option<&crate::ops::shared::agg::GroupDecl<'p>> {
+    pub fn group_of(
+        &self,
+        life: gravity_program::LifeId,
+    ) -> Option<&crate::ops::shared::agg::GroupDecl<'p>> {
         self.groups.iter().find(|g| g.producer == life)
     }
 
@@ -994,7 +1301,11 @@ mod tests {
     /// keys after it in order, and keeps an expression key, another family's key and every key on another column.
     #[test]
     fn pinned_drops_only_the_tied_keys() {
-        let key = |attno: i16| OrderKey { col: Col::outer(attno), desc: false, nulls_first: false };
+        let key = |attno: i16| OrderKey {
+            col: Col::outer(attno),
+            desc: false,
+            nulls_first: false,
+        };
         let cols = |o: &Order| o.keys().iter().map(|k| k.col.attno).collect::<Vec<_>>();
         let mut o = Order::NONE;
         for a in 1..=5 {
@@ -1038,7 +1349,10 @@ mod tests {
             x ^= x << 17;
             x % m
         };
-        let col = |k: u64| Col { varno: 1 + (k / 4) as i32, attno: 1 + (k % 4) as i16 };
+        let col = |k: u64| Col {
+            varno: 1 + (k / 4) as i32,
+            attno: 1 + (k % 4) as i16,
+        };
         for _ in 0..4000 {
             let mut o = Order::NONE;
             for _ in 0..next(9) {
@@ -1048,15 +1362,24 @@ mod tests {
             for a in 0..12 {
                 for b in 0..12 {
                     let (a, b) = (col(a), col(b));
-                    let labeled = a == b || matches!((classes.label(a), classes.label(b)), (Some(p), Some(q)) if p == q);
+                    let labeled = a == b
+                        || matches!((classes.label(a), classes.label(b)), (Some(p), Some(q)) if p == q);
                     assert_eq!(labeled, o.same(a, b), "{a:?} {b:?} under {o:?}");
                 }
             }
-            let entries: [Option<Col>; 24] = core::array::from_fn(|_| if next(5) == 0 { None } else { Some(col(next(12))) });
+            let entries: [Option<Col>; 24] = core::array::from_fn(|_| {
+                if next(5) == 0 {
+                    None
+                } else {
+                    Some(col(next(12)))
+                }
+            });
             let mut firsts = ClassFirsts::new();
             for (j, b) in entries.iter().enumerate() {
                 let Some(b) = *b else { continue };
-                let walk = entries[..j].iter().position(|d| d.is_some_and(|a| a != b && o.same(a, b)));
+                let walk = entries[..j]
+                    .iter()
+                    .position(|d| d.is_some_and(|a| a != b && o.same(a, b)));
                 let pass = classes.label(b).and_then(|l| firsts.pair(l, j, b));
                 assert_eq!(pass, walk, "entry {j} {b:?} of {entries:?} under {o:?}");
             }

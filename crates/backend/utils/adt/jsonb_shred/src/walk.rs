@@ -79,10 +79,9 @@ fn walk_object<'a>(
         let depth = prefix.len() as u8;
         debug_assert!(depth <= max_depth);
         match item {
-            JsonbItem::String(_)
-            | JsonbItem::Numeric(_)
-            | JsonbItem::Bool(_)
-            | JsonbItem::Null => emit(prefix, PathValue::Scalar(item)),
+            JsonbItem::String(_) | JsonbItem::Numeric(_) | JsonbItem::Bool(_) | JsonbItem::Null => {
+                emit(prefix, PathValue::Scalar(item))
+            }
             JsonbItem::Binary(child) => {
                 let recursable = container_is_object(child)
                     && container_size(child) > 0

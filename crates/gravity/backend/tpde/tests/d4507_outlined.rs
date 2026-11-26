@@ -7,7 +7,9 @@
 #[test]
 fn compile_with_is_never_inlined() {
     let src = include_str!("../src/lib.rs");
-    let at = src.find("\npub fn compile_with<").expect("gravity_tpde::compile_with not found in src/lib.rs");
+    let at = src
+        .find("\npub fn compile_with<")
+        .expect("gravity_tpde::compile_with not found in src/lib.rs");
     // the contiguous block of attribute and doc lines right above the item
     let block: Vec<&str> = src[..at]
         .lines()

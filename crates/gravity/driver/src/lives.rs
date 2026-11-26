@@ -17,7 +17,19 @@ pub struct Life {
 }
 
 pub fn lives(program: &Program) -> impl Iterator<Item = Life> + '_ {
-    program.pipelines.iter().enumerate().filter_map(|(p, pipe)| pipe.produces().map(|slot| (p, slot, pipe))).enumerate().map(|(id, (p, slot, pipe))| Life { id: id as u16, slot, producer: p, last_consumer: program.last_consumer(p), parallel: pipe.parallel == gravity_program::Parallel::Eligible })
+    program
+        .pipelines
+        .iter()
+        .enumerate()
+        .filter_map(|(p, pipe)| pipe.produces().map(|slot| (p, slot, pipe)))
+        .enumerate()
+        .map(|(id, (p, slot, pipe))| Life {
+            id: id as u16,
+            slot,
+            producer: p,
+            last_consumer: program.last_consumer(p),
+            parallel: pipe.parallel == gravity_program::Parallel::Eligible,
+        })
 }
 
 pub fn life_of(program: &Program, p: usize) -> Option<Life> {
@@ -38,17 +50,34 @@ impl<A: Allocator + Clone> Schedule<A> {
     pub fn of_in(program: &Program, a: A) -> Schedule<A> {
         let arms = ArmRuns::of_in(program, a.clone());
         let frees = FreeSchedule::of_in(program, &arms, a);
-        Schedule { arms, frees, images: crate::node::program_images(program) }
+        Schedule {
+            arms,
+            frees,
+            images: crate::node::program_images(program),
+        }
     }
 
     /// The most `of_in` takes from an arena: the arms runs (a word per pipeline, when an Arms proto is declared), the free
     /// schedule's offsets and at most two entries per producer.
     pub fn arena_bytes(program: &Program) -> usize {
         let n = program.pipelines.len();
-        let producers = program.pipelines.iter().filter(|p| p.produces().is_some()).count();
-        let arms = program.v4.as_deref().is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Arms));
+        let producers = program
+            .pipelines
+            .iter()
+            .filter(|p| p.produces().is_some())
+            .count();
+        let arms = program
+            .v4
+            .as_deref()
+            .is_some_and(|d| d.protos.iter().any(|x| x.kind == ProtoKind::Arms));
         let words = |bytes: usize| bytes.div_ceil(8) * 8;
-        words((n + 1) * size_of::<u32>()) + words(2 * producers * size_of::<(u32, u8)>()) + if arms { words(n * size_of::<(u32, u32)>()) } else { 0 }
+        words((n + 1) * size_of::<u32>())
+            + words(2 * producers * size_of::<(u32, u8)>())
+            + if arms {
+                words(n * size_of::<(u32, u32)>())
+            } else {
+                0
+            }
     }
 }
 
@@ -61,9 +90,14 @@ impl<A: Allocator + Clone> ArmRuns<A> {
     pub fn of_in(program: &Program, a: A) -> ArmRuns<A> {
         let ps = &program.pipelines;
         let mut runs = Vec::new_in(a);
-        let Some(v4) = program.v4.as_deref() else { return ArmRuns(runs) };
+        let Some(v4) = program.v4.as_deref() else {
+            return ArmRuns(runs);
+        };
         for x in v4.protos.iter().filter(|x| x.kind == ProtoKind::Arms) {
-            let (start, end) = (x.pipeline as usize, (x.pipeline as usize).saturating_add(x.arg as usize));
+            let (start, end) = (
+                x.pipeline as usize,
+                (x.pipeline as usize).saturating_add(x.arg as usize),
+            );
             let produces = |q: usize| ps.get(q).and_then(|p| p.produces()) == Some(x.slot);
             if start >= end || !produces(start) || !produces(end - 1) {
                 continue;
@@ -85,7 +119,10 @@ impl<A: Allocator + Clone> ArmRuns<A> {
 
     /// The run holding producer `q` as an arm of the slot it produces.
     pub fn run_of(&self, q: usize) -> Option<core::ops::Range<usize>> {
-        self.0.get(q).filter(|r| r.0 < r.1).map(|r| r.0 as usize..r.1 as usize)
+        self.0
+            .get(q)
+            .filter(|r| r.0 < r.1)
+            .map(|r| r.0 as usize..r.1 as usize)
     }
 
     /// D393b: `q` is an arm of a run other than its last (it folds only).
@@ -114,14 +151,27 @@ impl FreeSchedule {
 }
 
 impl<A: Allocator + Clone> FreeSchedule<A> {
-    pub fn of_in(program: &Program, arms: &ArmRuns<impl Allocator + Clone>, a: A) -> FreeSchedule<A> {
+    pub fn of_in(
+        program: &Program,
+        arms: &ArmRuns<impl Allocator + Clone>,
+        a: A,
+    ) -> FreeSchedule<A> {
         let ps = &program.pipelines;
         let n = ps.len();
         // producer q's (stream end, free) pipelines. Each scan stops at the slot's next producer, so the scans of one slot
         // never overlap (O(slots x pipelines) in all); an arms run's arms share its last arm's last consumer, taken once
         let due_of = |q: usize, slot: u8, run_last: &mut (usize, usize)| -> (usize, usize) {
-            let next = (q + 1..n).find(|&k| ps[k].produces() == Some(slot)).unwrap_or(n);
-            let parts = (q + 1..next).filter(|&k| matches!(ps[k].claims, gravity_program::ClaimKind::SpillPartitions { .. })).max();
+            let next = (q + 1..n)
+                .find(|&k| ps[k].produces() == Some(slot))
+                .unwrap_or(n);
+            let parts = (q + 1..next)
+                .filter(|&k| {
+                    matches!(
+                        ps[k].claims,
+                        gravity_program::ClaimKind::SpillPartitions { .. }
+                    )
+                })
+                .max();
             let free = match arms.run_of(q) {
                 Some(run) => {
                     if run_last.0 != run.end {
@@ -157,7 +207,11 @@ impl<A: Allocator + Clone> FreeSchedule<A> {
         for q in 0..n {
             if let Some(slot) = ps[q].produces() {
                 let (end, free) = due_of(q, slot, &mut run_last);
-                let puts = if end == free { [(end, DUE_END | DUE_FREE), (n, 0)] } else { [(end, DUE_END), (free, DUE_FREE)] };
+                let puts = if end == free {
+                    [(end, DUE_END | DUE_FREE), (n, 0)]
+                } else {
+                    [(end, DUE_END), (free, DUE_FREE)]
+                };
                 for (p, flags) in puts.into_iter().filter(|&(p, _)| p < n) {
                     due[at[p] as usize] = (q as u32, flags);
                     at[p] += 1;

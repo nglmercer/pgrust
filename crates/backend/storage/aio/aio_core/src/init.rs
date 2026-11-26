@@ -71,7 +71,10 @@ pub fn AioShmemSize() -> PgResult<usize> {
     let mut sz = shmem::add_size(0, AioCtlShmemSize())?;
     sz = shmem::add_size(sz, std::mem::size_of::<PgAioBackend>() * procs)?;
     sz = shmem::add_size(sz, std::mem::size_of::<PgAioHandle>() * procs * imc)?;
-    sz = shmem::add_size(sz, std::mem::size_of::<libc::iovec>() * procs * per_backend_iovecs)?;
+    sz = shmem::add_size(
+        sz,
+        std::mem::size_of::<libc::iovec>() * procs * per_backend_iovecs,
+    )?;
     sz = shmem::add_size(sz, std::mem::size_of::<u64>() * procs * per_backend_iovecs)?;
     sz = shmem::add_size(sz, pgaio_method_shmem_size(crate::io_method()))?;
     Ok(sz)
@@ -80,7 +83,10 @@ pub fn AioShmemSize() -> PgResult<usize> {
 pub fn AioShmemInit() -> PgResult<()> {
     let procs = AioProcs();
     let imc = crate::io_max_concurrency() as usize;
-    debug_assert!(imc > 0, "AioShmemSize must run first (io_max_concurrency auto-tune)");
+    debug_assert!(
+        imc > 0,
+        "AioShmemSize must run first (io_max_concurrency auto-tune)"
+    );
     let combine = guc_tables::vars::io_max_combine_limit.read() as usize;
     let per_backend_iovecs = imc * combine;
 
@@ -215,8 +221,10 @@ pub fn AioShmemResetAfterCrash() -> PgResult<()> {
             d.handle_data_len = 0;
             d.resowner = None;
             d.report_return = std::ptr::null_mut();
-            d.distilled_result =
-                PgAioResult { status: PgAioResultStatus::Unknown, ..Default::default() };
+            d.distilled_result = PgAioResult {
+                status: PgAioResultStatus::Unknown,
+                ..Default::default()
+            };
             dclist_push_tail(&mut b.idle_ios, index);
         }
     }

@@ -79,18 +79,21 @@
 //!   holds two NULL fields equal, so each group, the NULL one too, counts once.
 
 use datum::Datum;
+use mcx::{CollectIn, GrowIn};
 use types_core::{BOOLOID, DATEOID, INT2OID, INT4OID, INT8OID, TIMESTAMPOID, TIMESTAMPTZOID};
-use types_nodes::list::NodeList;
 use types_nodes::bitmapset::Bitmapset;
+use types_nodes::list::NodeList;
 use types_nodes::parsenodes::SortGroupClause;
 use types_nodes::plannodes::{Agg, Plan};
-use types_nodes::primnodes::{Aggref, BoolExpr, BoolExprType, CaseExpr, CaseWhen, CoercionForm, Const, FuncExpr, OpExpr, RowExpr, ScalarArrayOpExpr, TargetEntry, Var, OUTER_VAR};
+use types_nodes::primnodes::{
+    Aggref, BoolExpr, BoolExprType, CaseExpr, CaseWhen, CoercionForm, Const, FuncExpr, OpExpr,
+    RowExpr, ScalarArrayOpExpr, TargetEntry, Var, OUTER_VAR,
+};
 use types_nodes::{Node, NodeTag};
-use mcx::{CollectIn, GrowIn};
 
 // the LIKE twins' spelling rules are gravity_program::twin's (NEW-19); re-exported for this module's callers
-pub use gravity_program::twin::{textpos_test, twin_pattern};
 use gravity_program::twin::twin_spelling;
+pub use gravity_program::twin::{textpos_test, twin_pattern};
 
 use crate::admit::Refusal;
 use crate::catalog::Facts;
@@ -148,7 +151,10 @@ struct RowCount<'p> {
 /// The most keys the row form takes (its field names are static: `ROW_NAMES`).
 const ROW_KEYS: usize = 16;
 /// The field names PG's parser gives a `ROW(..)` of that many fields (parse_expr.c transformRowExpr: "f1", "f2", ..).
-const ROW_NAMES: [&str; ROW_KEYS] = ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15", "f16"];
+const ROW_NAMES: [&str; ROW_KEYS] = [
+    "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11", "f12", "f13", "f14", "f15",
+    "f16",
+];
 /// pg_operator `=` and `<` for record (record_eq, record_lt: record_ops, the btree default for record).
 const RECORD_EQ_OP: u32 = 2988;
 const RECORD_LT_OP: u32 = 2990;
@@ -165,41 +171,82 @@ const RECORD_LT_OP: u32 = 2990;
 /// record_eq holds two NULL fields equal and a row is never NULL, so the count is the number of groups, the NULL group
 /// included. A HAVING, an aggregate in the inner Agg, any other outer output, a parameter or an initplan keep the plan.
 fn distinct_count<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> Option<Count<'p>> {
-    let outer = n.as_agg().filter(|a| a.aggstrategy == AGG_PLAIN && a.numCols == 0 && simple(a))?;
+    let outer = n
+        .as_agg()
+        .filter(|a| a.aggstrategy == AGG_PLAIN && a.numCols == 0 && simple(a))?;
     let stars = outer.plan.targetlist.iter().all(|t| {
-        t.as_target_entry().and_then(|t| t.expr.as_aggref()).is_some_and(|a| {
-            a.aggfnoid == F_COUNT_STAR && a.aggstar && a.aggfilter.is_none() && a.aggdistinct.is_nil() && a.aggorder.is_nil() && a.agglevelsup == 0
-        })
+        t.as_target_entry()
+            .and_then(|t| t.expr.as_aggref())
+            .is_some_and(|a| {
+                a.aggfnoid == F_COUNT_STAR
+                    && a.aggstar
+                    && a.aggfilter.is_none()
+                    && a.aggdistinct.is_nil()
+                    && a.aggorder.is_nil()
+                    && a.agglevelsup == 0
+            })
     });
     let mut below = outer.plan.lefttree?;
     if let Some(s) = below.as_subquery_scan() {
-        if !s.scan.plan.qual.is_nil() || !s.scan.plan.initPlan.is_nil() || !s.scan.plan.allParam.is_empty() {
+        if !s.scan.plan.qual.is_nil()
+            || !s.scan.plan.initPlan.is_nil()
+            || !s.scan.plan.allParam.is_empty()
+        {
             return None;
         }
         below = s.subplan?;
     }
     // the grouping: (its plan, the keys' input columns, their `=`, their collations); every key column indexes the input's list
-    let (inner, cols, eqops, colls): (&'p Plan<'p>, &'p [i16], &'p [u32], &'p [u32]) = if let Some(a) = below.as_agg() {
-        (matches!(a.aggstrategy, AGG_SORTED | AGG_HASHED) && a.numCols >= 1 && simple(a)).then_some((&a.plan, a.grpColIdx, a.grpOperators, a.grpCollations))?
-    } else if let Some(g) = below.as_group() {
-        (g.numCols >= 1 && plain(&g.plan)).then_some((&g.plan, g.grpColIdx, g.grpOperators, g.grpCollations))?
-    } else {
-        let u = below.as_unique()?;
-        (u.numCols >= 1 && plain(&u.plan)).then_some((&u.plan, u.uniqColIdx, u.uniqOperators, u.uniqCollations))?
-    };
-    if !stars || outer.plan.targetlist.is_nil() || inner.targetlist.iter().any(|t| t.as_target_entry().is_none_or(|t| t.expr.as_var().is_none())) {
+    let (inner, cols, eqops, colls): (&'p Plan<'p>, &'p [i16], &'p [u32], &'p [u32]) =
+        if let Some(a) = below.as_agg() {
+            (matches!(a.aggstrategy, AGG_SORTED | AGG_HASHED) && a.numCols >= 1 && simple(a))
+                .then_some((&a.plan, a.grpColIdx, a.grpOperators, a.grpCollations))?
+        } else if let Some(g) = below.as_group() {
+            (g.numCols >= 1 && plain(&g.plan)).then_some((
+                &g.plan,
+                g.grpColIdx,
+                g.grpOperators,
+                g.grpCollations,
+            ))?
+        } else {
+            let u = below.as_unique()?;
+            (u.numCols >= 1 && plain(&u.plan)).then_some((
+                &u.plan,
+                u.uniqColIdx,
+                u.uniqOperators,
+                u.uniqCollations,
+            ))?
+        };
+    if !stars
+        || outer.plan.targetlist.is_nil()
+        || inner.targetlist.iter().any(|t| {
+            t.as_target_entry()
+                .is_none_or(|t| t.expr.as_var().is_none())
+        })
+    {
         return None;
     }
-    if cols.is_empty() || cols.len() > ROW_KEYS || eqops.len() != cols.len() || colls.len() != cols.len() {
+    if cols.is_empty()
+        || cols.len() > ROW_KEYS
+        || eqops.len() != cols.len()
+        || colls.len() != cols.len()
+    {
         return None;
     }
     let lower = inner.lefttree?;
     // one NOT NULL key: count(DISTINCT k) under the key's own `=` and its family's `<`
     if cols.len() == 1 && notnull_col(b, lower, cols[0]) {
         let (col, eqop) = (cols[0], eqops[0]);
-        let key = inner.targetlist.iter().filter_map(|t| t.as_target_entry()).map(|t| t.expr).find(|e| {
-            e.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varattno == col && v.varlevelsup == 0)
-        })?;
+        let key = inner
+            .targetlist
+            .iter()
+            .filter_map(|t| t.as_target_entry())
+            .map(|t| t.expr)
+            .find(|e| {
+                e.as_var().is_some_and(|v| {
+                    v.varno == OUTER_VAR && v.varattno == col && v.varlevelsup == 0
+                })
+            })?;
         let ty = key.as_var()?.vartype;
         let (family, left, right, strategy) = crate::effects::builtin_btree_member(eqop)?;
         if left != ty || right != ty || strategy != 3 {
@@ -208,7 +255,16 @@ fn distinct_count<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> Option<Count<'p>> {
         let sortop = crate::effects::builtin_btree_op(family, ty, ty, 1)?;
         let (input, col) = below_sorts(lower, col)?;
         let hashable = crate::catalog::hash_eq::builtin_hash_eq(b.facts, eqop); // as the parser marks the spelled clause
-        return Some(Count::One(DistinctCount { outer, input, col, eqop, hashable, key, sortop, groups: group_estimate(inner) }));
+        return Some(Count::One(DistinctCount {
+            outer,
+            input,
+            col,
+            eqop,
+            hashable,
+            key,
+            sortop,
+            groups: group_estimate(inner),
+        }));
     }
     // DC-21: each key a Var of the grouping's list, grouped by its type's default btree `=` (the one record_eq applies
     // to the field) under the Var's own collation, and read below the grouping's Sorts (each passes the column through,
@@ -218,7 +274,9 @@ fn distinct_count<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> Option<Count<'p>> {
         let v = key_var(inner, col)?;
         // an anonymous record key (or an array of one) has no row form: its fields are known only per value, and the
         // record key the call would keep refuses a record field, where the grouping serves the key (keep the plan)
-        if crate::catalog::anonymous_record(v.vartype) || v.vartype == types_core::catalog::RECORDARRAYOID {
+        if crate::catalog::anonymous_record(v.vartype)
+            || v.vartype == types_core::catalog::RECORDARRAYOID
+        {
             return None;
         }
         let (family, left, right, strategy) = crate::effects::builtin_btree_member(eqops[i])?;
@@ -226,27 +284,50 @@ fn distinct_count<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> Option<Count<'p>> {
             return None;
         }
         let sortop = crate::effects::builtin_btree_op(family, v.vartype, v.vartype, 1)?;
-        if !b.facts.key(crate::catalog::KeyReq::sort(sortop)).is_some_and(|o| o.default_family) {
+        if !b
+            .facts
+            .key(crate::catalog::KeyReq::sort(sortop))
+            .is_some_and(|o| o.default_family)
+        {
             return None;
         }
         below_sorts(lower, col)?;
         hashable &= crate::catalog::hash_eq::builtin_hash_eq(b.facts, eqops[i]);
     }
     let (input, _) = below_sorts(lower, cols[0])?;
-    Some(Count::Row(RowCount { outer, inner, cols, input, hashable }))
+    Some(Count::Row(RowCount {
+        outer,
+        inner,
+        cols,
+        input,
+        hashable,
+    }))
 }
 
 /// The key Var of grouping list `inner` at input column `col` (an OUTER_VAR of this level).
 fn key_var<'p>(inner: &'p Plan<'p>, col: i16) -> Option<&'p Var<'p>> {
-    inner.targetlist.iter().filter_map(|t| t.as_target_entry()).filter_map(|t| t.expr.as_var()).find(|v| v.varno == OUTER_VAR && v.varattno == col && v.varlevelsup == 0)
+    inner
+        .targetlist
+        .iter()
+        .filter_map(|t| t.as_target_entry())
+        .filter_map(|t| t.expr.as_var())
+        .find(|v| v.varno == OUTER_VAR && v.varattno == col && v.varlevelsup == 0)
 }
 
 /// Column `col` of `input` read below its Sorts: each Sort passes its input's column through (`notnull_col` walks the
 /// same way). The node first not a Sort, and the column there.
 fn below_sorts<'p>(mut input: Node<'p>, mut col: i16) -> Option<(Node<'p>, i16)> {
     while let (Some(_), Some(p)) = (input.as_sort(), input.as_plan()) {
-        let at = usize::try_from(col).ok().and_then(|c| c.checked_sub(1)).filter(|&c| c < p.targetlist.len())?;
-        let v = p.targetlist.nth(at).as_target_entry().and_then(|t| t.expr.as_var()).filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
+        let at = usize::try_from(col)
+            .ok()
+            .and_then(|c| c.checked_sub(1))
+            .filter(|&c| c < p.targetlist.len())?;
+        let v = p
+            .targetlist
+            .nth(at)
+            .as_target_entry()
+            .and_then(|t| t.expr.as_var())
+            .filter(|v| v.varno == OUTER_VAR && v.varlevelsup == 0)?;
         (input, col) = (p.lefttree?, v.varattno);
     }
     Some((input, col))
@@ -254,7 +335,11 @@ fn below_sorts<'p>(mut input: Node<'p>, mut col: i16) -> Option<(Node<'p>, i16)>
 
 /// An Agg with no HAVING, grouping sets, chain, split, parameter, initplan or zone annotation.
 fn simple(a: &Agg<'_>) -> bool {
-    plain(&a.plan) && a.aggsplit == 0 && a.groupingSets.is_nil() && a.chain.is_nil() && a.gravity_rewrite.is_none()
+    plain(&a.plan)
+        && a.aggsplit == 0
+        && a.groupingSets.is_nil()
+        && a.chain.is_nil()
+        && a.gravity_rewrite.is_none()
 }
 
 /// A plan node with no qual (a Group's HAVING), parameter, initplan or second input.
@@ -266,10 +351,25 @@ fn plain(p: &Plan<'_>) -> bool {
 fn notnull_col(b: &Builder<'_, '_>, mut n: Node<'_>, mut col: i16) -> bool {
     loop {
         let Some(p) = n.as_plan() else { return false };
-        let Some(e) = usize::try_from(col).ok().and_then(|c| c.checked_sub(1)).filter(|&c| c < p.targetlist.len()).and_then(|c| p.targetlist.nth(c).as_target_entry()).map(|t| t.expr) else { return false };
-        let Some(v) = e.as_var().filter(|v| v.varlevelsup == 0 && v.varnullingrels.is_empty()) else { return false };
+        let Some(e) = usize::try_from(col)
+            .ok()
+            .and_then(|c| c.checked_sub(1))
+            .filter(|&c| c < p.targetlist.len())
+            .and_then(|c| p.targetlist.nth(c).as_target_entry())
+            .map(|t| t.expr)
+        else {
+            return false;
+        };
+        let Some(v) = e
+            .as_var()
+            .filter(|v| v.varlevelsup == 0 && v.varnullingrels.is_empty())
+        else {
+            return false;
+        };
         if n.as_sort().is_some() {
-            let (Some(l), true) = (p.lefttree, v.varno == OUTER_VAR) else { return false };
+            let (Some(l), true) = (p.lefttree, v.varno == OUTER_VAR) else {
+                return false;
+            };
             (n, col) = (l, v.varattno);
             continue;
         }
@@ -279,7 +379,9 @@ fn notnull_col(b: &Builder<'_, '_>, mut n: Node<'_>, mut col: i16) -> bool {
             _ => return false,
         };
         let rel = b.rte(scanrelid).map_or(0, |r| r.relid);
-        return v.varno == scanrelid as i32 && rel != 0 && b.facts.att(rel, v.varattno).is_some_and(|a| a.notnull);
+        return v.varno == scanrelid as i32
+            && rel != 0
+            && b.facts.att(rel, v.varattno).is_some_and(|a| a.notnull);
     }
 }
 
@@ -287,12 +389,46 @@ fn notnull_col(b: &Builder<'_, '_>, mut n: Node<'_>, mut col: i16) -> bool {
 /// own Aggref for that call: one argument entry with sort-group ref 1, its clause the group's `=` and the family's `<`).
 fn distinct_agg<'p>(mcx: mcx::Mcx<'p>, m: DistinctCount<'p>) -> types_error::PgResult<Node<'p>> {
     let v = m.key.as_var().expect("distinct_count matched a Var");
-    let key = Node::mk(mcx, types_nodes::primnodes::Var { varattno: m.col, varnullingrels: v.varnullingrels.clone_in(mcx)?, ..*v })?;
+    let key = Node::mk(
+        mcx,
+        types_nodes::primnodes::Var {
+            varattno: m.col,
+            varnullingrels: v.varnullingrels.clone_in(mcx)?,
+            ..*v
+        },
+    )?;
     let mut tlist = NodeList::with_capacity(mcx, m.outer.plan.targetlist.len())?;
-    for t in m.outer.plan.targetlist.iter().filter_map(|t| t.as_target_entry()) {
+    for t in m
+        .outer
+        .plan
+        .targetlist
+        .iter()
+        .filter_map(|t| t.as_target_entry())
+    {
         let a = t.expr.as_aggref().expect("distinct_count matched count(*)");
-        let arg = Node::mk(mcx, TargetEntry { expr: key, resno: 1, resname: None, ressortgroupref: 1, resorigtbl: 0, resorigcol: 0, resjunk: false })?;
-        let clause = Node::mk(mcx, SortGroupClause { tleSortGroupRef: 1, eqop: m.eqop, sortop: m.sortop, reverse_sort: false, nulls_first: false, hashable: m.hashable })?;
+        let arg = Node::mk(
+            mcx,
+            TargetEntry {
+                expr: key,
+                resno: 1,
+                resname: None,
+                ressortgroupref: 1,
+                resorigtbl: 0,
+                resorigcol: 0,
+                resjunk: false,
+            },
+        )?;
+        let clause = Node::mk(
+            mcx,
+            SortGroupClause {
+                tleSortGroupRef: 1,
+                eqop: m.eqop,
+                sortop: m.sortop,
+                reverse_sort: false,
+                nulls_first: false,
+                hashable: m.hashable,
+            },
+        )?;
         let count = Aggref {
             aggfnoid: F_COUNT_ANY,
             inputcollid: v.varcollid,
@@ -308,8 +444,37 @@ fn distinct_agg<'p>(mcx: mcx::Mcx<'p>, m: DistinctCount<'p>) -> types_error::PgR
         tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr, ..*t })?)?;
     }
     let p = &m.outer.plan;
-    let plan = Plan { targetlist: tlist, qual: NodeList::nil(), lefttree: Some(m.input), righttree: None, initPlan: NodeList::nil(), extParam: Bitmapset::empty(), allParam: Bitmapset::empty(), ..*p };
-    Node::mk(mcx, Agg { plan, aggstrategy: AGG_PLAIN, aggsplit: 0, numCols: 0, grpColIdx: &[], grpOperators: &[], grpCollations: &[], numGroups: m.groups, transitionSpace: m.outer.transitionSpace, aggParams: Bitmapset::empty(), groupingSets: NodeList::nil(), chain: NodeList::nil(), distinctHashed: false, gravity_rewrite: None, gravity_finals: &[], gravity_groups_default: false })
+    let plan = Plan {
+        targetlist: tlist,
+        qual: NodeList::nil(),
+        lefttree: Some(m.input),
+        righttree: None,
+        initPlan: NodeList::nil(),
+        extParam: Bitmapset::empty(),
+        allParam: Bitmapset::empty(),
+        ..*p
+    };
+    Node::mk(
+        mcx,
+        Agg {
+            plan,
+            aggstrategy: AGG_PLAIN,
+            aggsplit: 0,
+            numCols: 0,
+            grpColIdx: &[],
+            grpOperators: &[],
+            grpCollations: &[],
+            numGroups: m.groups,
+            transitionSpace: m.outer.transitionSpace,
+            aggParams: Bitmapset::empty(),
+            groupingSets: NodeList::nil(),
+            chain: NodeList::nil(),
+            distinctHashed: false,
+            gravity_rewrite: None,
+            gravity_finals: &[],
+            gravity_groups_default: false,
+        },
+    )
 }
 
 /// The grouping's estimate of its groups (its plan rows, at least 1). The count's distinct table holds exactly those
@@ -323,21 +488,71 @@ fn group_estimate(inner: &Plan<'_>) -> i64 {
 /// `count(DISTINCT ROW(k1, .., kn))` (PG's own Aggref for that call over the parser's anonymous row: one argument entry
 /// with sort-group ref 1, its clause record_eq / record_lt, hashable when every key's `=` is).
 fn row_agg<'p>(mcx: mcx::Mcx<'p>, m: RowCount<'p>) -> types_error::PgResult<Node<'p>> {
-    let lower = m.inner.lefttree.expect("distinct_count matched the grouping's input");
+    let lower = m
+        .inner
+        .lefttree
+        .expect("distinct_count matched the grouping's input");
     let mut fields = NodeList::with_capacity(mcx, m.cols.len())?;
     let mut names = NodeList::with_capacity(mcx, m.cols.len())?;
     for (i, &col) in m.cols.iter().enumerate() {
         let v = key_var(m.inner, col).expect("distinct_count matched each key's Var");
-        let (_, at) = below_sorts(lower, col).expect("distinct_count read each key below the Sorts");
-        fields.lappend(mcx, Node::mk(mcx, Var { varattno: at, varnullingrels: v.varnullingrels.clone_in(mcx)?, ..*v })?)?;
+        let (_, at) =
+            below_sorts(lower, col).expect("distinct_count read each key below the Sorts");
+        fields.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                Var {
+                    varattno: at,
+                    varnullingrels: v.varnullingrels.clone_in(mcx)?,
+                    ..*v
+                },
+            )?,
+        )?;
         names.lappend(mcx, Node::mk_string(mcx, ROW_NAMES[i])?)?;
     }
-    let row = Node::mk(mcx, RowExpr { args: fields, row_typeid: types_core::catalog::RECORDOID, row_format: CoercionForm::COERCE_IMPLICIT_CAST, colnames: names, location: -1 })?;
+    let row = Node::mk(
+        mcx,
+        RowExpr {
+            args: fields,
+            row_typeid: types_core::catalog::RECORDOID,
+            row_format: CoercionForm::COERCE_IMPLICIT_CAST,
+            colnames: names,
+            location: -1,
+        },
+    )?;
     let mut tlist = NodeList::with_capacity(mcx, m.outer.plan.targetlist.len())?;
-    for t in m.outer.plan.targetlist.iter().filter_map(|t| t.as_target_entry()) {
+    for t in m
+        .outer
+        .plan
+        .targetlist
+        .iter()
+        .filter_map(|t| t.as_target_entry())
+    {
         let a = t.expr.as_aggref().expect("distinct_count matched count(*)");
-        let arg = Node::mk(mcx, TargetEntry { expr: row, resno: 1, resname: None, ressortgroupref: 1, resorigtbl: 0, resorigcol: 0, resjunk: false })?;
-        let clause = Node::mk(mcx, SortGroupClause { tleSortGroupRef: 1, eqop: RECORD_EQ_OP, sortop: RECORD_LT_OP, reverse_sort: false, nulls_first: false, hashable: m.hashable })?;
+        let arg = Node::mk(
+            mcx,
+            TargetEntry {
+                expr: row,
+                resno: 1,
+                resname: None,
+                ressortgroupref: 1,
+                resorigtbl: 0,
+                resorigcol: 0,
+                resjunk: false,
+            },
+        )?;
+        let clause = Node::mk(
+            mcx,
+            SortGroupClause {
+                tleSortGroupRef: 1,
+                eqop: RECORD_EQ_OP,
+                sortop: RECORD_LT_OP,
+                reverse_sort: false,
+                nulls_first: false,
+                hashable: m.hashable,
+            },
+        )?;
         let count = Aggref {
             aggfnoid: F_COUNT_ANY,
             inputcollid: 0,
@@ -353,18 +568,54 @@ fn row_agg<'p>(mcx: mcx::Mcx<'p>, m: RowCount<'p>) -> types_error::PgResult<Node
         tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr, ..*t })?)?;
     }
     let p = &m.outer.plan;
-    let plan = Plan { targetlist: tlist, qual: NodeList::nil(), lefttree: Some(m.input), righttree: None, initPlan: NodeList::nil(), extParam: Bitmapset::empty(), allParam: Bitmapset::empty(), ..*p };
-    Node::mk(mcx, Agg { plan, aggstrategy: AGG_PLAIN, aggsplit: 0, numCols: 0, grpColIdx: &[], grpOperators: &[], grpCollations: &[], numGroups: group_estimate(m.inner), transitionSpace: m.outer.transitionSpace, aggParams: Bitmapset::empty(), groupingSets: NodeList::nil(), chain: NodeList::nil(), distinctHashed: false, gravity_rewrite: None, gravity_finals: &[], gravity_groups_default: false })
+    let plan = Plan {
+        targetlist: tlist,
+        qual: NodeList::nil(),
+        lefttree: Some(m.input),
+        righttree: None,
+        initPlan: NodeList::nil(),
+        extParam: Bitmapset::empty(),
+        allParam: Bitmapset::empty(),
+        ..*p
+    };
+    Node::mk(
+        mcx,
+        Agg {
+            plan,
+            aggstrategy: AGG_PLAIN,
+            aggsplit: 0,
+            numCols: 0,
+            grpColIdx: &[],
+            grpOperators: &[],
+            grpCollations: &[],
+            numGroups: group_estimate(m.inner),
+            transitionSpace: m.outer.transitionSpace,
+            aggParams: Bitmapset::empty(),
+            groupingSets: NodeList::nil(),
+            chain: NodeList::nil(),
+            distinctHashed: false,
+            gravity_rewrite: None,
+            gravity_finals: &[],
+            gravity_groups_default: false,
+        },
+    )
 }
 
 /// Each filter of the built graph in canonical form. Without a node allocator (plain `decompose`) nothing is rewritten.
 /// A pipeline's leading filters (before its first other op) are its source's quals: `coalesce_notnull` reads their Vars
 /// of the source's range table index as the scanned relation's columns, and `coalesce_filter` reads each as a whole qual
 /// of the scan's list; a later filter (a join's, an upper node's) never.
-pub fn graph<'p>(g: &mut PipelineGraph<'p>, facts: &dyn Facts, alloc: Option<mcx::Mcx<'p>>) -> Result<(), Refusal> {
+pub fn graph<'p>(
+    g: &mut PipelineGraph<'p>,
+    facts: &dyn Facts,
+    alloc: Option<mcx::Mcx<'p>>,
+) -> Result<(), Refusal> {
     let Some(mcx) = alloc else { return Ok(()) };
     for p in g.pipelines.iter_mut() {
-        let mut scan = p.source.relation().map(|(rti, relid, _)| (i32::from(rti), relid));
+        let mut scan = p
+            .source
+            .relation()
+            .map(|(rti, relid, _)| (i32::from(rti), relid));
         for op in p.ops.iter_mut() {
             match op {
                 Op::Filter(q) => *q = scan_filter(mcx, facts, scan, *q)?,
@@ -377,7 +628,12 @@ pub fn graph<'p>(g: &mut PipelineGraph<'p>, facts: &dyn Facts, alloc: Option<mcx
 
 /// One leading filter of a scan (`scan`: its range table index and relation) in canonical form: `scan_expr`, then
 /// `coalesce_filter` over the filter as a whole. Without `scan` it is `scan_expr`.
-pub fn scan_filter<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n: Node<'p>) -> Result<Node<'p>, Refusal> {
+pub fn scan_filter<'p>(
+    mcx: mcx::Mcx<'p>,
+    facts: &dyn Facts,
+    scan: Option<(i32, u32)>,
+    n: Node<'p>,
+) -> Result<Node<'p>, Refusal> {
     let cur = scan_expr(mcx, facts, scan, n)?;
     if scan.is_none() {
         return Ok(cur);
@@ -400,19 +656,37 @@ pub fn scan_filter<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, 
 /// too, at `retype`'s bounds (`zoned`): the dates whose midnight is the instant, two at a skipped local day (D3537), none
 /// when it is no date's midnight. Fires under the same constant-alone class as `retype`'s zone arms (`implied_class`), so
 /// the front key holds whether it fires (`implied_class_of`); a conversion moves `zone_reads` as `zoned`'s does.
-fn implied<'p>(mcx: mcx::Mcx<'p>, scan: Option<(i32, u32)>, cur: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
-    let Some((rti, _)) = scan else { return Ok(None) };
-    let quals: mcx::PgVec<'p, Node<'p>> = cur.as_list().map_or_else(|| core::iter::once(cur).collect_in(mcx), |l| l.iter().collect_in(mcx));
+fn implied<'p>(
+    mcx: mcx::Mcx<'p>,
+    scan: Option<(i32, u32)>,
+    cur: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
+    let Some((rti, _)) = scan else {
+        return Ok(None);
+    };
+    let quals: mcx::PgVec<'p, Node<'p>> = cur.as_list().map_or_else(
+        || core::iter::once(cur).collect_in(mcx),
+        |l| l.iter().collect_in(mcx),
+    );
     let (mut all, mut added) = (mcx::reserved_in(quals.len() + 2, mcx), false);
     for q in quals.iter().copied() {
-        let Some((v, k, kn, family, (left, right, s))) = implied_shape(q).filter(|m| m.0.varno == rti) else {
+        let Some((v, k, kn, family, (left, right, s))) =
+            implied_shape(q).filter(|m| m.0.varno == rti)
+        else {
             all.push_in(q);
             continue;
         };
-        let strategies: &[u8] = if s == 3 { &[4, 2] } else { core::slice::from_ref(&s) };
+        let strategies: &[u8] = if s == 3 {
+            &[4, 2]
+        } else {
+            core::slice::from_ref(&s)
+        };
         let mut built = mcx::PgVec::new_in(mcx);
         for &s2 in strategies {
-            let (Some(same), Some(value)) = (crate::effects::builtin_btree_op(family, left, left, s2), implied_value(right, left, s2, k.constvalue)) else {
+            let (Some(same), Some(value)) = (
+                crate::effects::builtin_btree_op(family, left, left, s2),
+                implied_value(right, left, s2, k.constvalue),
+            ) else {
                 built.clear();
                 break;
             };
@@ -423,11 +697,44 @@ fn implied<'p>(mcx: mcx::Mcx<'p>, scan: Option<(i32, u32)>, cur: Node<'p>) -> ty
             built.push_in((same, code, value, s2));
         }
         for (same, code, value, s2) in built {
-            let c = Node::mk_const(mcx, left, -1, 0, typlen(left).unwrap_or(8), value, false, true)?;
-            crate::bake::derived_note(addr(c), crate::bake::Derived::Retype { src: addr(kn), strategy: s2 | IMPLIED });
-            let x = Node::mk(mcx, Var { varnullingrels: v.varnullingrels.clone_in(mcx)?, ..*v })?;
+            let c = Node::mk_const(
+                mcx,
+                left,
+                -1,
+                0,
+                typlen(left).unwrap_or(8),
+                value,
+                false,
+                true,
+            )?;
+            crate::bake::derived_note(
+                addr(c),
+                crate::bake::Derived::Retype {
+                    src: addr(kn),
+                    strategy: s2 | IMPLIED,
+                },
+            );
+            let x = Node::mk(
+                mcx,
+                Var {
+                    varnullingrels: v.varnullingrels.clone_in(mcx)?,
+                    ..*v
+                },
+            )?;
             let args = NodeList::from_slice(mcx, &[x, c])?;
-            all.push_in(Node::mk(mcx, OpExpr { opno: same, opfuncid: code, opresulttype: BOOLOID, opretset: false, opcollid: 0, inputcollid: 0, args, location: -1 })?);
+            all.push_in(Node::mk(
+                mcx,
+                OpExpr {
+                    opno: same,
+                    opfuncid: code,
+                    opresulttype: BOOLOID,
+                    opretset: false,
+                    opcollid: 0,
+                    inputcollid: 0,
+                    args,
+                    location: -1,
+                },
+            )?);
             added = true;
         }
         all.push_in(q);
@@ -435,18 +742,30 @@ fn implied<'p>(mcx: mcx::Mcx<'p>, scan: Option<(i32, u32)>, cur: Node<'p>) -> ty
     if !added {
         return Ok(None);
     }
-    Ok(Some(Node::mk_list(mcx, NodeList::from_slice(mcx, &all[..])?)?))
+    Ok(Some(Node::mk_list(
+        mcx,
+        NodeList::from_slice(mcx, &all[..])?,
+    )?))
 }
 
 /// `implied`'s match of one qual in canonical form (`commute`'s): the column, the constant, the btree family and the
 /// cross-type member's `(column type, constant type, strategy)`.
-fn implied_shape<'p>(q: Node<'p>) -> Option<(&'p Var<'p>, &'p Const, Node<'p>, u32, (u32, u32, u8))> {
+fn implied_shape<'p>(
+    q: Node<'p>,
+) -> Option<(&'p Var<'p>, &'p Const, Node<'p>, u32, (u32, u32, u8))> {
     let o = q.as_op_expr().filter(|o| o.args.len() == 2)?;
-    let v = o.args.nth(0).as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
+    let v = o
+        .args
+        .nth(0)
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
     let kn = o.args.nth(1);
     let k = kn.as_const().filter(|k| !k.constisnull)?;
     let (family, left, right, s) = crate::effects::builtin_btree_member(o.opno)?;
-    (k.consttype == right && v.vartype == left && implied_class(right, left, s, k.constvalue).is_some()).then_some((v, k, kn, family, (left, right, s)))
+    (k.consttype == right
+        && v.vartype == left
+        && implied_class(right, left, s, k.constvalue).is_some())
+    .then_some((v, k, kn, family, (left, right, s)))
 }
 
 /// The front key's class of rule `implied` for plan OpExpr `n` (exec inputs/front.rs keys it, as `retype_class`): in
@@ -489,7 +808,10 @@ fn implied_class(from: u32, to: u32, s: u8, v: Datum) -> Option<bool> {
         _ => return None,
     };
     let t = v.as_i64();
-    Some(ok && (MIN_TIMESTAMP + ZONE_MARGIN..END_TIMESTAMP - ZONE_MARGIN).contains(&t) && ZONE.get().is_some_and(|z| (z.active)()))
+    Some(
+        ok && (MIN_TIMESTAMP + ZONE_MARGIN..END_TIMESTAMP - ZONE_MARGIN).contains(&t)
+            && ZONE.get().is_some_and(|z| (z.active)()),
+    )
 }
 
 /// The implied comparison's constant (`implied`): timestamptz `K` as a bound of a column of type `to` under strategy `s`
@@ -517,7 +839,9 @@ fn implied_value(from: u32, to: u32, s: u8, v: Datum) -> Option<Datum> {
                 4 | 5 => k.checked_add(lo)?,
                 _ => return None,
             };
-            (MIN_TIMESTAMP..END_TIMESTAMP).contains(&b).then(|| Datum::from_i64(b))
+            (MIN_TIMESTAMP..END_TIMESTAMP)
+                .contains(&b)
+                .then(|| Datum::from_i64(b))
         }
         DATEOID if matches!(s, 2 | 4) => zoned(TIMESTAMPTZOID, DATEOID, s, v),
         _ => None,
@@ -530,14 +854,25 @@ pub fn expr<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, n: Node<'p>) -> Result<Nod
 }
 
 /// `expr` over a scan's quals (`scan`: its range table index and relation, for `coalesce_notnull`).
-pub fn scan_expr<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n: Node<'p>) -> Result<Node<'p>, Refusal> {
+pub fn scan_expr<'p>(
+    mcx: mcx::Mcx<'p>,
+    facts: &dyn Facts,
+    scan: Option<(i32, u32)>,
+    n: Node<'p>,
+) -> Result<Node<'p>, Refusal> {
     let oom = |_| Refusal::shape(Kind::Result, STMT_NODE, "normalize: out of memory or stack");
     Ok(rewrite(mcx, facts, scan, n).map_err(oom)?.unwrap_or(n))
 }
 
-fn rewrite<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
+fn rewrite<'p>(
+    mcx: mcx::Mcx<'p>,
+    facts: &dyn Facts,
+    scan: Option<(i32, u32)>,
+    n: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
-    let kids = nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| rewrite(mcx, facts, scan, y))?;
+    let kids =
+        nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| rewrite(mcx, facts, scan, y))?;
     let mut cur = kids.unwrap_or(n);
     // the node `like_twin` matches is the plan's, `commute`'s form aside (the front key's `twin_class` reads that one)
     let mut plain = kids.is_none();
@@ -547,7 +882,15 @@ fn rewrite<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n
     }
     if let Some((o, com, code)) = commute(cur) {
         let args = NodeList::from_slice(mcx, &[o.args.nth(1), o.args.nth(0)])?;
-        cur = Node::mk(mcx, OpExpr { opno: com, opfuncid: code, args, ..*o })?;
+        cur = Node::mk(
+            mcx,
+            OpExpr {
+                opno: com,
+                opfuncid: code,
+                args,
+                ..*o
+            },
+        )?;
     }
     if let Some(x) = identity(cur) {
         cur = x;
@@ -560,17 +903,44 @@ fn rewrite<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n
     }
     if let Some((o, opno, code, k, strategy)) = retype(cur) {
         let c = Node::mk_const(mcx, k.0, -1, 0, k.1, k.2, k.3, true)?;
-        crate::bake::derived_note(addr(c), crate::bake::Derived::Retype { src: addr(o.args.nth(1)), strategy });
+        crate::bake::derived_note(
+            addr(c),
+            crate::bake::Derived::Retype {
+                src: addr(o.args.nth(1)),
+                strategy,
+            },
+        );
         let args = NodeList::from_slice(mcx, &[o.args.nth(0), c])?;
-        cur = Node::mk(mcx, OpExpr { opno, opfuncid: code, args, ..*o })?;
+        cur = Node::mk(
+            mcx,
+            OpExpr {
+                opno,
+                opfuncid: code,
+                args,
+                ..*o
+            },
+        )?;
         plain = false;
     }
     if let Some((o, x, opno, code, ty, v)) = detext(facts, cur) {
         let c = Node::mk_const(mcx, ty, -1, 0, typlen(ty).unwrap_or(8), v, false, true)?;
-        let k = if o.args.nth(0).as_const().is_some() { o.args.nth(0) } else { o.args.nth(1) };
+        let k = if o.args.nth(0).as_const().is_some() {
+            o.args.nth(0)
+        } else {
+            o.args.nth(1)
+        };
         crate::bake::derived_note(addr(c), crate::bake::Derived::Detext { src: addr(k) });
         let args = NodeList::from_slice(mcx, &[x, c])?;
-        cur = Node::mk(mcx, OpExpr { opno, opfuncid: code, inputcollid: 0, args, ..*o })?;
+        cur = Node::mk(
+            mcx,
+            OpExpr {
+                opno,
+                opfuncid: code,
+                inputcollid: 0,
+                args,
+                ..*o
+            },
+        )?;
         plain = false;
     }
     if let Some(t) = like_twin(facts, cur) {
@@ -581,7 +951,14 @@ fn rewrite<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n
     }
     if let Some(f) = regexp3(cur) {
         let args = NodeList::from_slice(mcx, &[f.args.nth(0), f.args.nth(1), f.args.nth(2)])?;
-        cur = Node::mk(mcx, FuncExpr { funcid: F_REGEXP_REPLACE3, args, ..*f })?;
+        cur = Node::mk(
+            mcx,
+            FuncExpr {
+                funcid: F_REGEXP_REPLACE3,
+                args,
+                ..*f
+            },
+        )?;
     }
     if let Some(c) = case_simple(mcx, facts, cur)? {
         cur = c;
@@ -594,14 +971,21 @@ fn rewrite<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, scan: Option<(i32, u32)>, n
 fn simple_case<'p>(facts: &dyn Facts, n: Node<'p>) -> Option<(&'p CaseExpr<'p>, Node<'p>)> {
     let c = n.as_case_expr()?;
     let x = c.arg?;
-    if c.args.is_nil() || crate::expr::has_subplan(x) || !c.args.iter().all(|w| w.as_case_when().and_then(|w| w.expr).is_some_and(own_tests)) {
+    if c.args.is_nil()
+        || crate::expr::has_subplan(x)
+        || !c
+            .args
+            .iter()
+            .all(|w| w.as_case_when().and_then(|w| w.expr).is_some_and(own_tests))
+    {
         return None;
     }
     if !cheap_twice(x) {
         return None;
     }
     let arena = gravity_program::Arena::new(64 << 10); // alloc: Cold
-    (!crate::effects::expr_acts(&crate::effects::Cx::without_stmt(facts, arena.handle()), x)).then_some((c, x))
+    (!crate::effects::expr_acts(&crate::effects::Cx::without_stmt(facts, arena.handle()), x))
+        .then_some((c, x))
 }
 
 /// The searched form evaluates the test value `x` in every test it reaches, so `x` must cost about nothing to evaluate
@@ -614,12 +998,16 @@ fn cheap_twice(x: Node<'_>) -> bool {
     while let Some(r) = leaf.as_relabel_type() {
         leaf = r.arg;
     }
-    if matches!(leaf.node_tag(), NodeTag::T_Var | NodeTag::T_Const | NodeTag::T_Param) {
+    if matches!(
+        leaf.node_tag(),
+        NodeTag::T_Var | NodeTag::T_Const | NodeTag::T_Param
+    ) {
         return true;
     }
     let builtin = |f: u32| crate::effects::builtin_func(f).is_some();
     crate::expr::walk(x, &mut |n| {
-        let word = crate::catalog::expr_type::type_of(n).is_none_or(|t| crate::catalog::typefacts::row_of(t).is_some_and(|f| f.byval));
+        let word = crate::catalog::expr_type::type_of(n)
+            .is_none_or(|t| crate::catalog::typefacts::row_of(t).is_some_and(|f| f.byval));
         let builtin = match n.node_tag() {
             NodeTag::T_FuncExpr => n.as_func_expr().is_some_and(|f| builtin(f.funcid)),
             NodeTag::T_OpExpr => n.as_op_expr().is_some_and(|o| builtin(o.opfuncid)),
@@ -635,28 +1023,60 @@ fn own_tests(e: Node<'_>) -> bool {
     crate::expr::walk(e, &mut |n| match n.node_tag() {
         NodeTag::T_CaseExpr => n.as_case_expr().is_some_and(|c| c.arg.is_none()),
         NodeTag::T_ArrayCoerceExpr | NodeTag::T_FieldStore => false,
-        NodeTag::T_SubscriptingRef => n.as_subscripting_ref().is_some_and(|r| r.refassgnexpr.is_none()),
+        NodeTag::T_SubscriptingRef => n
+            .as_subscripting_ref()
+            .is_some_and(|r| r.refassgnexpr.is_none()),
         _ => true,
     })
 }
 
 /// Rule `case_simple` (FOLD-19): the searched CASE of a `simple_case` match, each WHEN's test with `x` in place of its
 /// `CaseTestExpr`; the results, the ELSE, type and collation unchanged.
-pub fn case_simple<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, n: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
-    let Some((c, x)) = simple_case(facts, n) else { return Ok(None) };
+pub fn case_simple<'p>(
+    mcx: mcx::Mcx<'p>,
+    facts: &dyn Facts,
+    n: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
+    let Some((c, x)) = simple_case(facts, n) else {
+        return Ok(None);
+    };
     let mut whens = NodeList::with_capacity(mcx, c.args.len())?;
     for w in c.args.iter() {
         let w = w.as_case_when().expect("simple_case matched CaseWhen arms");
         let test = w.expr.expect("simple_case matched a test per WHEN");
         let expr = Some(put_test(mcx, test, x)?.unwrap_or(test));
-        whens.lappend(mcx, Node::mk(mcx, CaseWhen { expr, result: w.result, location: w.location })?)?;
+        whens.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                CaseWhen {
+                    expr,
+                    result: w.result,
+                    location: w.location,
+                },
+            )?,
+        )?;
     }
     fires::fire("normalize.case_simple"); // shapecheck fire signal (REGISTRY FOLD-19)
-    Ok(Some(Node::mk(mcx, CaseExpr { casetype: c.casetype, casecollid: c.casecollid, arg: None, args: whens, defresult: c.defresult, location: c.location })?))
+    Ok(Some(Node::mk(
+        mcx,
+        CaseExpr {
+            casetype: c.casetype,
+            casecollid: c.casecollid,
+            arg: None,
+            args: whens,
+            defresult: c.defresult,
+            location: c.location,
+        },
+    )?))
 }
 
 /// `e` with `x` in place of every `CaseTestExpr` (`own_tests` holds: each is the CASE's test value).
-fn put_test<'p>(mcx: mcx::Mcx<'p>, e: Node<'p>, x: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
+fn put_test<'p>(
+    mcx: mcx::Mcx<'p>,
+    e: Node<'p>,
+    x: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
     if e.node_tag() == NodeTag::T_CaseTestExpr {
         return Ok(Some(x));
@@ -667,15 +1087,22 @@ fn put_test<'p>(mcx: mcx::Mcx<'p>, e: Node<'p>, x: Node<'p>) -> types_error::PgR
 /// An aggregate `a`'s arguments and FILTER in canonical form for its readers: `case_simple` applied throughout (the
 /// other rules are the filters' own). `a` itself when nothing changes or there is no node allocator.
 pub fn agg_args<'p>(b: &Builder<'p, '_>, a: Node<'p>) -> Result<Node<'p>, Refusal> {
-    let Some(mcx) = b.alloc.filter(|_| a.as_aggref().is_some()) else { return Ok(a) };
+    let Some(mcx) = b.alloc.filter(|_| a.as_aggref().is_some()) else {
+        return Ok(a);
+    };
     let oom = |_| Refusal::shape(Kind::Agg, STMT_NODE, "normalize: out of memory or stack");
     let facts = b.facts;
-    let r = nodes_core::expression_tree_mutator_dyn(mcx, a, &mut |y| case_rule(mcx, facts, y)).map_err(oom)?;
+    let r = nodes_core::expression_tree_mutator_dyn(mcx, a, &mut |y| case_rule(mcx, facts, y))
+        .map_err(oom)?;
     Ok(r.unwrap_or(a))
 }
 
 /// `case_simple` bottom-up over `n` (an aggregate's argument or FILTER), an inner CASE first.
-fn case_rule<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, n: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
+fn case_rule<'p>(
+    mcx: mcx::Mcx<'p>,
+    facts: &dyn Facts,
+    n: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
     crate::walk::stack_check(); // D3748
     let kids = nodes_core::expression_tree_mutator_dyn(mcx, n, &mut |y| case_rule(mcx, facts, y))?;
     let cur = kids.unwrap_or(n);
@@ -688,12 +1115,22 @@ fn case_rule<'p>(mcx: mcx::Mcx<'p>, facts: &dyn Facts, n: Node<'p>) -> types_err
 /// that may still be NULL, so it never qualifies), of the COALESCE's own type and collation (a cast or another collation
 /// keeps the COALESCE). PG's COALESCE returns its first non-NULL argument and evaluates none after it, so the value, NULL
 /// and error set are `x`'s.
-fn coalesce_notnull<'p>(facts: &dyn Facts, scan: Option<(i32, u32)>, n: Node<'p>) -> Option<Node<'p>> {
+fn coalesce_notnull<'p>(
+    facts: &dyn Facts,
+    scan: Option<(i32, u32)>,
+    n: Node<'p>,
+) -> Option<Node<'p>> {
     let ((rti, relid), c) = (scan?, n.as_coalesce_expr()?);
     let x = c.args.iter().next()?;
-    let v = x.as_var().filter(|v| v.varno == rti && v.varlevelsup == 0 && v.varattno > 0 && v.varnullingrels.is_empty())?;
+    let v = x.as_var().filter(|v| {
+        v.varno == rti && v.varlevelsup == 0 && v.varattno > 0 && v.varnullingrels.is_empty()
+    })?;
     let same = v.vartype == c.coalescetype && v.varcollid == c.coalescecollid;
-    (same && facts.att(relid, v.varattno).is_some_and(|a| a.notnull && a.typid == v.vartype)).then_some(x)
+    (same
+        && facts
+            .att(relid, v.varattno)
+            .is_some_and(|a| a.notnull && a.typid == v.vartype))
+    .then_some(x)
 }
 
 /// Rule `coalesce_filter`: a scan's leading filter that is one whole comparison `COALESCE(x, c) op k` (the plan's, or
@@ -705,10 +1142,28 @@ fn coalesce_notnull<'p>(facts: &dyn Facts, scan: Option<(i32, u32)>, n: Node<'p>
 /// CASE or as an AND's argument a false and a NULL differ, so a nested comparison keeps its COALESCE; so does one whose
 /// constant `retype` rebuilt (`k` must be the plan's). The rule reads both constants' values, so the front key holds
 /// whether it fires (`coalesce_filter_class`).
-fn coalesce_filter<'p>(mcx: mcx::Mcx<'p>, plan: Node<'p>, cur: Node<'p>) -> types_error::PgResult<Option<Node<'p>>> {
-    let Some((k, false)) = coalesce_cmp(plan) else { return Ok(None) };
-    let Some(o) = cur.as_op_expr().filter(|o| o.args.len() == 2 && o.args.nth(1).ptr_eq(k)) else { return Ok(None) };
-    let Some(c) = o.args.nth(0).as_coalesce_expr().filter(|c| c.args.len() == 2) else { return Ok(None) };
+fn coalesce_filter<'p>(
+    mcx: mcx::Mcx<'p>,
+    plan: Node<'p>,
+    cur: Node<'p>,
+) -> types_error::PgResult<Option<Node<'p>>> {
+    let Some((k, false)) = coalesce_cmp(plan) else {
+        return Ok(None);
+    };
+    let Some(o) = cur
+        .as_op_expr()
+        .filter(|o| o.args.len() == 2 && o.args.nth(1).ptr_eq(k))
+    else {
+        return Ok(None);
+    };
+    let Some(c) = o
+        .args
+        .nth(0)
+        .as_coalesce_expr()
+        .filter(|c| c.args.len() == 2)
+    else {
+        return Ok(None);
+    };
     let args = NodeList::from_slice(mcx, &[c.args.nth(0), k])?;
     Ok(Some(Node::mk(mcx, OpExpr { args, ..*o })?))
 }
@@ -730,7 +1185,12 @@ fn coalesce_cmp_at<'p>(o: &'p OpExpr<'p>, com: Commuted<'p>) -> Option<(Node<'p>
         Some((_, com, _)) => (o.args.nth(1), o.args.nth(0), com),
         None => (o.args.nth(0), o.args.nth(1), o.opno),
     };
-    let c = a.as_coalesce_expr().filter(|c| c.args.len() == 2)?.args.nth(1).as_const()?;
+    let c = a
+        .as_coalesce_expr()
+        .filter(|c| c.args.len() == 2)?
+        .args
+        .nth(1)
+        .as_const()?;
     let kc = k.as_const()?;
     let op = crate::ops::shared::scan::zone_op(opno)?;
     let code = crate::effects::builtin_oper(opno)?.code;
@@ -789,14 +1249,21 @@ fn commute<'p>(n: Node<'p>) -> Commuted<'p> {
 /// `agg_algebra`'s products keep in projections is not read here. Evaluation order is free (user ruling); the value,
 /// NULL and error set of a commutative operator do not depend on it.
 fn product<'p>(n: Node<'p>) -> Option<&'p OpExpr<'p>> {
-    let o = n.as_op_expr().filter(|o| o.args.len() == 2 && o.opresulttype != BOOLOID)?;
-    let rank = |x: Node<'_>| x.as_var().map_or((1, 0, 0), |v| (0, v.varno, i32::from(v.varattno)));
+    let o = n
+        .as_op_expr()
+        .filter(|o| o.args.len() == 2 && o.opresulttype != BOOLOID)?;
+    let rank = |x: Node<'_>| {
+        x.as_var()
+            .map_or((1, 0, 0), |v| (0, v.varno, i32::from(v.varattno)))
+    };
     let (l, r) = (o.args.nth(0), o.args.nth(1));
     let fixed = |x: Node<'_>| x.as_const().is_some() || x.as_param().is_some();
     if fixed(l) || fixed(r) || rank(r) >= rank(l) {
         return None;
     }
-    crate::effects::builtin_oper(o.opno).filter(|p| p.commutator == o.opno).map(|_| o)
+    crate::effects::builtin_oper(o.opno)
+        .filter(|p| p.commutator == o.opno)
+        .map(|_| o)
 }
 
 /// Integer `+` / `-` (unit 0) and `*` / `/` (unit 1) whose result is the left operand's type: int4, int2, int8 of one
@@ -832,7 +1299,9 @@ fn identity_shape(o: &OpExpr<'_>, x: Node<'_>, k: Node<'_>) -> Option<bool> {
 /// Rule `identity`'s match (D3078): `x` of an integer `x op unit`.
 fn identity<'p>(n: Node<'p>) -> Option<Node<'p>> {
     let o = n.as_op_expr().filter(|o| o.args.len() == 2)?;
-    identity_shape(o, o.args.nth(0), o.args.nth(1)).filter(|&u| u).map(|_| o.args.nth(0))
+    identity_shape(o, o.args.nth(0), o.args.nth(1))
+        .filter(|&u| u)
+        .map(|_| o.args.nth(0))
 }
 
 /// The front key's class of rule `identity` for plan OpExpr `n`, in the form `rewrite` hands it (`commute`'s when it
@@ -854,15 +1323,24 @@ fn identity_class_at(o: &OpExpr<'_>, com: Commuted<'_>) -> Option<bool> {
 /// `(type, length, value, null)`, and the operator's btree strategy.
 fn retype<'p>(n: Node<'p>) -> Option<(&'p OpExpr<'p>, u32, u32, (u32, i32, Datum, bool), u8)> {
     let o = n.as_op_expr().filter(|o| o.args.len() == 2)?;
-    let (opno, code, k, (left, right, strategy)) = retype_shape(o.args.nth(0), o.args.nth(1), o.opno)?;
+    let (opno, code, k, (left, right, strategy)) =
+        retype_shape(o.args.nth(0), o.args.nth(1), o.opno)?;
     let len = typlen(left)?;
-    let value = if k.constisnull { Datum::from_i64(0) } else { convert(right, left, strategy, k.constvalue)? };
+    let value = if k.constisnull {
+        Datum::from_i64(0)
+    } else {
+        convert(right, left, strategy, k.constvalue)?
+    };
     Some((o, opno, code, (left, len, value, k.constisnull), strategy))
 }
 
 /// `retype`'s match of `x opno k` without the constant's value: the same-type operator and its function, the constant,
 /// and the cross-type member's `(left type, right type, strategy)`.
-fn retype_shape<'p>(x: Node<'p>, k: Node<'p>, opno: u32) -> Option<(u32, u32, &'p Const, (u32, u32, u8))> {
+fn retype_shape<'p>(
+    x: Node<'p>,
+    k: Node<'p>,
+    opno: u32,
+) -> Option<(u32, u32, &'p Const, (u32, u32, u8))> {
     let k = k.as_const()?;
     if x.as_const().is_some() || x.as_param().is_some() {
         return None;
@@ -897,8 +1375,15 @@ fn detext_shape<'p>(n: Node<'p>) -> Option<(&'p OpExpr<'p>, Node<'p>, &'p Const,
         return None;
     }
     let (l, r) = (o.args.nth(0), o.args.nth(1));
-    let (cast, k) = if l.as_const().is_some() { (r, l) } else { (l, r) };
-    let x = cast.as_coerce_via_io().filter(|c| c.resulttype == crate::catalog::TEXTOID)?.arg;
+    let (cast, k) = if l.as_const().is_some() {
+        (r, l)
+    } else {
+        (l, r)
+    };
+    let x = cast
+        .as_coerce_via_io()
+        .filter(|c| c.resulttype == crate::catalog::TEXTOID)?
+        .arg;
     if x.as_const().is_some() || x.as_param().is_some() {
         return None;
     }
@@ -906,9 +1391,15 @@ fn detext_shape<'p>(n: Node<'p>) -> Option<(&'p OpExpr<'p>, Node<'p>, &'p Const,
     if !matches!(ty, INT2OID | INT4OID | INT8OID) {
         return None;
     }
-    let k = k.as_const().filter(|k| !k.constisnull && k.consttype == crate::catalog::TEXTOID)?;
+    let k = k
+        .as_const()
+        .filter(|k| !k.constisnull && k.consttype == crate::catalog::TEXTOID)?;
     let same = crate::effects::builtin_btree_op(INTEGER_OPS, ty, ty, 3)?;
-    let opno = if eq { same } else { crate::effects::builtin_oper(same)?.negator };
+    let opno = if eq {
+        same
+    } else {
+        crate::effects::builtin_oper(same)?.negator
+    };
     if opno == 0 {
         return None;
     }
@@ -919,7 +1410,10 @@ fn detext_shape<'p>(n: Node<'p>) -> Option<(&'p OpExpr<'p>, Node<'p>, &'p Const,
 /// Rule `detext` (D3079): the OpExpr, the cast's argument, the integer operator and its function, the integer type and
 /// the constant's value, when the text constant is the canonical output of one under a collation whose equal bytes are
 /// equal text.
-fn detext<'p>(facts: &dyn Facts, n: Node<'p>) -> Option<(&'p OpExpr<'p>, Node<'p>, u32, u32, u32, Datum)> {
+fn detext<'p>(
+    facts: &dyn Facts,
+    n: Node<'p>,
+) -> Option<(&'p OpExpr<'p>, Node<'p>, u32, u32, u32, Datum)> {
     let (o, x, k, ty, opno, code) = detext_shape(n)?;
     if o.inputcollid == 0 || !facts.coll(o.inputcollid).bytes_eq {
         return None;
@@ -933,7 +1427,10 @@ fn detext<'p>(facts: &dyn Facts, n: Node<'p>) -> Option<(&'p OpExpr<'p>, Node<'p
 /// (a leading `+`, zero or space, a sign alone, out of range), which equals no output text.
 pub fn detext_value(ty: u32, s: &[u8]) -> Option<Datum> {
     let d = s.strip_prefix(b"-").unwrap_or(s);
-    if d.is_empty() || !d.iter().all(u8::is_ascii_digit) || (d[0] == b'0' && (d.len() > 1 || d.len() < s.len())) {
+    if d.is_empty()
+        || !d.iter().all(u8::is_ascii_digit)
+        || (d[0] == b'0' && (d.len() > 1 || d.len() < s.len()))
+    {
         return None;
     }
     let v: i64 = core::str::from_utf8(s).ok()?.parse().ok()?;
@@ -952,7 +1449,11 @@ pub fn detext_value(ty: u32, s: &[u8]) -> Option<Datum> {
 /// it does not.
 pub fn detext_class(n: Node<'_>) -> Option<bool> {
     let (_, _, k, ty, _, _) = detext_shape(n)?;
-    Some(crate::expr::const_bytes_keyed(k).and_then(|s| detext_value(ty, s)).is_some())
+    Some(
+        crate::expr::const_bytes_keyed(k)
+            .and_then(|s| detext_value(ty, s))
+            .is_some(),
+    )
 }
 
 /// The front key's class of rule `retype` for plan OpExpr `n` (exec inputs/front.rs keys it, as `pattern_class`): in
@@ -972,7 +1473,11 @@ fn retype_class_at(o: &OpExpr<'_>, com: Commuted<'_>) -> Option<bool> {
     };
     let (_, _, k, (left, right, strategy)) = retype_shape(x, k, opno)?;
     let v = k.constvalue;
-    Some(k.constisnull || zone_class(right, left, strategy, v).unwrap_or_else(|| convert(right, left, strategy, v).is_some()))
+    Some(
+        k.constisnull
+            || zone_class(right, left, strategy, v)
+                .unwrap_or_else(|| convert(right, left, strategy, v).is_some()),
+    )
 }
 
 /// The classes exec's front walk keys for each plan OpExpr, in its order: `retype_class`, `detext_class`,
@@ -990,8 +1495,17 @@ pub struct OpClasses {
 /// `OpClasses` of plan OpExpr `n` from one `commute` match (each class fn matches it again on its own); all `None` for
 /// any other node or an argument list of another length than two, as each fn answers there.
 pub fn op_classes(n: Node<'_>) -> OpClasses {
-    let none = OpClasses { retype: None, detext: None, identity: None, implied: None, twin: None, coalesce: None };
-    let Some(o) = n.as_op_expr().filter(|o| o.args.len() == 2) else { return none };
+    let none = OpClasses {
+        retype: None,
+        detext: None,
+        identity: None,
+        implied: None,
+        twin: None,
+        coalesce: None,
+    };
+    let Some(o) = n.as_op_expr().filter(|o| o.args.len() == 2) else {
+        return none;
+    };
     let com = commute(n);
     OpClasses {
         retype: retype_class_at(o, com),
@@ -1071,7 +1585,11 @@ const ZONE_MARGIN: i64 = 2 * USECS_PER_DAY;
 
 /// `retype_class` of a timestamptz arm, by the constant alone; `None` for the zone-free arms (`convert` decides).
 fn zone_class(from: u32, to: u32, s: u8, v: Datum) -> Option<bool> {
-    let inside = |t: i64| t == i64::MIN || t == i64::MAX || (MIN_TIMESTAMP + ZONE_MARGIN..END_TIMESTAMP - ZONE_MARGIN).contains(&t);
+    let inside = |t: i64| {
+        t == i64::MIN
+            || t == i64::MAX
+            || (MIN_TIMESTAMP + ZONE_MARGIN..END_TIMESTAMP - ZONE_MARGIN).contains(&t)
+    };
     let ok = match (from, to) {
         (DATEOID, TIMESTAMPTZOID) => match v.as_i32() {
             i32::MIN | i32::MAX => true,
@@ -1186,15 +1704,21 @@ fn convert(from: u32, to: u32, s: u8, v: Datum) -> Option<Datum> {
         return implied_value(from, to, s & !IMPLIED, v);
     }
     match (from, to) {
-        (_, INT2OID) => int(from, v).and_then(|x| i16::try_from(x).ok()).map(Datum::from_i16),
-        (_, INT4OID) => int(from, v).and_then(|x| i32::try_from(x).ok()).map(Datum::from_i32),
+        (_, INT2OID) => int(from, v)
+            .and_then(|x| i16::try_from(x).ok())
+            .map(Datum::from_i16),
+        (_, INT4OID) => int(from, v)
+            .and_then(|x| i32::try_from(x).ok())
+            .map(Datum::from_i32),
         (_, INT8OID) => int(from, v).map(Datum::from_i64),
         (DATEOID, TIMESTAMPOID) => {
             let d = v.as_i32();
             let t = match d {
                 i32::MIN => i64::MIN,
                 i32::MAX => i64::MAX,
-                _ => i64::from(d).checked_mul(USECS_PER_DAY).filter(|t| (MIN_TIMESTAMP..END_TIMESTAMP).contains(t))?, // D3530: a date past the range wrapped back into it
+                _ => i64::from(d)
+                    .checked_mul(USECS_PER_DAY)
+                    .filter(|t| (MIN_TIMESTAMP..END_TIMESTAMP).contains(t))?, // D3530: a date past the range wrapped back into it
             };
             Some(Datum::from_i64(t))
         }
@@ -1261,7 +1785,12 @@ fn call2(n: Node<'_>) -> Option<(u32, u32, Node<'_>, Node<'_>)> {
 /// of the search, prefix '%', suffix '%', negated). Shapes are matched with the constant on the right (`commute` has run
 /// below). The needle's image is read through the bake log (the pattern the content key hashes is built from it, so a
 /// filed variant carries it); the by-value length and strpos constant the front key holds (`twin_class`).
-fn twin_of<'p>(f: u32, coll: u32, a: Node<'p>, b: Node<'p>) -> Option<(Node<'p>, Node<'p>, u32, bool, bool, bool)> {
+fn twin_of<'p>(
+    f: u32,
+    coll: u32,
+    a: Node<'p>,
+    b: Node<'p>,
+) -> Option<(Node<'p>, Node<'p>, u32, bool, bool, bool)> {
     let t = if f == F_STARTS_WITH {
         let (head, tail, negated) = twin_spelling(true, f, None, None)?;
         (a, b, coll, head, tail, negated)
@@ -1274,7 +1803,9 @@ fn twin_of<'p>(f: u32, coll: u32, a: Node<'p>, b: Node<'p>) -> Option<(Node<'p>,
     } else if f == F_TEXTEQ || f == F_TEXTNE {
         let (g, _, x, len) = call2(a)?;
         let c = crate::expr::const_bytes(b.as_const()?)?;
-        let len = len.as_const().filter(|k| k.consttype == types_core::INT4OID && !k.constisnull)?;
+        let len = len
+            .as_const()
+            .filter(|k| k.consttype == types_core::INT4OID && !k.constisnull)?;
         let chars = c.iter().filter(|&&x| x & 0xC0 != 0x80).count();
         if usize::try_from(len.constvalue.as_i32()).ok() != Some(chars) {
             return None;
@@ -1285,12 +1816,16 @@ fn twin_of<'p>(f: u32, coll: u32, a: Node<'p>, b: Node<'p>) -> Option<(Node<'p>,
             _ => return None,
         }
     } else {
-        let k = b.as_const().filter(|k| k.consttype == types_core::INT4OID && !k.constisnull)?;
+        let k = b
+            .as_const()
+            .filter(|k| k.consttype == types_core::INT4OID && !k.constisnull)?;
         let (_, scoll, x, needle) = call2(a).filter(|c| F_TEXTPOS.contains(&c.0))?;
-        let (head, tail, negated) = twin_spelling(false, f, Some(true), Some(k.constvalue.as_i32()))?;
+        let (head, tail, negated) =
+            twin_spelling(false, f, Some(true), Some(k.constvalue.as_i32()))?;
         (x, needle, scoll, head, tail, negated)
     };
-    t.1.as_const().filter(|c| !c.constisnull && c.consttype == crate::catalog::TEXTOID)?;
+    t.1.as_const()
+        .filter(|c| !c.constisnull && c.consttype == crate::catalog::TEXTOID)?;
     Some(t)
 }
 
@@ -1302,13 +1837,32 @@ fn like_twin<'p>(facts: &dyn Facts, n: Node<'p>) -> Option<Twin<'p>> {
         return None;
     }
     let pattern = twin_pattern(crate::expr::const_bytes(needle.as_const()?)?, head, tail);
-    Some(Twin { text, needle, pattern, negated, head, tail, coll })
+    Some(Twin {
+        text,
+        needle,
+        pattern,
+        negated,
+        head,
+        tail,
+        coll,
+    })
 }
 
 /// A front hit's `like_twin` pattern for plan text constant `needle` (exec inputs/front.rs, `Derived::Twin`): the
 /// constant `like` builds, under collation `coll`; `None` for a NULL or non-text needle, or out of memory.
-pub fn twin_const<'p>(mcx: mcx::Mcx<'p>, needle: &Const, head: bool, tail: bool, coll: u32) -> Option<Node<'p>> {
-    text_const(mcx, &twin_pattern(crate::expr::const_bytes_keyed(needle)?, head, tail), coll).ok()
+pub fn twin_const<'p>(
+    mcx: mcx::Mcx<'p>,
+    needle: &Const,
+    head: bool,
+    tail: bool,
+    coll: u32,
+) -> Option<Node<'p>> {
+    text_const(
+        mcx,
+        &twin_pattern(crate::expr::const_bytes_keyed(needle)?, head, tail),
+        coll,
+    )
+    .ok()
 }
 
 /// The front key's class of rule `like_twin` for plan node `n` (exec inputs/front.rs keys it, as `retype_class`), in the
@@ -1329,14 +1883,27 @@ fn twin_class_at<'p>(n: Node<'p>, com: Commuted<'p>) -> Option<u64> {
     if [F_STARTS_WITH, F_TEXTREGEXEQ, F_TEXTREGEXNE].contains(&f) {
         return Some(1);
     }
-    let int4 = |x: Node<'_>| x.as_const().filter(|k| k.consttype == types_core::INT4OID).map(|k| (!k.constisnull).then(|| k.constvalue.as_i32()));
+    let int4 = |x: Node<'_>| {
+        x.as_const()
+            .filter(|k| k.consttype == types_core::INT4OID)
+            .map(|k| (!k.constisnull).then(|| k.constvalue.as_i32()))
+    };
     if f == F_TEXTEQ || f == F_TEXTNE {
         let (g, _, _, len) = call2(a).filter(|c| c.0 == F_TEXT_LEFT || c.0 == F_TEXT_RIGHT)?;
-        return Some(int4(len).map_or(2, |l| 3 | u64::from(l.map_or(u32::MAX, |l| l as u32)) << 8) | u64::from(g == F_TEXT_LEFT) << 4);
+        return Some(
+            int4(len).map_or(2, |l| 3 | u64::from(l.map_or(u32::MAX, |l| l as u32)) << 8)
+                | u64::from(g == F_TEXT_LEFT) << 4,
+        );
     }
     call2(a).filter(|c| F_TEXTPOS.contains(&c.0))?;
     let k = int4(b)?;
-    Some(8 | k.map_or(0, |k| match textpos_test(f, k, true) { None => 16, Some(true) => 32, Some(false) => 64 }))
+    Some(
+        8 | k.map_or(0, |k| match textpos_test(f, k, true) {
+            None => 16,
+            Some(true) => 32,
+            Some(false) => 64,
+        }),
+    )
 }
 
 /// The twin as a node: `text [NOT] LIKE 'pattern'`, the pattern a text constant under the search's collation, noted as the
@@ -1344,21 +1911,59 @@ fn twin_class_at<'p>(n: Node<'p>, com: Commuted<'p>) -> Option<u64> {
 fn like<'p>(mcx: mcx::Mcx<'p>, t: Twin<'p>, plain: bool) -> types_error::PgResult<Node<'p>> {
     let pat = text_const(mcx, &t.pattern, t.coll)?;
     if plain {
-        crate::bake::derived_note(addr(pat), crate::bake::Derived::Twin { src: addr(t.needle), head: t.head, tail: t.tail });
+        crate::bake::derived_note(
+            addr(pat),
+            crate::bake::Derived::Twin {
+                src: addr(t.needle),
+                head: t.head,
+                tail: t.tail,
+            },
+        );
     }
     let (opno, opfuncid) = if t.negated { OP_TEXTNLIKE } else { OP_TEXTLIKE };
     let args = NodeList::from_slice(mcx, &[t.text, pat])?;
-    Node::mk(mcx, OpExpr { opno, opfuncid, opresulttype: types_core::BOOLOID, opretset: false, opcollid: 0, inputcollid: t.coll, args, location: -1 })
+    Node::mk(
+        mcx,
+        OpExpr {
+            opno,
+            opfuncid,
+            opresulttype: types_core::BOOLOID,
+            opretset: false,
+            opcollid: 0,
+            inputcollid: t.coll,
+            args,
+            location: -1,
+        },
+    )
 }
 
 /// A text constant of `bytes`: a 4-byte-header varlena, copied as words so the image is aligned.
-pub fn text_const<'p>(mcx: mcx::Mcx<'p>, bytes: &[u8], coll: u32) -> types_error::PgResult<Node<'p>> {
-    let mut image = mcx::to_vec_in(&datum::varlena::set_varsize_4b(datum::varlena::VARHDRSZ + bytes.len())[..], mcx);
+pub fn text_const<'p>(
+    mcx: mcx::Mcx<'p>,
+    bytes: &[u8],
+    coll: u32,
+) -> types_error::PgResult<Node<'p>> {
+    let mut image = mcx::to_vec_in(
+        &datum::varlena::set_varsize_4b(datum::varlena::VARHDRSZ + bytes.len())[..],
+        mcx,
+    );
     image.extend_from_slice_in(bytes);
     image.resize_in(image.len().div_ceil(4) * 4, 0);
-    let words: mcx::PgVec<'_, u32> = image.chunks(4).map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]])).collect_in(mcx);
+    let words: mcx::PgVec<'_, u32> = image
+        .chunks(4)
+        .map(|w| u32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+        .collect_in(mcx);
     let image = mcx::slice_borrow_in(mcx, &words[..])?;
-    Node::mk_const(mcx, crate::catalog::TEXTOID, -1, coll, -1, Datum::from_usize(image.as_ptr() as usize), false, false)
+    Node::mk_const(
+        mcx,
+        crate::catalog::TEXTOID,
+        -1,
+        coll,
+        -1,
+        Datum::from_usize(image.as_ptr() as usize),
+        false,
+        false,
+    )
 }
 
 /// `like_any`'s match: `col [NOT] LIKE ANY (c)` / `col [NOT] LIKE ALL (c)` (PS4-11: every one of the four) with `c` a
@@ -1373,7 +1978,10 @@ fn like_any<'p>(n: Node<'p>) -> Option<(&'p ScalarArrayOpExpr<'p>, &'p [u8])> {
     let x = s.args.nth(0);
     x.as_relabel_type().map_or(x, |r| r.arg).as_var()?;
     let body = crate::expr::const_bytes(s.args.nth(1).as_const()?)?;
-    let word = |i: usize| body.get(i * 4..i * 4 + 4).map(|w| i32::from_ne_bytes([w[0], w[1], w[2], w[3]]));
+    let word = |i: usize| {
+        body.get(i * 4..i * 4 + 4)
+            .map(|w| i32::from_ne_bytes([w[0], w[1], w[2], w[3]]))
+    };
     // ArrayType after the length word: ndim, dataoffset (0: no NULL bitmap), elemtype, dims, lower bounds
     let n = usize::try_from(word(3)?).ok()?;
     let text = u32::try_from(word(2)?).ok() == Some(crate::catalog::TEXTOID);
@@ -1382,25 +1990,60 @@ fn like_any<'p>(n: Node<'p>) -> Option<(&'p ScalarArrayOpExpr<'p>, &'p [u8])> {
 
 /// The arms of a `like_any` match: one `col [NOT] LIKE element` each, OR-ed (AND-ed for NOT LIKE ALL); none when an
 /// element is not a plain inline text.
-fn like_arms<'p>(mcx: mcx::Mcx<'p>, s: &'p ScalarArrayOpExpr<'p>, body: &[u8]) -> types_error::PgResult<Option<Node<'p>>> {
+fn like_arms<'p>(
+    mcx: mcx::Mcx<'p>,
+    s: &'p ScalarArrayOpExpr<'p>,
+    body: &[u8],
+) -> types_error::PgResult<Option<Node<'p>>> {
     let mut image = mcx::to_vec_in(&[0u8; 4][..], mcx);
     image.extend_from_slice_in(body);
-    let (elems, _) = datum::array_build::deconstruct_array_image_nulls(mcx, &image[..], -1, false, b'i')?;
-    let coll = s.args.nth(1).as_const().map_or(s.inputcollid, |c| c.constcollid);
+    let (elems, _) =
+        datum::array_build::deconstruct_array_image_nulls(mcx, &image[..], -1, false, b'i')?;
+    let coll = s
+        .args
+        .nth(1)
+        .as_const()
+        .map_or(s.inputcollid, |c| c.constcollid);
     let mut arms = mcx::reserved_in(elems.len(), mcx);
     for e in elems.iter() {
-        let Some(pattern) = image.get(e.as_usize().wrapping_sub(image.as_ptr() as usize)..).and_then(inline_payload) else {
+        let Some(pattern) = image
+            .get(e.as_usize().wrapping_sub(image.as_ptr() as usize)..)
+            .and_then(inline_payload)
+        else {
             return Ok(None);
         };
         let args = NodeList::from_slice(mcx, &[s.args.nth(0), text_const(mcx, pattern, coll)?])?;
         let (opno, opfuncid) = (s.opno, s.opfuncid);
-        arms.push_in(Node::mk(mcx, OpExpr { opno, opfuncid, opresulttype: BOOLOID, opretset: false, opcollid: 0, inputcollid: s.inputcollid, args, location: -1 })?);
+        arms.push_in(Node::mk(
+            mcx,
+            OpExpr {
+                opno,
+                opfuncid,
+                opresulttype: BOOLOID,
+                opretset: false,
+                opcollid: 0,
+                inputcollid: s.inputcollid,
+                args,
+                location: -1,
+            },
+        )?);
     }
     if arms.len() == 1 {
         return Ok(arms.pop());
     }
-    let boolop = if s.useOr { BoolExprType::OR_EXPR } else { BoolExprType::AND_EXPR };
-    Ok(Some(Node::mk(mcx, BoolExpr { boolop, args: NodeList::from_slice(mcx, &arms[..])?, location: -1 })?))
+    let boolop = if s.useOr {
+        BoolExprType::OR_EXPR
+    } else {
+        BoolExprType::AND_EXPR
+    };
+    Ok(Some(Node::mk(
+        mcx,
+        BoolExpr {
+            boolop,
+            args: NodeList::from_slice(mcx, &arms[..])?,
+            location: -1,
+        },
+    )?))
 }
 
 /// The payload of an inline, uncompressed varlena at the start of `v` (1-byte or 4-byte header).
@@ -1421,9 +2064,16 @@ const F_REGEXP_REPLACE4: u32 = 2285;
 
 /// `regexp3`'s match: a `regexp_replace(s, p, r, flags)` call whose flags make it the 3-argument form.
 fn regexp3<'p>(n: Node<'p>) -> Option<&'p FuncExpr<'p>> {
-    let f = n.as_func_expr().filter(|f| f.funcid == F_REGEXP_REPLACE4 && f.args.len() == 4)?;
-    let text = |x: Node<'p>| x.as_const().filter(|c| !c.constisnull && c.consttype == crate::catalog::TEXTOID).and_then(crate::expr::const_bytes);
-    let anchored = || text(f.args.nth(1)).is_some_and(|p| p.first() == Some(&b'^') && !p.contains(&b'|'));
+    let f = n
+        .as_func_expr()
+        .filter(|f| f.funcid == F_REGEXP_REPLACE4 && f.args.len() == 4)?;
+    let text = |x: Node<'p>| {
+        x.as_const()
+            .filter(|c| !c.constisnull && c.consttype == crate::catalog::TEXTOID)
+            .and_then(crate::expr::const_bytes)
+    };
+    let anchored =
+        || text(f.args.nth(1)).is_some_and(|p| p.first() == Some(&b'^') && !p.contains(&b'|'));
     match text(f.args.nth(3))? {
         b"" => Some(f),
         b"g" if anchored() => Some(f),
@@ -1434,21 +2084,32 @@ fn regexp3<'p>(n: Node<'p>) -> Option<&'p FuncExpr<'p>> {
 /// The three arguments of a `regexp_replace` call in its 3-argument form, or of one `regexp3` rewrites to it (a reader
 /// that has the expression before `graph` ran, such as a grouping key).
 pub fn regexp_replace3<'p>(n: Node<'p>) -> Option<[Node<'p>; 3]> {
-    let f = n.as_func_expr().filter(|f| (f.funcid == F_REGEXP_REPLACE3 && f.args.len() == 3) || regexp3(n).is_some())?;
+    let f = n
+        .as_func_expr()
+        .filter(|f| (f.funcid == F_REGEXP_REPLACE3 && f.args.len() == 3) || regexp3(n).is_some())?;
     Some([f.args.nth(0), f.args.nth(1), f.args.nth(2)])
 }
 
 /// The four arguments of a `regexp_replace(s, p, r, flags)` call (a reader of a flags form `regexp3` leaves, such as
 /// lowerv4's derived key for flag 'i').
 pub fn regexp_replace4<'p>(n: Node<'p>) -> Option<[Node<'p>; 4]> {
-    let f = n.as_func_expr().filter(|f| f.funcid == F_REGEXP_REPLACE4 && f.args.len() == 4)?;
+    let f = n
+        .as_func_expr()
+        .filter(|f| f.funcid == F_REGEXP_REPLACE4 && f.args.len() == 4)?;
     Some([f.args.nth(0), f.args.nth(1), f.args.nth(2), f.args.nth(3)])
 }
 
 /// Whether `n` is already in the form `expr` returns (an adopter's `debug_assert` before it reads the expression).
 pub fn is_canonical(facts: &dyn Facts, n: Node<'_>) -> bool {
     crate::walk::stack_check(); // D3748
-    let mut ok = commute(n).is_none() && identity(n).is_none() && product(n).is_none() && retype(n).is_none() && like_twin(facts, n).is_none() && like_any(n).is_none() && regexp3(n).is_none() && simple_case(facts, n).is_none();
+    let mut ok = commute(n).is_none()
+        && identity(n).is_none()
+        && product(n).is_none()
+        && retype(n).is_none()
+        && like_twin(facts, n).is_none()
+        && like_any(n).is_none()
+        && regexp3(n).is_none()
+        && simple_case(facts, n).is_none();
     crate::expr::kids(n, &mut |k| ok &= is_canonical(facts, k));
     ok
 }
@@ -1463,4 +2124,3 @@ pub fn count_star(fnoid: u32, distinct: bool, never_null: bool) -> Option<u32> {
 
 pub(crate) const F_COUNT_ANY: u32 = 2147;
 const F_COUNT_STAR: u32 = 2803;
-

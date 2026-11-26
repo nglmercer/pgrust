@@ -14,7 +14,10 @@ use common::*;
 use gravity_abi::ctx::{lane, site_ptr};
 use gravity_abi::status::DONE;
 use gravity_abi::{Ctx, Datum, Lane, ScanPos};
-use gravity_driver::{box_source, ArenaBox, ArenaRef, BindingRef, BorrowedBatch, Cursor, Derive, Entry, Flow, Locker, Result, Sink, Source, SourceBox, Window, WindowBase, Writer};
+use gravity_driver::{
+    box_source, ArenaBox, ArenaRef, BindingRef, BorrowedBatch, Cursor, Derive, Entry, Flow, Locker,
+    Result, Sink, Source, SourceBox, Window, WindowBase, Writer,
+};
 use gravity_program::{Code, Layout, OutCol, Program, SiteDesc, WritePlan};
 
 const ROWS: usize = 64;
@@ -69,7 +72,16 @@ impl Source for Windows {
             raise_at(IN_SOURCE);
         }
         self.left -= 1;
-        w.set(0, Lane::byval(COL.as_ptr() as *const u8, core::ptr::null(), 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, 1)));
+        w.set(
+            0,
+            Lane::byval(
+                COL.as_ptr() as *const u8,
+                core::ptr::null(),
+                8,
+                lane::REGION_ARENA,
+                lane::id(lane::ID_ATTR, 1),
+            ),
+        );
         w.rows = ROWS as u32;
         w.set_base(WindowBase::at(ScanPos::new(77, WINDOWS - self.left, 0)));
         Ok(ROWS as u32)
@@ -104,7 +116,13 @@ impl Derive for WindowsDerive {
     }
 
     fn derive_source(&mut self, _desc: &SiteDesc, a: ArenaRef) -> SourceBox {
-        box_source(Windows { cur: Cursor::new(), left: 0 }, a)
+        box_source(
+            Windows {
+                cur: Cursor::new(),
+                left: 0,
+            },
+            a,
+        )
     }
 
     fn writer_size_hint(&self) -> usize {
@@ -176,7 +194,19 @@ fn program() -> Program {
     let st = gravity_program::Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 77, &[1])];
     let out = [OutCol::new("n", 20, -1, 8, true)];
-    Program::new(Layout { nsites: 1, out_natts: 1, out_rows: 64, scratch_bytes: 65536, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, Code::hand(k_windows))
+    Program::new(
+        Layout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 64,
+            scratch_bytes: 65536,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        Code::hand(k_windows),
+    )
 }
 
 /// One execution to its end: the rows the sink took, or the unwind that left it.
@@ -187,7 +217,13 @@ fn execute(entry: &mut Entry, program: &Arc<Program>) -> std::thread::Result<Res
     let mut sink = Rows { rows: 0, pushes: 0 };
     catch_unwind(AssertUnwindSafe(|| {
         let mut b = binding(&params, &nulls, &mut sink, &flag);
-        let mut exec = entry.start(None, program, &mut WindowsDerive, &mut b, lease(gravity_driver::Grant::of(8 << 20)))?;
+        let mut exec = entry.start(
+            None,
+            program,
+            &mut WindowsDerive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )?;
         let r = entry.run_to_end(&mut exec, &mut b);
         entry.end(exec, r.is_ok());
         r?;
@@ -201,19 +237,38 @@ fn a_host_unwind_is_parked_past_the_extern_c_frames_and_resumed_to_the_caller() 
     let program = Arc::new(program());
     let mut entry = Entry::new(1);
     let all = (WINDOWS as u64) * ROWS as u64;
-    assert_eq!(execute(&mut entry, &program).expect("no unwind").expect("served"), all);
+    assert_eq!(
+        execute(&mut entry, &program)
+            .expect("no unwind")
+            .expect("served"),
+        all
+    );
     for at in [IN_SOURCE, IN_SINK] {
         AT.store(at, Ordering::Relaxed);
         // a PostgreSQL ERROR raised by unwinding: the same payload reaches the caller (the statement's catch reads it)
         MODE.store(RAISE, Ordering::Relaxed);
         let payload = execute(&mut entry, &program).expect_err("the raise unwinds to the caller");
-        assert_eq!(payload.downcast_ref::<Raised>(), Some(&Raised("division by zero")), "at {at}: the payload goes on intact");
+        assert_eq!(
+            payload.downcast_ref::<Raised>(),
+            Some(&Raised("division by zero")),
+            "at {at}: the payload goes on intact"
+        );
         // a bug's panic: the same, its message intact
         MODE.store(BUG, Ordering::Relaxed);
         let payload = execute(&mut entry, &program).expect_err("the panic unwinds to the caller");
-        assert_eq!(payload.downcast_ref::<&str>(), Some(&"d314 fixture: a host's bug"), "at {at}");
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"d314 fixture: a host's bug"),
+            "at {at}"
+        );
         // nothing parked is left behind: the next execution serves, whole
         MODE.store(QUIET, Ordering::Relaxed);
-        assert_eq!(execute(&mut entry, &program).expect("no unwind").expect("served"), all, "at {at}: the entry serves again");
+        assert_eq!(
+            execute(&mut entry, &program)
+                .expect("no unwind")
+                .expect("served"),
+            all,
+            "at {at}: the entry serves again"
+        );
     }
 }

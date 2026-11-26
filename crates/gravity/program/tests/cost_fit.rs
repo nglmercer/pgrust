@@ -56,7 +56,8 @@ fn read_all(lane: &[u32]) -> u64 {
 }
 
 fn gather(lane: &[u32], pos: &[u32]) -> u64 {
-    pos.iter().fold(0u64, |s, &p| s.wrapping_add(lane[p as usize] as u64))
+    pos.iter()
+        .fold(0u64, |s, &p| s.wrapping_add(lane[p as usize] as u64))
 }
 
 /// `steps` dependent loads around a random cycle over `next` (the miss latency at its size).
@@ -96,7 +97,15 @@ fn update(slots: &mut [u32], keys: &[u32]) -> u64 {
 /// One run-time filter check per granule record, as the pgrc source makes it: the record's `(min, max)` against the
 /// filter's range, then the least key of the sorted key set at or past `min`, which cuts the granule when it is past `max`.
 fn probe(recs: &[(i64, i64)], keys: &[i64], lo: i64, hi: i64) -> u64 {
-    recs.iter().filter(|&&(mn, mx)| mx < lo || mn > hi || keys.get(keys.partition_point(|&k| k < mn)).is_none_or(|&k| k > mx)).count() as u64
+    recs.iter()
+        .filter(|&&(mn, mx)| {
+            mx < lo
+                || mn > hi
+                || keys
+                    .get(keys.partition_point(|&k| k < mn))
+                    .is_none_or(|&k| k > mx)
+        })
+        .count() as u64
 }
 
 fn check(lane: &[u32], c: u32, mask: &mut [u64]) -> u64 {
@@ -144,8 +153,14 @@ fn machine_unit_costs_at_the_dev_seed() {
         println!("fit\t{rows}\t{bytes}\tcheck\t{chk:.4}\tcompare into mask words");
         println!("fit\t{rows}\t{bytes}\tmiss\t{miss:.4}\tdependent load around a random cycle");
         println!("fit\t{rows}\t{bytes}\tupdate\t{upd:.4}\thashed probe and count");
-        println!("fit\t{rows}\t{bytes}\tbreak_even_div\t{}\tgather vs read", break_even_div(per, read));
-        assert!(read > 0.0 && per > 0.0 && chk > 0.0, "every unit costs something");
+        println!(
+            "fit\t{rows}\t{bytes}\tbreak_even_div\t{}\tgather vs read",
+            break_even_div(per, read)
+        );
+        assert!(
+            read > 0.0 && per > 0.0 && chk > 0.0,
+            "every unit costs something"
+        );
     }
     // the run-time filter's check: 4,096 granule records (64 KiB, the facts of a 32M-row table) against a full set of 64
     // keys over the whole range, so every record reaches the key search; each record spans 1/128 of the keys' range, so
@@ -153,9 +168,16 @@ fn machine_unit_costs_at_the_dev_seed() {
     let span = 1i64 << 25;
     let mut keys: Vec<i64> = (0..64).map(|_| (rng.next() >> 32) as i64).collect();
     keys.sort_unstable();
-    let recs: Vec<(i64, i64)> = (0..4096).map(|_| (rng.next() >> 32) as i64).map(|mn| (mn, mn + span)).collect();
+    let recs: Vec<(i64, i64)> = (0..4096)
+        .map(|_| (rng.next() >> 32) as i64)
+        .map(|mn| (mn, mn + span))
+        .collect();
     let chk = ns_per_call(|| probe(&recs, &keys, i64::MIN, i64::MAX)) / recs.len() as f64;
-    println!("fit\t{}\t{}\tprobe\t{chk:.4}\trun-time filter check per granule record (64 keys)", recs.len(), recs.len() * 16);
+    println!(
+        "fit\t{}\t{}\tprobe\t{chk:.4}\trun-time filter check per granule record (64 keys)",
+        recs.len(),
+        recs.len() * 16
+    );
     assert!(chk > 0.0, "a check costs something");
 }
 
@@ -167,17 +189,41 @@ fn machine_unit_costs_at_the_dev_seed() {
 #[test]
 fn drain_set_lines() {
     use gravity_program::cost::drain_set::{self, Line, Pair};
-    const INT_ROWS: [f64; 11] = [275.0, 932.0, 1870.0, 3886.0, 6987.0, 9868.0, 13853.0, 19527.0, 29694.0, 49360.0, 99773.0];
+    const INT_ROWS: [f64; 11] = [
+        275.0, 932.0, 1870.0, 3886.0, 6987.0, 9868.0, 13853.0, 19527.0, 29694.0, 49360.0, 99773.0,
+    ];
     const TEXT_ROWS: [f64; 5] = [932.0, 3886.0, 9868.0, 19527.0, 49360.0];
-    let int_w0 = (vec![2.290, 2.290, 2.300, 2.455, 2.655, 2.905, 3.185, 3.485, 4.005, 5.010, 18.065], vec![2.415, 2.475, 2.500, 2.635, 2.885, 3.070, 3.265, 3.630, 4.135, 5.125, 7.945]);
-    let int_w8 = (vec![1.120, 1.175, 1.310, 1.605, 2.085, 2.490, 3.030, 3.775, 5.280, 7.965, 15.615], vec![1.545, 1.575, 1.645, 1.670, 1.870, 2.050, 2.140, 2.440, 3.015, 4.065, 6.340]);
-    let text_w0 = (vec![2.860, 3.680, 5.125, 8.000, 23.100], vec![2.815, 3.095, 3.625, 4.480, 6.830]);
-    let text_w8 = (vec![1.450, 2.390, 4.055, 6.105, 12.700], vec![1.025, 1.140, 1.580, 1.885, 3.420]);
+    let int_w0 = (
+        vec![
+            2.290, 2.290, 2.300, 2.455, 2.655, 2.905, 3.185, 3.485, 4.005, 5.010, 18.065,
+        ],
+        vec![
+            2.415, 2.475, 2.500, 2.635, 2.885, 3.070, 3.265, 3.630, 4.135, 5.125, 7.945,
+        ],
+    );
+    let int_w8 = (
+        vec![
+            1.120, 1.175, 1.310, 1.605, 2.085, 2.490, 3.030, 3.775, 5.280, 7.965, 15.615,
+        ],
+        vec![
+            1.545, 1.575, 1.645, 1.670, 1.870, 2.050, 2.140, 2.440, 3.015, 4.065, 6.340,
+        ],
+    );
+    let text_w0 = (
+        vec![2.860, 3.680, 5.125, 8.000, 23.100],
+        vec![2.815, 3.095, 3.625, 4.480, 6.830],
+    );
+    let text_w8 = (
+        vec![1.450, 2.390, 4.055, 6.105, 12.700],
+        vec![1.025, 1.140, 1.580, 1.885, 3.420],
+    );
     let fit = |rows: &[f64], ms: &[f64]| {
         let pts: Vec<(f64, f64)> = rows.iter().zip(ms).map(|(&r, &m)| (r, m * 1e6)).collect();
         least_squares(&pts)
     };
-    let close = |l: Line, (fixed, row): (f64, f64)| (l.fixed.ns - fixed).abs() < 100.0 && (l.row.ns - row).abs() < 0.01;
+    let close = |l: Line, (fixed, row): (f64, f64)| {
+        (l.fixed.ns - fixed).abs() < 100.0 && (l.row.ns - row).abs() < 0.01
+    };
     let cases = [
         ("int W0", drain_set::WORD_W0, &INT_ROWS[..], int_w0),
         ("int W8", drain_set::WORD_W8, &INT_ROWS[..], int_w8),
@@ -186,12 +232,28 @@ fn drain_set_lines() {
     ];
     for (name, p, rows, (sort, set)) in cases {
         let (s, t) = (fit(rows, &sort), fit(rows, &set));
-        println!("drain_set\t{name}\tsort {:.4} ms + {:.2} ns\tset {:.4} ms + {:.2} ns\tcross {:.0}", s.0 / 1e6, s.1, t.0 / 1e6, t.1, drain_set::crossover(p));
-        assert!(close(p.sort, s) && close(p.set, t), "{name}: the module's lines are the fit of its points");
+        println!(
+            "drain_set\t{name}\tsort {:.4} ms + {:.2} ns\tset {:.4} ms + {:.2} ns\tcross {:.0}",
+            s.0 / 1e6,
+            s.1,
+            t.0 / 1e6,
+            t.1,
+            drain_set::crossover(p)
+        );
+        assert!(
+            close(p.sort, s) && close(p.set, t),
+            "{name}: the module's lines are the fit of its points"
+        );
     }
     let flip = |p: Pair, below: f64, above: f64| (below..above).contains(&drain_set::crossover(p));
-    assert!(flip(drain_set::WORD_W8, 3886.0, 6987.0), "W8 crosses where the by-value cells flipped");
-    assert!(drain_set::crossover(drain_set::WIDE_W8) < TEXT_ROWS[0], "the text set led at every W8 cell");
+    assert!(
+        flip(drain_set::WORD_W8, 3886.0, 6987.0),
+        "W8 crosses where the by-value cells flipped"
+    );
+    assert!(
+        drain_set::crossover(drain_set::WIDE_W8) < TEXT_ROWS[0],
+        "the text set led at every W8 cell"
+    );
 }
 
 /// D-04 (cost_profile front.rs `PERCODE_*`): the points the per-code front's decline is fitted through, the dev corpus of
@@ -203,7 +265,10 @@ fn drain_set_lines() {
 /// front, as that rule did.
 #[test]
 fn percode_front_fit() {
-    use cost_profile::front::{percode_declines, PERCODE_CODE, PERCODE_CODE_W, PERCODE_OPENED, PERCODE_OPENED_W, PERCODE_ROW};
+    use cost_profile::front::{
+        percode_declines, PERCODE_CODE, PERCODE_CODE_W, PERCODE_OPENED, PERCODE_OPENED_W,
+        PERCODE_ROW,
+    };
     const ROWS: u64 = 2_000_000;
     const CELLS: [(u32, u32, u64, u64, f64, f64); 23] = [
         (1, 1, 2_000_000, 2_000_000, 305.988, 193.443),
@@ -233,7 +298,10 @@ fn percode_front_fit() {
     // the normal equations of [codes, opened, -1] a row against the kept arm's ns a row over the declined's
     let mut a = [[0.0f64; 4]; 3];
     for &(_, _, n, o, k, d) in &CELLS[..8] {
-        let (x, y) = ([n as f64 / ROWS as f64, o as f64 / ROWS as f64, -1.0], (k - d) * 1e6 / ROWS as f64);
+        let (x, y) = (
+            [n as f64 / ROWS as f64, o as f64 / ROWS as f64, -1.0],
+            (k - d) * 1e6 / ROWS as f64,
+        );
         for i in 0..3 {
             for j in 0..3 {
                 a[i][j] += x[i] * x[j];
@@ -242,7 +310,9 @@ fn percode_front_fit() {
         }
     }
     for i in 0..3 {
-        let p = (i..3).max_by(|&u, &v| a[u][i].abs().total_cmp(&a[v][i].abs())).unwrap();
+        let p = (i..3)
+            .max_by(|&u, &v| a[u][i].abs().total_cmp(&a[v][i].abs()))
+            .unwrap();
         a.swap(i, p);
         for k in i + 1..3 {
             let f = a[k][i] / a[i][i];
@@ -256,24 +326,48 @@ fn percode_front_fit() {
     for i in (0..3).rev() {
         w[i] = (a[i][3] - (i + 1..3).map(|j| a[i][j] * w[j]).sum::<f64>()) / a[i][i];
     }
-    println!("percode_front\tcode {:.2} ns\topened {:.2} ns\trow {:.2} ns", w[0], w[1], w[2]);
+    println!(
+        "percode_front\tcode {:.2} ns\topened {:.2} ns\trow {:.2} ns",
+        w[0], w[1], w[2]
+    );
     let fitted = [PERCODE_CODE.ns, PERCODE_OPENED.ns, PERCODE_ROW.ns];
-    assert!(w.iter().zip(fitted).all(|(f, c)| (f - c).abs() < 0.01), "the module's costs are the fit of its points");
+    assert!(
+        w.iter().zip(fitted).all(|(f, c)| (f - c).abs() < 0.01),
+        "the module's costs are the fit of its points"
+    );
     let new = |n: u64, o: u64| percode_declines(n, ROWS, o, PERCODE_CODE_W, PERCODE_OPENED_W);
     let old = |n: u64, o: u64| n * 4096 >= 512 * ROWS && o * 100 >= ROWS * 50;
     let mut kept_as_before = Vec::new();
     for &(l, r, n, o, k, d) in &CELLS {
         let cost = |decline: bool| if decline { d } else { k };
         let (now, before) = (cost(new(n, o)), cost(old(n, o)));
-        println!("percode_front\tl{l} r{r}\tkept/declined {:.3}\tnow {}\tbefore {}", k / d, if new(n, o) { "declines" } else { "keeps" }, if old(n, o) { "declines" } else { "keeps" });
-        assert!(now <= before, "l{l} r{r}: never dearer than the 50 % opened rule");
+        println!(
+            "percode_front\tl{l} r{r}\tkept/declined {:.3}\tnow {}\tbefore {}",
+            k / d,
+            if new(n, o) { "declines" } else { "keeps" },
+            if old(n, o) { "declines" } else { "keeps" }
+        );
+        assert!(
+            now <= before,
+            "l{l} r{r}: never dearer than the 50 % opened rule"
+        );
         if now > 1.02 * k.min(d) {
-            assert!(!new(n, o) && !old(n, o), "l{l} r{r}: a miss keeps the front, as the 50 % opened rule did");
+            assert!(
+                !new(n, o) && !old(n, o),
+                "l{l} r{r}: a miss keeps the front, as the 50 % opened rule did"
+            );
             kept_as_before.push((l, r));
         }
     }
-    assert_eq!(kept_as_before, [(8, 8), (8, 16), (8, 20), (8, 24), (16, 16), (32, 32)], "long runs over many codes a key");
-    assert!(new(2_000_000, 500_000) && !old(2_000_000, 500_000), "fresh codes, a record in four rows: the cell the fit gains");
+    assert_eq!(
+        kept_as_before,
+        [(8, 8), (8, 16), (8, 20), (8, 24), (16, 16), (32, 32)],
+        "long runs over many codes a key"
+    );
+    assert!(
+        new(2_000_000, 500_000) && !old(2_000_000, 500_000),
+        "fresh codes, a record in four rows: the cell the fit gains"
+    );
 }
 
 /// D-04 (cost_profile sparse.rs): the points code.sparse's walk and the whole decode are fitted through (dev data: 2 x
@@ -284,31 +378,88 @@ fn percode_front_fit() {
 /// within 66 .. 72 % at both widths.
 #[test]
 fn code_sparse_lines() {
-    use cost_profile::sparse::{crossover_pct, DECODE_NONBASE, DECODE_ROW, DENSE_PCT, WALK_NONBASE, WALK_ROW};
+    use cost_profile::sparse::{
+        crossover_pct, DECODE_NONBASE, DECODE_ROW, DENSE_PCT, WALK_NONBASE, WALK_ROW,
+    };
     type Cells = [([f64; 9], [f64; 9]); 3];
     const SHARE: [f64; 9] = [0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95];
     const W0: Cells = [
-        ([0.305, 0.296, 2.634, 3.133, 3.514, 3.870, 4.341, 4.771, 5.017], [0.306, 0.309, 3.861, 3.859, 3.869, 3.862, 3.794, 3.804, 3.796]),
-        ([2.189, 2.510, 2.992, 3.649, 4.160, 4.471, 4.971, 5.382, 5.520], [3.940, 4.122, 4.243, 4.367, 4.574, 4.612, 4.536, 4.733, 4.658]),
-        ([2.279, 2.564, 3.087, 3.746, 4.244, 4.652, 5.095, 5.604, 5.688], [4.129, 4.293, 4.355, 4.456, 4.553, 4.734, 4.773, 4.906, 4.895]),
+        (
+            [
+                0.305, 0.296, 2.634, 3.133, 3.514, 3.870, 4.341, 4.771, 5.017,
+            ],
+            [
+                0.306, 0.309, 3.861, 3.859, 3.869, 3.862, 3.794, 3.804, 3.796,
+            ],
+        ),
+        (
+            [
+                2.189, 2.510, 2.992, 3.649, 4.160, 4.471, 4.971, 5.382, 5.520,
+            ],
+            [
+                3.940, 4.122, 4.243, 4.367, 4.574, 4.612, 4.536, 4.733, 4.658,
+            ],
+        ),
+        (
+            [
+                2.279, 2.564, 3.087, 3.746, 4.244, 4.652, 5.095, 5.604, 5.688,
+            ],
+            [
+                4.129, 4.293, 4.355, 4.456, 4.553, 4.734, 4.773, 4.906, 4.895,
+            ],
+        ),
     ];
     const W8: Cells = [
-        ([0.445, 0.439, 0.829, 0.885, 0.948, 0.983, 1.022, 1.111, 1.119], [0.470, 0.445, 0.960, 0.980, 0.971, 1.010, 0.968, 0.965, 0.985]),
-        ([0.754, 0.802, 0.860, 0.950, 1.016, 1.019, 1.087, 1.160, 1.191], [0.985, 0.979, 0.994, 1.011, 1.023, 1.026, 1.034, 1.043, 1.054]),
-        ([0.779, 0.818, 0.877, 1.019, 1.040, 1.091, 1.117, 1.174, 1.174], [0.982, 1.014, 1.039, 1.049, 1.070, 1.073, 1.080, 1.138, 1.077]),
+        (
+            [
+                0.445, 0.439, 0.829, 0.885, 0.948, 0.983, 1.022, 1.111, 1.119,
+            ],
+            [
+                0.470, 0.445, 0.960, 0.980, 0.971, 1.010, 0.968, 0.965, 0.985,
+            ],
+        ),
+        (
+            [
+                0.754, 0.802, 0.860, 0.950, 1.016, 1.019, 1.087, 1.160, 1.191,
+            ],
+            [
+                0.985, 0.979, 0.994, 1.011, 1.023, 1.026, 1.034, 1.043, 1.054,
+            ],
+        ),
+        (
+            [
+                0.779, 0.818, 0.877, 1.019, 1.040, 1.091, 1.117, 1.174, 1.174,
+            ],
+            [
+                0.982, 1.014, 1.039, 1.049, 1.070, 1.073, 1.080, 1.138, 1.077,
+            ],
+        ),
     ];
     let line = |cells: &Cells, quals: &[usize], walk: bool| {
         let pts: Vec<(f64, f64)> = quals
             .iter()
             .flat_map(|&q| (if q == 0 { 2 } else { 0 }..9).map(move |i| (q, i)))
-            .map(|(q, i)| (SHARE[i], (if walk { cells[q].0[i] } else { cells[q].1[i] }) * 1e6 / 2_000_000.0))
+            .map(|(q, i)| {
+                (
+                    SHARE[i],
+                    (if walk { cells[q].0[i] } else { cells[q].1[i] }) * 1e6 / 2_000_000.0,
+                )
+            })
             .collect();
         least_squares(&pts)
     };
     let (walk, whole) = (line(&W0, &[0, 1, 2], true), line(&W0, &[0, 1, 2], false));
-    println!("code_sparse\twalk {:.3} + {:.3} x s ns\twhole {:.3} + {:.3} x s ns", walk.0, walk.1, whole.0, whole.1);
-    let close = |(row, nonbase): (f64, f64), r: f64, s: f64| (row - r).abs() < 0.001 && (nonbase - s).abs() < 0.001;
-    assert!(close(walk, WALK_ROW.ns, WALK_NONBASE.ns) && close(whole, DECODE_ROW.ns, DECODE_NONBASE.ns), "the module's lines are the fit of its points");
+    println!(
+        "code_sparse\twalk {:.3} + {:.3} x s ns\twhole {:.3} + {:.3} x s ns",
+        walk.0, walk.1, whole.0, whole.1
+    );
+    let close = |(row, nonbase): (f64, f64), r: f64, s: f64| {
+        (row - r).abs() < 0.001 && (nonbase - s).abs() < 0.001
+    };
+    assert!(
+        close(walk, WALK_ROW.ns, WALK_NONBASE.ns) && close(whole, DECODE_ROW.ns, DECODE_NONBASE.ns),
+        "the module's lines are the fit of its points"
+    );
     assert_eq!(DENSE_PCT, 70);
     for (width, cells) in [("W0", &W0), ("W8", &W8)] {
         for (q, qual) in ["EQ", "LIKE", "range"].into_iter().enumerate() {
@@ -330,10 +481,19 @@ fn derived_pool_cap_fits_ram_beside_shared_buffers_and_the_part_cache() {
     let sb = ram / 4;
     let pool = derived_pool_cap(ram, sb);
     assert!(pool < (ram - sb) / 4 * 3, "{pool}");
-    assert!(sb + pool + part_cache_cap(ram, pool) <= ram / 64 * 54, "{pool}");
+    assert!(
+        sb + pool + part_cache_cap(ram, pool) <= ram / 64 * 54,
+        "{pool}"
+    );
     assert!(pool > 14 * gib && pool < 15 * gib, "{pool}");
     // a small shared_buffers keeps the old three quarters where it is the smaller
-    assert_eq!(derived_pool_cap(ram, ram / 2),(ram / 64 * 54).saturating_sub(ram / 2).saturating_sub(ram / 8).min((ram - ram / 2) / 4 * 3));
+    assert_eq!(
+        derived_pool_cap(ram, ram / 2),
+        (ram / 64 * 54)
+            .saturating_sub(ram / 2)
+            .saturating_sub(ram / 8)
+            .min((ram - ram / 2) / 4 * 3)
+    );
     assert_eq!(derived_pool_cap(0, 0), 0);
 }
 
@@ -341,7 +501,9 @@ fn derived_pool_cap_fits_ram_beside_shared_buffers_and_the_part_cache() {
 // inside it (plan section 7, C5), B_auto = limit - max(1 GiB, limit / 32) - the page-cache floor (limit / 16 by default).
 #[test]
 fn the_memory_budget_is_the_limit_less_the_os_and_page_cache_capped_at_the_bar() {
-    use gravity_program::cost::{budget_auto, budget_of, os_reserve, page_cache_floor_default, reserve_high, reserve_low};
+    use gravity_program::cost::{
+        budget_auto, budget_of, os_reserve, page_cache_floor_default, reserve_high, reserve_low,
+    };
     let gib = 1u64 << 30;
     let mib = 1u64 << 20;
     let bar_of = |l: u64| (l / 100) * 90;
@@ -352,9 +514,17 @@ fn the_memory_budget_is_the_limit_less_the_os_and_page_cache_capped_at_the_bar()
     assert_eq!(budget_auto(l, gib, l / 16), l - gib - l / 16);
     let b = budget_of(l, 0, 0, 0, bar_of(l));
     assert_eq!(b.b_auto, l - gib - l / 16);
-    assert_eq!(b.b, bar_of(l), "the bar binds: B_auto is 0.906 L, the bar 0.9 L");
+    assert_eq!(
+        b.b,
+        bar_of(l),
+        "the bar binds: B_auto is 0.906 L, the bar 0.9 L"
+    );
     assert!(b.b > 27 * gib && b.b < 28 * gib, "{}", b.b);
-    assert_eq!((b.r_low, b.r_high), (gib, 2 * gib), "the reserve inside B: max(1 GiB, B / 32) and 1 GiB more");
+    assert_eq!(
+        (b.r_low, b.r_high),
+        (gib, 2 * gib),
+        "the reserve inside B: max(1 GiB, B / 32) and 1 GiB more"
+    );
     // no governor: B_auto; a target only lowers B, never raises it
     assert_eq!(budget_of(l, 0, 0, 0, 0).b, l - gib - l / 16);
     assert_eq!(budget_of(l, 4096 * mib, 0, 0, bar_of(l)).b, 4096 * mib);

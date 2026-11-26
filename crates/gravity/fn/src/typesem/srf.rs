@@ -8,9 +8,22 @@ const TS_REWRITE_QUERY: Oid = 3685;
 
 /// The bodies that reach the executor again (SPI): named, never run from a program.
 const NESTED: [&[u8]; 16] = [
-    b"ts_stat", b"query_to_xml", b"query_to_xmlschema", b"query_to_xml_and_xmlschema", b"cursor_to_xml", b"cursor_to_xmlschema", b"table_to_xml", b"table_to_xmlschema",
-    b"table_to_xml_and_xmlschema", b"schema_to_xml", b"schema_to_xmlschema", b"schema_to_xml_and_xmlschema", b"database_to_xml", b"database_to_xmlschema",
-    b"database_to_xml_and_xmlschema", b"pg_get_serial_sequence",
+    b"ts_stat",
+    b"query_to_xml",
+    b"query_to_xmlschema",
+    b"query_to_xml_and_xmlschema",
+    b"cursor_to_xml",
+    b"cursor_to_xmlschema",
+    b"table_to_xml",
+    b"table_to_xmlschema",
+    b"table_to_xml_and_xmlschema",
+    b"schema_to_xml",
+    b"schema_to_xmlschema",
+    b"schema_to_xml_and_xmlschema",
+    b"database_to_xml",
+    b"database_to_xmlschema",
+    b"database_to_xml_and_xmlschema",
+    b"pg_get_serial_sequence",
 ];
 
 /// Function `funcid` runs its own statement by its OID alone (`ts_rewrite(tsquery, text)`).

@@ -11,9 +11,9 @@
 
 #[cfg(not(target_family = "wasm"))]
 use be_secure_openssl as tls;
+use datum::Datum;
 #[cfg(target_family = "wasm")]
 use tls_stub as tls;
-use datum::Datum;
 
 /// wasm arm: there is no OpenSSL and no SSL transport at all, so the no-SSL
 /// answers (None / false / zero extensions) are the TRUE answers — every
@@ -356,7 +356,11 @@ fn ssl_extension_result_desc<'mcx>(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Ok(None);
     }
-    Ok(Some(resolved.result_tuple_desc.expect("composite result carries a tupdesc")))
+    Ok(Some(
+        resolved
+            .result_tuple_desc
+            .expect("composite result carries a tupdesc"),
+    ))
 }
 
 fn lookup(function: &str) -> Option<PGFunction> {

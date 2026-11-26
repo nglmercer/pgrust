@@ -29,7 +29,10 @@ fn program(hosts: usize) -> Program {
       (return t))))
 "#,
     );
-    parse_program(&s, &|_| Some(host_add as extern "C" fn(i64, i64) -> i64 as usize)).unwrap_or_else(|e| panic!("{e}"))
+    parse_program(&s, &|_| {
+        Some(host_add as extern "C" fn(i64, i64) -> i64 as usize)
+    })
+    .unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[test]
@@ -53,5 +56,8 @@ fn each_function_starts_on_a_cache_line_whatever_the_host_count() {
         };
         assert_eq!((r0, r1), (8, 20), "{hosts} hosts");
     }
-    assert!(gaps.windows(2).all(|w| w[0] == w[1]), "f1's distance from f0 moved with the host count: {gaps:?}");
+    assert!(
+        gaps.windows(2).all(|w| w[0] == w[1]),
+        "f1's distance from f0 moved with the host count: {gaps:?}"
+    );
 }

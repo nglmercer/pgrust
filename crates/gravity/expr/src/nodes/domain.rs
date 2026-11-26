@@ -24,14 +24,27 @@ pub struct Check<'mcx> {
 
 impl<'mcx> Check<'mcx> {
     /// The checks compiled once, the program's lists in `m` (memsig E-prog: `Program::empty_in`).
-    pub fn compile(m: mcx::Mcx<'mcx>, typ: Oid, catalog: &dyn Catalog<'mcx>) -> CompileResult<Check<'mcx>> {
+    pub fn compile(
+        m: mcx::Mcx<'mcx>,
+        typ: Oid,
+        catalog: &dyn Catalog<'mcx>,
+    ) -> CompileResult<Check<'mcx>> {
         let facts = catalog.domain(typ)?;
         let mut prog = Program::empty_in(m);
         let mut state = State::empty();
         let mut checks = Vec::new(); // alloc: Program
         let mut notnull = false;
         {
-            let mut b = Builder { prog: &mut prog, state: &mut state, catalog, outer: None, tableoid: None, aggorder: false, returning: None, folded: false };
+            let mut b = Builder {
+                prog: &mut prog,
+                state: &mut state,
+                catalog,
+                outer: None,
+                tableoid: None,
+                aggorder: false,
+                returning: None,
+                folded: false,
+            };
             for con in &facts.constraints {
                 match con {
                     DomainConstraint::NotNull => notnull = true,
@@ -42,7 +55,14 @@ impl<'mcx> Check<'mcx> {
                 }
             }
         }
-        Ok(Check { typ, notnull, prog, state, checks, params: ParamBind::NONE })
+        Ok(Check {
+            typ,
+            notnull,
+            prog,
+            state,
+            checks,
+            params: ParamBind::NONE,
+        })
     }
 
     /// The value against the domain: `Ok(())` or the violation as `CoerceToDomain` raises it.
@@ -57,7 +77,10 @@ impl<'mcx> Check<'mcx> {
         for &(id, name) in &self.checks {
             let c = crate::eval::eval(&prog, &mut state, id, &mut cx)?;
             if !c.isnull && !c.value.as_bool() {
-                return Err(crate::nodes::cast::domain_check(self.typ, prog.names[name as usize]));
+                return Err(crate::nodes::cast::domain_check(
+                    self.typ,
+                    prog.names[name as usize],
+                ));
             }
         }
         Ok(())

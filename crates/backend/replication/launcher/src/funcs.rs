@@ -25,7 +25,11 @@ pub fn fc_pg_stat_get_subscription(
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
     let flinfo = flinfo.expect("pg_stat_get_subscription: resolved FmgrInfo required");
-    let subid = if fcinfo.argisnull(0) { InvalidOid } else { fcinfo.arg(0).as_oid() };
+    let subid = if fcinfo.argisnull(0) {
+        InvalidOid
+    } else {
+        fcinfo.arg(0).as_oid()
+    };
 
     // SAFETY: executor arms es_query_cxt pre-call; it outlives this frame.
     let mcx = unsafe { fcinfo.result_mcx_detached() };

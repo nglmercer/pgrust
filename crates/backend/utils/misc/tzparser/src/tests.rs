@@ -85,8 +85,12 @@ fn dynamic_abbrev_resolves_through_pgtz() {
     let foo = find(tbl, "foo");
     assert_eq!(foo.typ as i32, DYNTZ);
     let mut extra = DateTimeErrorExtra::default();
-    let tz = FetchDynamicTimeZone(tbl, foo, &mut extra).unwrap().expect("America/New_York loads");
-    assert!(FetchDynamicTimeZone(tbl, foo, &mut extra).unwrap().is_some());
+    let tz = FetchDynamicTimeZone(tbl, foo, &mut extra)
+        .unwrap()
+        .expect("America/New_York loads");
+    assert!(FetchDynamicTimeZone(tbl, foo, &mut extra)
+        .unwrap()
+        .is_some());
     assert_eq!(
         adt_datetime::tz::pg_get_timezone_name(&tz),
         Some("America/New_York")
@@ -94,7 +98,9 @@ fn dynamic_abbrev_resolves_through_pgtz() {
 
     let bar = find(tbl, "bar");
     let mut extra = DateTimeErrorExtra::default();
-    assert!(FetchDynamicTimeZone(tbl, bar, &mut extra).unwrap().is_none());
+    assert!(FetchDynamicTimeZone(tbl, bar, &mut extra)
+        .unwrap()
+        .is_none());
     assert_eq!(extra.dtee_timezone, Some(&b"Not/AZone"[..]));
     assert_eq!(extra.dtee_abbrev, Some(&b"bar"[..]));
 }
@@ -121,7 +127,10 @@ fn include_recursion_and_override() {
     let tbl = load_tzoffsets_from(&dir, "Top").unwrap();
     assert_eq!(tbl.abbrevs.len(), 3);
     assert_eq!(find(tbl, "aaa").value, 300);
-    assert_eq!((find(tbl, "bbb").typ as i32, find(tbl, "bbb").value), (DTZ, 200));
+    assert_eq!(
+        (find(tbl, "bbb").typ as i32, find(tbl, "bbb").value),
+        (DTZ, 200)
+    );
     assert_eq!(find(tbl, "ccc").typ as i32, DYNTZ);
 }
 
@@ -217,7 +226,10 @@ fn filename_and_open_failures() {
     assert_eq!(load_err(&dir, "Nope").message, None);
     std::fs::write(format!("{dir}/IncNope"), "@INCLUDE Nope\n").unwrap();
     let e = load_err(&dir, "IncNope");
-    assert!(e.message.unwrap().starts_with("could not read time zone file \"Nope\":"));
+    assert!(e
+        .message
+        .unwrap()
+        .starts_with("could not read time zone file \"Nope\":"));
 
     // tzparser.c:337-345: the message is "%m" (strerror) and the hint names
     // my_exec_path as "the file", not the timezonesets directory. Audit
@@ -230,7 +242,10 @@ fn filename_and_open_failures() {
     let e = load_err(&format!("{dir}/absent"), "Default");
     assert_eq!(
         e.message.as_deref(),
-        Some(format!("could not open directory \"{dir}/absent\": No such file or directory").as_str())
+        Some(
+            format!("could not open directory \"{dir}/absent\": No such file or directory")
+                .as_str()
+        )
     );
     assert_eq!(
         e.hint.as_deref(),
@@ -259,8 +274,11 @@ fn line_too_long() {
 #[test]
 fn nul_byte_ends_the_line() {
     let dir = scratch_dir("nul");
-    std::fs::write(format!("{dir}/Nul"), b"XYZ 3600\0 junk that is not a token\nQQQ 7200\n")
-        .unwrap();
+    std::fs::write(
+        format!("{dir}/Nul"),
+        b"XYZ 3600\0 junk that is not a token\nQQQ 7200\n",
+    )
+    .unwrap();
     let tbl = load_tzoffsets_from(&dir, "Nul").expect("NUL-terminated line parses");
     assert_eq!(find(tbl, "xyz").value, 3600);
     assert_eq!(find(tbl, "qqq").value, 7200);
@@ -276,7 +294,10 @@ fn strtol_semantics() {
     assert_eq!(strtol10(b""), None);
     // C: strtol saturates at LONG_MAX/LONG_MIN, then truncates into the int
     // field.
-    assert_eq!(strtol10(b"99999999999999999999999999"), Some(i64::MAX as i32));
+    assert_eq!(
+        strtol10(b"99999999999999999999999999"),
+        Some(i64::MAX as i32)
+    );
     assert_eq!(strtol10(b"4294967296"), Some(0));
 }
 
@@ -285,7 +306,11 @@ fn directive_prefix_matching_is_c_loose() {
     // C matches @INCLUDE/@OVERRIDE by prefix, no word boundary.
     let dir = scratch_dir("loose");
     std::fs::write(format!("{dir}/Base"), "AAA 100\n").unwrap();
-    std::fs::write(format!("{dir}/Loose"), "@includeBase\n@overrideX\nAAA 200\n").unwrap();
+    std::fs::write(
+        format!("{dir}/Loose"),
+        "@includeBase\n@overrideX\nAAA 200\n",
+    )
+    .unwrap();
     let tbl = load_tzoffsets_from(&dir, "Loose").unwrap();
     assert_eq!(find(tbl, "aaa").value, 200);
 }
@@ -307,7 +332,10 @@ fn edited_file_is_reparsed_on_each_load() {
     std::fs::write(format!("{dir}/Edit"), "ZZZ 3600\n").unwrap();
     let first = load_tzoffsets_from(&dir, "Edit").unwrap();
     assert_eq!(find(first, "zzz").value, 3600);
-    assert!(std::ptr::eq(first, load_tzoffsets_from(&dir, "Edit").unwrap()));
+    assert!(std::ptr::eq(
+        first,
+        load_tzoffsets_from(&dir, "Edit").unwrap()
+    ));
     std::fs::write(format!("{dir}/Edit"), "ZZZ 7200\n").unwrap();
     let second = load_tzoffsets_from(&dir, "Edit").unwrap();
     assert_eq!(find(second, "zzz").value, 7200);

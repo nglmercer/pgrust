@@ -2,5 +2,5 @@
 pub(crate) mod lower;
 pub(crate) mod param;
 pub(crate) mod premise;
-pub(crate) mod widen;
 pub mod strategies;
+pub(crate) mod widen;

@@ -256,9 +256,11 @@ fn literal_alloc_check(literallen: usize, yleng: usize) -> PgResult<()> {
     let need = literallen + yleng;
     if need >= 1 << 29 {
         let request = (need as u64 + 1).next_power_of_two();
-        return Err(PgError::error(format!("invalid memory alloc request size {request}"))
-            .with_location("mcxt.c", 1180, "MemoryContextSizeFailure")
-            .into());
+        return Err(
+            PgError::error(format!("invalid memory alloc request size {request}"))
+                .with_location("mcxt.c", 1180, "MemoryContextSizeFailure")
+                .into(),
+        );
     }
     Ok(())
 }
@@ -362,7 +364,10 @@ impl<'mcx> Scanner<'mcx> {
         let (err, line) = if tail.is_empty() {
             (PgError::error(format!("{message} at end of input")), 1232)
         } else if let Ok(s) = core::str::from_utf8(tail) {
-            (PgError::error(format!("{message} at or near \"{s}\"")), 1240)
+            (
+                PgError::error(format!("{message} at or near \"{s}\"")),
+                1240,
+            )
         } else {
             let mut raw = format!("{message} at or near \"").into_bytes();
             raw.extend_from_slice(tail);

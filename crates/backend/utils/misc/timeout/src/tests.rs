@@ -48,7 +48,10 @@ fn drain_when_posted() {
     let posted = POSTED.with(|p| p.borrow().as_ref().map(std::sync::Arc::clone).unwrap());
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while !posted.load(O::SeqCst) {
-        assert!(std::time::Instant::now() < deadline, "timer thread never fired");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timer thread never fired"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     ProcessTimeoutInterrupt();
@@ -63,7 +66,10 @@ fn register_enable_fire_after() {
     enable_timeout_after(STATEMENT_TIMEOUT, 5);
     assert!(get_timeout_active(STATEMENT_TIMEOUT));
     assert!(!get_timeout_indicator(STATEMENT_TIMEOUT, false));
-    assert_eq!(get_timeout_start_time(STATEMENT_TIMEOUT), NOW.load(O::Relaxed));
+    assert_eq!(
+        get_timeout_start_time(STATEMENT_TIMEOUT),
+        NOW.load(O::Relaxed)
+    );
     assert_eq!(
         get_timeout_finish_time(STATEMENT_TIMEOUT),
         NOW.load(O::Relaxed) + 5000
@@ -216,8 +222,14 @@ fn clear_interrupt_bytes() {
 
 fn assert_no_wake() {
     std::thread::sleep(Duration::from_millis(60));
-    assert!(!POSTED.with(|p| p.borrow().as_ref().unwrap().load(O::SeqCst)), "stale wake posted");
-    assert!(!globals::InterruptPending(), "stale wake raised InterruptPending");
+    assert!(
+        !POSTED.with(|p| p.borrow().as_ref().unwrap().load(O::SeqCst)),
+        "stale wake posted"
+    );
+    assert!(
+        !globals::InterruptPending(),
+        "stale wake raised InterruptPending"
+    );
     assert!(!globals::AbortPending(), "stale wake raised AbortPending");
 }
 
@@ -271,7 +283,10 @@ fn abort_byte_only_for_abort_class() {
     drain_when_posted();
     assert_eq!(FIRED.with(|f| f.borrow().clone()), vec!["b"]);
     assert!(globals::InterruptPending());
-    assert!(!globals::AbortPending(), "a deadlock timeout is not abort class");
+    assert!(
+        !globals::AbortPending(),
+        "a deadlock timeout is not abort class"
+    );
     clear_interrupt_bytes();
 
     enable_timeout_after(STATEMENT_TIMEOUT, 5);
@@ -306,7 +321,10 @@ fn handler_rearm_wins_over_periodic_reschedule() {
     drain_when_posted();
     assert_eq!(FIRED.with(|f| f.borrow().clone()), vec!["rearm"]);
     assert!(get_timeout_active(STANDBY_TIMEOUT));
-    assert_eq!(get_timeout_finish_time(STANDBY_TIMEOUT), NOW.load(O::Relaxed) + 60_000_000);
+    assert_eq!(
+        get_timeout_finish_time(STANDBY_TIMEOUT),
+        NOW.load(O::Relaxed) + 60_000_000
+    );
     disable_all_timeouts(false);
 }
 
@@ -362,7 +380,9 @@ fn seams_installed_once() {
     timeout_seams::enable_timeout_after::call(TRANSACTION_TIMEOUT, 30_000).unwrap();
     assert!(timeout_seams::get_timeout_active::call(TRANSACTION_TIMEOUT));
     timeout_seams::disable_timeout::call(TRANSACTION_TIMEOUT, false).unwrap();
-    assert!(!timeout_seams::get_timeout_active::call(TRANSACTION_TIMEOUT));
+    assert!(!timeout_seams::get_timeout_active::call(
+        TRANSACTION_TIMEOUT
+    ));
     timeout_seams::disable_all_timeouts::call(false).unwrap();
     timeout_seams::reschedule_timeouts::call().unwrap();
     timeout_seams::process_timeout_interrupt::call();
@@ -391,8 +411,15 @@ fn statement_deadline_fires_at_the_backends_check_while_the_timer_thread_is_stal
         fire_due();
         ProcessTimeoutInterrupt();
 
-        assert_eq!(FIRED.with(|f| f.borrow().clone()), vec!["a"], "iteration {i}: the expired deadline did not fire at the check");
-        assert!(get_timeout_indicator(STATEMENT_TIMEOUT, true), "iteration {i}");
+        assert_eq!(
+            FIRED.with(|f| f.borrow().clone()),
+            vec!["a"],
+            "iteration {i}: the expired deadline did not fire at the check"
+        );
+        assert!(
+            get_timeout_indicator(STATEMENT_TIMEOUT, true),
+            "iteration {i}"
+        );
         assert!(globals::InterruptPending(), "iteration {i}");
         assert!(globals::AbortPending(), "iteration {i}");
         assert!(!get_timeout_active(STATEMENT_TIMEOUT), "iteration {i}");
@@ -401,7 +428,11 @@ fn statement_deadline_fires_at_the_backends_check_while_the_timer_thread_is_stal
         clear_interrupt_bytes();
         std::thread::sleep(Duration::from_millis(20));
         ProcessTimeoutInterrupt();
-        assert_eq!(FIRED.with(|f| f.borrow().clone()), vec!["a"], "iteration {i}: fired twice");
+        assert_eq!(
+            FIRED.with(|f| f.borrow().clone()),
+            vec!["a"],
+            "iteration {i}: fired twice"
+        );
     }
     clear_interrupt_bytes();
 }
@@ -435,13 +466,22 @@ fn abort_deadline_behind_a_nearer_wake_raises_the_abort_byte() {
     let posted = POSTED.with(|p| p.borrow().as_ref().map(std::sync::Arc::clone).unwrap());
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while !posted.load(O::SeqCst) {
-        assert!(std::time::Instant::now() < deadline, "the nearer wake never fired");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the nearer wake never fired"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     assert!(globals::InterruptPending());
-    assert!(!globals::AbortPending(), "the nearer wake is not of the abort class");
+    assert!(
+        !globals::AbortPending(),
+        "the nearer wake is not of the abort class"
+    );
     while !globals::AbortPending() {
-        assert!(std::time::Instant::now() < deadline, "the statement timeout behind the nearer wake never raised the abort byte");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the statement timeout behind the nearer wake never raised the abort byte"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     advance_ms(70);
@@ -462,20 +502,42 @@ fn a_non_abort_wake_serves_later_reenables() {
     RegisterTimeout(STATEMENT_TIMEOUT, handler_a);
     clear_interrupt_bytes();
     FIRED.with(|f| f.borrow_mut().clear());
-    let slot_ns = || timer().slots.lock().unwrap().get(&globals::MyProcPid()).and_then(|s| s.deadline).map(|d| d.as_ns());
+    let slot_ns = || {
+        timer()
+            .slots
+            .lock()
+            .unwrap()
+            .get(&globals::MyProcPid())
+            .and_then(|s| s.deadline)
+            .map(|d| d.as_ns())
+    };
     enable_timeout_after(IDLE_STATS_UPDATE_TIMEOUT, 50);
     let first = slot_ns().expect("armed");
     for _ in 0..3 {
         disable_timeout(IDLE_STATS_UPDATE_TIMEOUT, false);
-        assert_eq!(slot_ns(), Some(first), "the non-abort wake stays when the last timeout goes");
+        assert_eq!(
+            slot_ns(),
+            Some(first),
+            "the non-abort wake stays when the last timeout goes"
+        );
         advance_ms(10);
         enable_timeout_after(IDLE_STATS_UPDATE_TIMEOUT, 50);
-        assert_eq!(slot_ns(), Some(first), "a later deadline keeps the earlier wake");
+        assert_eq!(
+            slot_ns(),
+            Some(first),
+            "a later deadline keeps the earlier wake"
+        );
     }
     drain_when_posted();
-    assert!(FIRED.with(|f| f.borrow().is_empty()), "the early wake fires nothing");
+    assert!(
+        FIRED.with(|f| f.borrow().is_empty()),
+        "the early wake fires nothing"
+    );
     assert!(get_timeout_active(IDLE_STATS_UPDATE_TIMEOUT));
-    assert!(slot_ns().expect("re-armed") > first, "re-armed at the real deadline");
+    assert!(
+        slot_ns().expect("re-armed") > first,
+        "re-armed at the real deadline"
+    );
     advance_ms(60);
     drain_when_posted();
     assert_eq!(FIRED.with(|f| f.borrow().clone()), vec!["b"]);
@@ -484,7 +546,15 @@ fn a_non_abort_wake_serves_later_reenables() {
     enable_timeout_after(IDLE_STATS_UPDATE_TIMEOUT, 50);
     disable_timeout(IDLE_STATS_UPDATE_TIMEOUT, false);
     enable_timeout_after(STATEMENT_TIMEOUT, 100);
-    assert!(timer().slots.lock().unwrap().get(&globals::MyProcPid()).is_some_and(|s| s.abort_flag.is_some()), "re-armed with the abort byte");
+    assert!(
+        timer()
+            .slots
+            .lock()
+            .unwrap()
+            .get(&globals::MyProcPid())
+            .is_some_and(|s| s.abort_flag.is_some()),
+        "re-armed with the abort byte"
+    );
     disable_timeout(STATEMENT_TIMEOUT, false);
     assert_eq!(slot_ns(), None, "an abort-class wake is withdrawn");
     assert_no_wake();
@@ -501,18 +571,33 @@ fn a_wake_left_after_the_last_timeout_went_only_sets_the_latch() {
     RegisterTimeout(IDLE_STATS_UPDATE_TIMEOUT, handler_b);
     clear_interrupt_bytes();
     FIRED.with(|f| f.borrow_mut().clear());
-    let slot_ns = || timer().slots.lock().unwrap().get(&globals::MyProcPid()).and_then(|s| s.deadline).map(|d| d.as_ns());
+    let slot_ns = || {
+        timer()
+            .slots
+            .lock()
+            .unwrap()
+            .get(&globals::MyProcPid())
+            .and_then(|s| s.deadline)
+            .map(|d| d.as_ns())
+    };
     let latch = globals::MyLatch().unwrap();
     enable_timeout_after(IDLE_STATS_UPDATE_TIMEOUT, 20);
     disable_timeout(IDLE_STATS_UPDATE_TIMEOUT, false);
-    assert!(slot_ns().is_some(), "the non-abort wake is kept for a later re-enable");
+    assert!(
+        slot_ns().is_some(),
+        "the non-abort wake is kept for a later re-enable"
+    );
     assert!(signal_pending());
     latch::latch_ref(latch).is_set.store(0, O::SeqCst);
     advance_ms(30);
     assert_no_wake();
     assert_eq!(slot_ns(), None, "the wake was delivered");
     assert!(!signal_pending(), "its delivery reset signal_pending");
-    assert_eq!(latch::latch_ref(latch).is_set.load(O::SeqCst), 1, "its delivery set the latch, as C's handler does");
+    assert_eq!(
+        latch::latch_ref(latch).is_set.load(O::SeqCst),
+        1,
+        "its delivery set the latch, as C's handler does"
+    );
     ProcessTimeoutInterrupt();
     assert!(FIRED.with(|f| f.borrow().is_empty()));
 
@@ -543,7 +628,10 @@ fn a_reenable_racing_the_kept_wake_never_loses_the_timeout() {
         advance_ms(10);
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while FIRED.with(|f| f.borrow().is_empty()) {
-            assert!(std::time::Instant::now() < deadline, "round {round}: the re-enabled timeout never fired");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "round {round}: the re-enabled timeout never fired"
+            );
             ProcessTimeoutInterrupt();
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -565,7 +653,10 @@ fn expired_wake_is_delivered_without_timer_post() {
     std::thread::sleep(Duration::from_millis(80));
     advance_ms(60);
     ProcessTimeoutInterrupt();
-    assert_eq!(FIRED.with(|f| f.borrow_mut().drain(..).collect::<Vec<_>>()), vec!["a"]);
+    assert_eq!(
+        FIRED.with(|f| f.borrow_mut().drain(..).collect::<Vec<_>>()),
+        vec!["a"]
+    );
     assert!(get_timeout_indicator(STATEMENT_TIMEOUT, true));
     ProcessTimeoutInterrupt();
     assert!(FIRED.with(|f| f.borrow().is_empty()));

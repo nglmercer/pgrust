@@ -386,7 +386,10 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("idx:create");
     let name = format!("fz_iam_{}", g.idx.next_table);
     g.idx.next_table += 1;
-    let rows = match g.weights.pick(g.rng, &["idx:rows:400", "idx:rows:900", "idx:rows:1800"]) {
+    let rows = match g
+        .weights
+        .pick(g.rng, &["idx:rows:400", "idx:rows:900", "idx:rows:1800"])
+    {
         "idx:rows:400" => 400,
         "idx:rows:900" => 900,
         _ => 1800,
@@ -412,12 +415,17 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     // engage and every table build drives the SP-GiST/GiST/GIN/BRIN insert
     // paths (doPickSplit fires during these builds).
     let mut indexes: Vec<IdxIndex> = Vec::new();
-    let add = |g: &mut Gen, stmts: &mut Vec<StmtKind>, indexes: &mut Vec<IdxIndex>,
-                   kind: &'static str,
-                   tail: &str| {
+    let add = |g: &mut Gen,
+               stmts: &mut Vec<StmtKind>,
+               indexes: &mut Vec<IdxIndex>,
+               kind: &'static str,
+               tail: &str| {
         let iname = format!("fz_iami_{}", g.idx.next_index);
         g.idx.next_index += 1;
-        stmts.push(StmtKind::Raw(format!("CREATE INDEX {} ON {} {};", iname, name, tail)));
+        stmts.push(StmtKind::Raw(format!(
+            "CREATE INDEX {} ON {} {};",
+            iname, name, tail
+        )));
         indexes.push(IdxIndex { name: iname, kind });
     };
     for (kind, tail) in [
@@ -442,7 +450,12 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     // rows, so ANALYZE samples every row — identical stats, identical plans.
     stmts.push(StmtKind::Raw(format!("ANALYZE {};", name)));
 
-    g.idx.tables.push(IdxTable { name: name.clone(), live: true, next_pk: rows, indexes });
+    g.idx.tables.push(IdxTable {
+        name: name.clone(),
+        live: true,
+        next_pk: rows,
+        indexes,
+    });
     g.idx.events.push(DdlEvent {
         table: name,
         pk: "pk".to_string(),
@@ -570,10 +583,16 @@ fn family_pred(g: &mut Gen) -> (&'static str, String, bool) {
             let a = g.rng.below(WORD_M);
             let b = g.rng.below(WORD_M);
             match g.rng.below(4) {
-                0 => format!("tsv @@ to_tsquery('english', 'w{a} & common{}')", g.rng.below(COMMON_M)),
+                0 => format!(
+                    "tsv @@ to_tsquery('english', 'w{a} & common{}')",
+                    g.rng.below(COMMON_M)
+                ),
                 1 => format!("tsv @@ to_tsquery('english', 'w{a} | w{b}')"),
                 2 => format!("tsv @@ to_tsquery('english', 'w{a} & !w{b}')"),
-                _ => format!("tsv @@ plainto_tsquery('english', 'common{}')", g.rng.below(COMMON_M)),
+                _ => format!(
+                    "tsv @@ plainto_tsquery('english', 'common{}')",
+                    g.rng.below(COMMON_M)
+                ),
             }
         }
         "idx:fam:jsonb" => match g.rng.below(5) {
@@ -609,11 +628,7 @@ fn family_pred(g: &mut Gen) -> (&'static str, String, bool) {
         _ => {
             // idx:fam:hash
             if g.rng.chance(1, 2) {
-                format!(
-                    "txt = 'p{}_{}'",
-                    g.rng.below(TXT_P),
-                    g.rng.below(TXT_M)
-                )
+                format!("txt = 'p{}_{}'", g.rng.below(TXT_P), g.rng.below(TXT_M))
             } else {
                 format!("k_int = {}", g.rng.below(KINT_M))
             }
@@ -701,7 +716,10 @@ fn gen_explain(g: &mut Gen) -> Vec<StmtKind> {
         )
     } else {
         let (_, pred, _) = family_pred(g);
-        format!("EXPLAIN (COSTS OFF) SELECT count(*) FROM {} WHERE {};", table, pred)
+        format!(
+            "EXPLAIN (COSTS OFF) SELECT count(*) FROM {} WHERE {};",
+            table, pred
+        )
     };
     bracket(g, vec![StmtKind::Raw(body)], false)
 }
@@ -816,9 +834,9 @@ fn gen_churn(g: &mut Gen) -> Vec<StmtKind> {
 /// recycle re-inserts reproduce exactly the rows a massdel removed).
 fn bt_row_source(shape: BtShape, lo: i64, hi: i64) -> String {
     match shape {
-        BtShape::Int => format!(
-            "SELECT i, (i * 13) % {BT_KINT_M} FROM generate_series({lo}, {hi}) i"
-        ),
+        BtShape::Int => {
+            format!("SELECT i, (i * 13) % {BT_KINT_M} FROM generate_series({lo}, {hi}) i")
+        }
         BtShape::Text => format!(
             "SELECT i, 'k' || lpad(i::text, {BT_KEY_PAD}, '0') FROM generate_series({lo}, {hi}) i"
         ),
@@ -874,7 +892,9 @@ fn bt_create(g: &mut Gen) -> Vec<StmtKind> {
     g.idx.next_bt += 1;
     let iname = format!("fz_btdi_{}", g.idx.next_bt_index);
     g.idx.next_bt_index += 1;
-    let shape = if g.weights.pick(g.rng, &["idx:bt:shape:int", "idx:bt:shape:text"])
+    let shape = if g
+        .weights
+        .pick(g.rng, &["idx:bt:shape:int", "idx:bt:shape:text"])
         == "idx:bt:shape:int"
     {
         g.fire("idx:bt:shape:int");
@@ -889,7 +909,10 @@ fn bt_create(g: &mut Gen) -> Vec<StmtKind> {
     // pageinspect bt_metap on the hand-probe shape).
     let (cols, sec, rows) = match shape {
         BtShape::Int => {
-            let rows = match g.weights.pick(g.rng, &["idx:bt:rows:3000", "idx:bt:rows:6000"]) {
+            let rows = match g
+                .weights
+                .pick(g.rng, &["idx:bt:rows:3000", "idx:bt:rows:6000"])
+            {
                 "idx:bt:rows:3000" => {
                     g.fire("idx:bt:rows:3000");
                     3000
@@ -910,9 +933,16 @@ fn bt_create(g: &mut Gen) -> Vec<StmtKind> {
     // EXPLAIN (COSTS OFF) plan (verified flap: 5-row Bitmap Heap Scan vs
     // 3-row Index Only Scan across the VACUUM-state ladder).
     let stmts = vec![
-        StmtKind::Raw(format!("CREATE TABLE {} ({}) WITH (autovacuum_enabled = off);", name, cols)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} ({}) WITH (autovacuum_enabled = off);",
+            name, cols
+        )),
         StmtKind::Raw(format!("CREATE INDEX {} ON {} ({});", iname, name, sec)),
-        StmtKind::Raw(format!("INSERT INTO {} {};", name, bt_row_source(shape, 1, rows))),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} {};",
+            name,
+            bt_row_source(shape, 1, rows)
+        )),
         StmtKind::Raw(format!("ANALYZE {};", name)),
     ];
     g.idx.bt.push(BtTable {
@@ -922,7 +952,11 @@ fn bt_create(g: &mut Gen) -> Vec<StmtKind> {
         next_pk: rows,
         deleted: Vec::new(),
     });
-    g.idx.events.push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.idx.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -1015,19 +1049,30 @@ fn bt_query(g: &mut Gen) -> Vec<StmtKind> {
     let (name, np, shape) = (t.name.clone(), t.next_pk, t.shape);
     let shape_prod = g.weights.pick(
         g.rng,
-        &["idx:bt:q:pkrange", "idx:bt:q:pkcount", "idx:bt:q:sec", "idx:bt:q:seccount"],
+        &[
+            "idx:bt:q:pkrange",
+            "idx:bt:q:pkcount",
+            "idx:bt:q:sec",
+            "idx:bt:q:seccount",
+        ],
     );
     g.fire(shape_prod);
     let body = match shape_prod {
         "idx:bt:q:pkrange" => {
             let a = 1 + g.rng.below(np as u64) as i64;
             let b = a + g.rng.below(300) as i64;
-            format!("SELECT pk FROM {} WHERE pk BETWEEN {} AND {} ORDER BY pk;", name, a, b)
+            format!(
+                "SELECT pk FROM {} WHERE pk BETWEEN {} AND {} ORDER BY pk;",
+                name, a, b
+            )
         }
         "idx:bt:q:pkcount" => {
             let a = 1 + g.rng.below((np / 2) as u64) as i64;
             let b = a + g.rng.below(np as u64) as i64;
-            format!("SELECT count(*) FROM {} WHERE pk BETWEEN {} AND {};", name, a, b)
+            format!(
+                "SELECT count(*) FROM {} WHERE pk BETWEEN {} AND {};",
+                name, a, b
+            )
         }
         "idx:bt:q:sec" => match shape {
             BtShape::Int => format!(
@@ -1127,7 +1172,13 @@ fn gen_adv(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("idx:adv");
     let action = g.weights.pick(
         g.rng,
-        &["idx:adv:create", "idx:adv:insert", "idx:adv:query", "idx:adv:churn", "idx:adv:drop"],
+        &[
+            "idx:adv:create",
+            "idx:adv:insert",
+            "idx:adv:query",
+            "idx:adv:churn",
+            "idx:adv:drop",
+        ],
     );
     match action {
         "idx:adv:create" => adv_create(g),
@@ -1171,7 +1222,11 @@ fn adv_create(g: &mut Gen) -> Vec<StmtKind> {
         name
     ))];
     // Build-path splits: load all three distributions, then index.
-    stmts.push(StmtKind::Raw(format!("INSERT INTO {} {};", name, adv_same_source(&t, 1, same_n))));
+    stmts.push(StmtKind::Raw(format!(
+        "INSERT INTO {} {};",
+        name,
+        adv_same_source(&t, 1, same_n)
+    )));
     stmts.push(StmtKind::Raw(format!(
         "INSERT INTO {} {};",
         name,
@@ -1192,13 +1247,20 @@ fn adv_create(g: &mut Gen) -> Vec<StmtKind> {
         g.fire(kind);
         let iname = format!("fz_advi_{}", g.idx.next_index);
         g.idx.next_index += 1;
-        stmts.push(StmtKind::Raw(format!("CREATE INDEX {} ON {} {};", iname, name, tail)));
+        stmts.push(StmtKind::Raw(format!(
+            "CREATE INDEX {} ON {} {};",
+            iname, name, tail
+        )));
     }
     stmts.push(StmtKind::Raw(format!("ANALYZE {};", name)));
     let mut t = t;
     t.next_pk = same_n + line_n + big_n;
     g.idx.adv.push(t);
-    g.idx.events.push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.idx.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -1210,7 +1272,10 @@ fn adv_insert(g: &mut Gen) -> Vec<StmtKind> {
         g.fire("idx:adv:fallback:create");
         return adv_create(g);
     };
-    let shape = g.weights.pick(g.rng, &["idx:adv:ins:same", "idx:adv:ins:line", "idx:adv:ins:big"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["idx:adv:ins:same", "idx:adv:ins:line", "idx:adv:ins:big"],
+    );
     g.fire(shape);
     let n = match shape {
         "idx:adv:ins:same" => 400 + g.rng.below(400) as i64,
@@ -1330,14 +1395,21 @@ fn adv_churn(g: &mut Gen) -> Vec<StmtKind> {
     let name = g.idx.adv[ti].name.clone();
     let form = g.weights.pick(
         g.rng,
-        &["idx:adv:churn:delete", "idx:adv:churn:vacuum", "idx:adv:churn:reindex"],
+        &[
+            "idx:adv:churn:delete",
+            "idx:adv:churn:vacuum",
+            "idx:adv:churn:reindex",
+        ],
     );
     g.fire(form);
     match form {
         "idx:adv:churn:delete" => {
             let m = 3 + g.rng.below(8);
             let r = g.rng.below(m);
-            vec![StmtKind::Raw(format!("DELETE FROM {} WHERE pk % {} = {};", name, m, r))]
+            vec![StmtKind::Raw(format!(
+                "DELETE FROM {} WHERE pk % {} = {};",
+                name, m, r
+            ))]
         }
         "idx:adv:churn:vacuum" => vec![StmtKind::Raw(format!("VACUUM {};", name))],
         _ => vec![StmtKind::Raw(format!("REINDEX TABLE {};", name))],
@@ -1499,7 +1571,11 @@ fn gen_stats(g: &mut Gen) -> Vec<StmtKind> {
 fn stats_attr(g: &mut Gen, name: &str, shape: BtShape) -> String {
     let variant = g.weights.pick(
         g.rng,
-        &["idx:stats:attr:full", "idx:stats:attr:min", "idx:stats:attr:hist"],
+        &[
+            "idx:stats:attr:full",
+            "idx:stats:attr:min",
+            "idx:stats:attr:hist",
+        ],
     );
     g.fire(variant);
     let null_frac = ["0", "0.1", "0.5"][g.rng.below_usize(3)];
@@ -1645,7 +1721,11 @@ const GIST_CORE_INDEXES: &[(&str, &str, u32)] = &[
     ("idx:gist:x:mr", "USING gist (mr)", 1),
     ("idx:gist:x:tsq", "USING gist (tsq)", 1),
     ("idx:gist:x:inet", "USING gist (addr inet_ops)", 1),
-    ("idx:gist:x:tsv", "USING gist (tsv tsvector_ops (siglen = 100))", 1),
+    (
+        "idx:gist:x:tsv",
+        "USING gist (tsv tsvector_ops (siglen = 100))",
+        1,
+    ),
     ("idx:gist:x:mc", "USING gist (pt, bx)", 2),
     ("idx:gist:x:spgbx", "USING spgist (bx)", 1),
 ];
@@ -1667,12 +1747,17 @@ fn gist_create(g: &mut Gen) -> Vec<StmtKind> {
     let name = format!("fz_gst_{}", g.idx.next_gist);
     g.idx.next_gist += 1;
     // UNLOGGED variant: gistbuildempty/spgbuildempty + fake-LSN paths.
-    let unlogged = g.weights.pick(g.rng, &["idx:gist:unlogged", "idx:gist:logged"])
+    let unlogged = g
+        .weights
+        .pick(g.rng, &["idx:gist:unlogged", "idx:gist:logged"])
         == "idx:gist:unlogged";
     if unlogged {
         g.fire("idx:gist:unlogged");
     }
-    let rows = match g.weights.pick(g.rng, &["idx:gist:rows:1200", "idx:gist:rows:2400"]) {
+    let rows = match g
+        .weights
+        .pick(g.rng, &["idx:gist:rows:1200", "idx:gist:rows:2400"])
+    {
         "idx:gist:rows:1200" => 1200,
         _ => 2400,
     };
@@ -1684,15 +1769,24 @@ fn gist_create(g: &mut Gen) -> Vec<StmtKind> {
             if unlogged { "UNLOGGED " } else { "" },
             name
         )),
-        StmtKind::Raw(format!("INSERT INTO {} {};", name, gist_row_source(1, rows))),
+        StmtKind::Raw(format!(
+            "INSERT INTO {} {};",
+            name,
+            gist_row_source(1, rows)
+        )),
     ];
     let mut indexes: Vec<IdxIndex> = Vec::new();
-    let add = |g: &mut Gen, stmts: &mut Vec<StmtKind>, indexes: &mut Vec<IdxIndex>,
-                   kind: &'static str,
-                   tail: &str| {
+    let add = |g: &mut Gen,
+               stmts: &mut Vec<StmtKind>,
+               indexes: &mut Vec<IdxIndex>,
+               kind: &'static str,
+               tail: &str| {
         let iname = format!("fz_gsti_{}", g.idx.next_gist_index);
         g.idx.next_gist_index += 1;
-        stmts.push(StmtKind::Raw(format!("CREATE INDEX {} ON {} {};", iname, name, tail)));
+        stmts.push(StmtKind::Raw(format!(
+            "CREATE INDEX {} ON {} {};",
+            iname, name, tail
+        )));
         indexes.push(IdxIndex { name: iname, kind });
     };
     for (kind, tail, _) in GIST_CORE_INDEXES {
@@ -1713,7 +1807,11 @@ fn gist_create(g: &mut Gen) -> Vec<StmtKind> {
         deleted: Vec::new(),
         indexes,
     });
-    g.idx.events.push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.idx.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -1907,8 +2005,12 @@ fn gist_prop(g: &mut Gen) -> Vec<StmtKind> {
     let iname = ix.name.clone();
     let ncols: u32 = if ix.kind == "idx:gist:x:mc" { 2 } else { 1 };
     let col = 1 + g.rng.below(ncols as u64);
-    let prop = ["distance_orderable", "returnable", "search_array", "search_nulls"]
-        [g.rng.below_usize(4)];
+    let prop = [
+        "distance_orderable",
+        "returnable",
+        "search_array",
+        "search_nulls",
+    ][g.rng.below_usize(4)];
     vec![StmtKind::Raw(format!(
         "SELECT pg_index_column_has_property('{}'::regclass, {}, '{}');",
         iname, col, prop
@@ -1935,7 +2037,10 @@ fn gist_delvac(g: &mut Gen) -> Vec<StmtKind> {
     };
     interval_union(&mut g.idx.gist[ti].deleted, lo, hi);
     vec![
-        StmtKind::Raw(format!("DELETE FROM {} WHERE pk BETWEEN {} AND {};", name, lo, hi)),
+        StmtKind::Raw(format!(
+            "DELETE FROM {} WHERE pk BETWEEN {} AND {};",
+            name, lo, hi
+        )),
         StmtKind::Raw(format!("VACUUM {};", name)),
     ]
 }
@@ -1954,7 +2059,11 @@ fn gist_reinsert(g: &mut Gen) -> Vec<StmtKind> {
     };
     g.fire("idx:gist:reinsert");
     let name = g.idx.gist[ti].name.clone();
-    vec![StmtKind::Raw(format!("INSERT INTO {} {};", name, gist_row_source(lo, hi)))]
+    vec![StmtKind::Raw(format!(
+        "INSERT INTO {} {};",
+        name,
+        gist_row_source(lo, hi)
+    ))]
 }
 
 /// Self-contained buffered-build group: >4096 tuples so buffering=on flips
@@ -2492,12 +2601,24 @@ mod tests {
         for group in &groups {
             // Bracket balance within the group.
             for guc in ["enable_seqscan", "enable_bitmapscan"] {
-                let sets = group.iter().filter(|s| *s == &format!("SET {guc} TO off;")).count();
-                let resets = group.iter().filter(|s| *s == &format!("RESET {guc};")).count();
+                let sets = group
+                    .iter()
+                    .filter(|s| *s == &format!("SET {guc} TO off;"))
+                    .count();
+                let resets = group
+                    .iter()
+                    .filter(|s| *s == &format!("RESET {guc};"))
+                    .count();
                 assert_eq!(sets, resets, "unbalanced {guc} bracket: {group:?}");
                 if sets == 1 {
-                    let si = group.iter().position(|s| s.starts_with(&format!("SET {guc}"))).unwrap();
-                    let ri = group.iter().position(|s| s.starts_with(&format!("RESET {guc}"))).unwrap();
+                    let si = group
+                        .iter()
+                        .position(|s| s.starts_with(&format!("SET {guc}")))
+                        .unwrap();
+                    let ri = group
+                        .iter()
+                        .position(|s| s.starts_with(&format!("RESET {guc}")))
+                        .unwrap();
                     assert!(si < ri, "RESET before SET: {group:?}");
                 }
             }
@@ -2515,7 +2636,13 @@ mod tests {
                     live.insert(name, false);
                 } else if let Some(rest) = sql.strip_prefix("CREATE INDEX ") {
                     let iname = rest.split(' ').next().unwrap().to_string();
-                    let tname = sql.split(" ON ").nth(1).unwrap().split([' ', '(']).next().unwrap();
+                    let tname = sql
+                        .split(" ON ")
+                        .nth(1)
+                        .unwrap()
+                        .split([' ', '('])
+                        .next()
+                        .unwrap();
                     assert_eq!(live.get(tname), Some(&true), "index on dead table: {sql}");
                     assert!(!idx_table.contains_key(&iname), "index name reused: {sql}");
                     idx_table.insert(iname, tname.to_string());
@@ -2536,7 +2663,9 @@ mod tests {
                     // Index names (fz_iami_/fz_btdi_/fz_advi_) don't match
                     // these prefixes: the digit run starts right after the
                     // family prefix's own underscore.
-                    for prefix in ["fz_iam_", "fz_btd_", "fz_adv_", "fz_gst_", "fz_gbuf_", "fz_gex_"] {
+                    for prefix in [
+                        "fz_iam_", "fz_btd_", "fz_adv_", "fz_gst_", "fz_gbuf_", "fz_gex_",
+                    ] {
                         for part in sql.split(prefix).skip(1) {
                             let digits: String =
                                 part.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -2556,19 +2685,32 @@ mod tests {
                 if let Some((pfx, rest)) = sql
                     .strip_prefix("DELETE FROM fz_btd_")
                     .map(|r| ("fz_btd_", r))
-                    .or_else(|| sql.strip_prefix("DELETE FROM fz_gst_").map(|r| ("fz_gst_", r)))
+                    .or_else(|| {
+                        sql.strip_prefix("DELETE FROM fz_gst_")
+                            .map(|r| ("fz_gst_", r))
+                    })
                 {
                     if sql.contains(" WHERE pk BETWEEN ") {
                         let tname = format!(
                             "{pfx}{}",
-                            rest.chars().take_while(|c| c.is_ascii_digit()).collect::<String>()
+                            rest.chars()
+                                .take_while(|c| c.is_ascii_digit())
+                                .collect::<String>()
                         );
                         let tail = sql.split(" WHERE pk BETWEEN ").nth(1).unwrap();
                         let lo: i64 = tail.split(' ').next().unwrap().parse().unwrap();
-                        let hi: i64 =
-                            tail.split(" AND ").nth(1).unwrap().trim_end_matches(';').parse().unwrap();
+                        let hi: i64 = tail
+                            .split(" AND ")
+                            .nth(1)
+                            .unwrap()
+                            .trim_end_matches(';')
+                            .parse()
+                            .unwrap();
                         assert!(1 <= lo && lo <= hi, "{sql}");
-                        assert!(hi <= *max_pk.get(&tname).unwrap_or(&0), "delete past load: {sql}");
+                        assert!(
+                            hi <= *max_pk.get(&tname).unwrap_or(&0),
+                            "delete past load: {sql}"
+                        );
                         interval_union(bt_deleted.entry(tname).or_default(), lo, hi);
                     }
                 }
@@ -2626,7 +2768,9 @@ mod tests {
         let all = flat(&groups);
         let mut open: Vec<String> = Vec::new();
         let fam_of = |name: &str| {
-            for p in ["fz_btd_", "fz_adv_", "fz_iam_", "fz_gst_", "fz_gbuf_", "fz_gex_"] {
+            for p in [
+                "fz_btd_", "fz_adv_", "fz_iam_", "fz_gst_", "fz_gbuf_", "fz_gex_",
+            ] {
                 if name.starts_with(p) {
                     return p;
                 }
@@ -2669,7 +2813,10 @@ mod tests {
                     "USING gin (doc)",
                     "USING brin (k_int)",
                 ] {
-                    assert!(joined.contains(core), "create group missing core index {core}");
+                    assert!(
+                        joined.contains(core),
+                        "create group missing core index {core}"
+                    );
                 }
                 assert!(joined.contains("ANALYZE "), "create group missing ANALYZE");
             }

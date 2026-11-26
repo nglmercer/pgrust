@@ -23,7 +23,8 @@ pub(super) struct Explained {
 }
 
 /// EXPLAIN (GENERIC_PLAN)'s verdict: no admission binds a plan whose parameters are unbound.
-const GENERIC_WHY: &str = "explain only: a generic plan whose parameters are unbound is never admitted";
+const GENERIC_WHY: &str =
+    "explain only: a generic plan whose parameters are unbound is never admitted";
 
 /// The start of a desc under EXEC_FLAG_EXPLAIN_ONLY (`start_ours`).
 pub(super) fn start(qd: &mut QueryDesc, eflags: i32) -> PgResult<()> {
@@ -54,38 +55,75 @@ pub(super) fn start(qd: &mut QueryDesc, eflags: i32) -> PgResult<()> {
 /// back after the checks (`keyed::release`; a parallel program or one a counted pull refuses never is: D2230, D2732,
 /// D2805), its refusal remembered for the execution. `None`: refused, its line written.
 #[allow(clippy::type_complexity)]
-fn admit(qd: &QueryDesc, eflags: i32) -> PgResult<Option<(Box<crate::Admitted>, usize, Option<gravity_program::PlanKey>)>> {
+fn admit(
+    qd: &QueryDesc,
+    eflags: i32,
+) -> PgResult<
+    Option<(
+        Box<crate::Admitted>,
+        usize,
+        Option<gravity_program::PlanKey>,
+    )>,
+> {
     let (pstmt, params, cplan) = (qd.plannedstmt(), qd.params, qd.cplan);
     let _explain = ExplainOnly::mark(true);
     let completion = complete::eligible(qd.dest, eflags);
     let plan_order = crate::runner::in_plan_order();
     let mut home = 0;
-    let admitted = reentry::enter(Some(reentry::built), None, false, |b, depth| -> PgResult<Result<(Box<crate::Admitted>, Option<gravity_program::PlanKey>), String>> {
-        home = depth;
-        if plan_order {
-            return Ok(crate::admit::unfiled(|| crate::runner::admit_unkeyed(b, pstmt, params, completion, true))?.map(|a| (Box::new(a), None)).ok_or_else(crate::runner::last_refusal_line)); // alloc: Program
-        }
-        if let Some((key, a)) = keyed::take(b, cplan, pstmt, params, false)? {
-            return Ok(Ok((a, Some(key))));
-        }
-        // C3 S4c: a plan without a plan key is filed nowhere: its admission records no reads (`admit::unfiled`)
-        let admitted = if keyed::key_of(cplan, pstmt).is_some() { crate::runner::admit_unkeyed(b, pstmt, params, completion, true) } else { crate::admit::unfiled(|| crate::runner::admit_unkeyed(b, pstmt, params, completion, true)) };
-        match admitted? {
-            None => {
-                crate::runner::remember_entry_refusal(b, cplan, pstmt);
-                Ok(Err(crate::runner::last_refusal_line()))
-            }
-            Some(a) if a.is_parallel() || crate::runner::counted_refused(&a) => Ok(Ok((Box::new(a), None))), // alloc: Program
-            Some(a) => Ok(Ok((Box::new(a), keyed::key_of(cplan, pstmt)))), // alloc: Program
-        }
-    });
+    let admitted =
+        reentry::enter(
+            Some(reentry::built),
+            None,
+            false,
+            |b,
+             depth|
+             -> PgResult<
+                Result<(Box<crate::Admitted>, Option<gravity_program::PlanKey>), String>,
+            > {
+                home = depth;
+                if plan_order {
+                    return Ok(crate::admit::unfiled(|| {
+                        crate::runner::admit_unkeyed(b, pstmt, params, completion, true)
+                    })?
+                    .map(|a| (Box::new(a), None))
+                    .ok_or_else(crate::runner::last_refusal_line)); // alloc: Program
+                }
+                if let Some((key, a)) = keyed::take(b, cplan, pstmt, params, false)? {
+                    return Ok(Ok((a, Some(key))));
+                }
+                // C3 S4c: a plan without a plan key is filed nowhere: its admission records no reads (`admit::unfiled`)
+                let admitted = if keyed::key_of(cplan, pstmt).is_some() {
+                    crate::runner::admit_unkeyed(b, pstmt, params, completion, true)
+                } else {
+                    crate::admit::unfiled(|| {
+                        crate::runner::admit_unkeyed(b, pstmt, params, completion, true)
+                    })
+                };
+                match admitted? {
+                    None => {
+                        crate::runner::remember_entry_refusal(b, cplan, pstmt);
+                        Ok(Err(crate::runner::last_refusal_line()))
+                    }
+                    Some(a) if a.is_parallel() || crate::runner::counted_refused(&a) => {
+                        Ok(Ok((Box::new(a), None)))
+                    } // alloc: Program
+                    Some(a) => Ok(Ok((Box::new(a), keyed::key_of(cplan, pstmt)))), // alloc: Program
+                }
+            },
+        );
     let why = match admitted {
-        Ok(None) | Err(_) => return Err(crate::glue::internal("gravity_entry: no backend level for the statement")),
+        Ok(None) | Err(_) => {
+            return Err(crate::glue::internal(
+                "gravity_entry: no backend level for the statement",
+            ))
+        }
         Ok(Some(Err(e))) => return Err(e),
         Ok(Some(Ok(Err(why)))) => why,
         Ok(Some(Ok(Ok((a, key))))) => {
             let admit = if a.graph.is_some() { "graph" } else { "shape" };
-            let _ = crate::with_backend(|b| b.note_served_via(a.shape, 0, admit, a.program.code_of(0).kind(), VIA_EXPLAIN));
+            let _ = crate::with_backend(|b| {
+                b.note_served_via(a.shape, 0, admit, a.program.code_of(0).kind(), VIA_EXPLAIN)
+            });
             return Ok(Some((a, home, key)));
         }
     };
@@ -100,13 +138,28 @@ fn refused(why: &str) {
 
 /// ExecutorStart's checks under EXEC_FLAG_EXPLAIN_ONLY, in its order (the module comment); `a`: the admitted program,
 /// whose EXECUTE gates are filed with it.
-fn checks(qd: &mut QueryDesc, pstmt: &'static PlannedStmt<'static>, generic: bool, a: Option<&crate::Admitted>) -> PgResult<Box<Explained>> {
+fn checks(
+    qd: &mut QueryDesc,
+    pstmt: &'static PlannedStmt<'static>,
+    generic: bool,
+    a: Option<&crate::Admitted>,
+) -> PgResult<Box<Explained>> {
     crate::runner::permitted(pstmt)?;
     let ctx = Root::new("GravityEntryExplain");
     let mcx = raw::serve_mcx(&ctx);
-    let held = crate::runner::held::take(mcx, pstmt, &crate::runner::held::explain_plan(pstmt, generic), qd.params, None)?;
+    let held = crate::runner::held::take(
+        mcx,
+        pstmt,
+        &crate::runner::held::explain_plan(pstmt, generic),
+        qd.params,
+        None,
+    )?;
     // the prune getters' answer ("Subplans Removed"): the decision the held relations were taken under
-    qd.prune = if generic { None } else { crate::ops::append::prune::decided_initial(pstmt, qd.params).map(Box::new) }; // alloc: Cold
+    qd.prune = if generic {
+        None
+    } else {
+        crate::ops::append::prune::decided_initial(pstmt, qd.params).map(Box::new)
+    }; // alloc: Cold
     match a {
         Some(a) => {
             crate::runner::check_gates(a, mcx)?;
@@ -114,5 +167,8 @@ fn checks(qd: &mut QueryDesc, pstmt: &'static PlannedStmt<'static>, generic: boo
         }
         None => crate::runner::start_gates::plan_gates(pstmt, qd.prune.as_deref())?,
     }
-    Ok(Box::new(Explained { _ctx: ctx, _held: held })) // alloc: Cold
+    Ok(Box::new(Explained {
+        _ctx: ctx,
+        _held: held,
+    })) // alloc: Cold
 }

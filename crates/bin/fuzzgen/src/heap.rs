@@ -180,14 +180,20 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("heap:create");
     let name = format!("fz_hp_{}", g.heap.next_table);
     g.heap.next_table += 1;
-    let ff = match g.weights.pick(g.rng, &["heap:ff:30", "heap:ff:70", "heap:ff:100"]) {
+    let ff = match g
+        .weights
+        .pick(g.rng, &["heap:ff:30", "heap:ff:70", "heap:ff:100"])
+    {
         "heap:ff:30" => 30,
         "heap:ff:70" => 70,
         _ => 100,
     };
     // Small tables: the heap arms live in tuple-state transitions, not
     // volume; vacuum/cluster groups then stay cheap enough to fire often.
-    let rows = match g.weights.pick(g.rng, &["heap:rows:1500", "heap:rows:3000", "heap:rows:6000"]) {
+    let rows = match g.weights.pick(
+        g.rng,
+        &["heap:rows:1500", "heap:rows:3000", "heap:rows:6000"],
+    ) {
         "heap:rows:1500" => 1500,
         "heap:rows:3000" => 3000,
         _ => 6000,
@@ -207,10 +213,15 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE TABLE {name} (pk int4 PRIMARY KEY, k int4, v int4, \
              txt text, ext text, pad text) WITH ({reloptions});"
         )),
-        StmtKind::Raw(format!("ALTER TABLE {name} ALTER COLUMN ext SET STORAGE EXTERNAL;")),
+        StmtKind::Raw(format!(
+            "ALTER TABLE {name} ALTER COLUMN ext SET STORAGE EXTERNAL;"
+        )),
     ];
     // Storage-class spread on txt: EXTENDED (default) vs MAIN vs PLAIN.
-    match g.weights.pick(g.rng, &["heap:st:extended", "heap:st:main", "heap:st:plain"]) {
+    match g.weights.pick(
+        g.rng,
+        &["heap:st:extended", "heap:st:main", "heap:st:plain"],
+    ) {
         "heap:st:main" => {
             g.fire("heap:st:main");
             stmts.push(StmtKind::Raw(format!(
@@ -227,15 +238,27 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     }
     if g.weights.pick(g.rng, &["heap:ri:default", "heap:ri:full"]) == "heap:ri:full" {
         g.fire("heap:ri:full");
-        stmts.push(StmtKind::Raw(format!("ALTER TABLE {name} REPLICA IDENTITY FULL;")));
+        stmts.push(StmtKind::Raw(format!(
+            "ALTER TABLE {name} REPLICA IDENTITY FULL;"
+        )));
     }
-    stmts.push(StmtKind::Raw(format!("INSERT INTO {name} {};", row_source(1, rows as i64))));
+    stmts.push(StmtKind::Raw(format!(
+        "INSERT INTO {name} {};",
+        row_source(1, rows as i64)
+    )));
     stmts.push(StmtKind::Raw(format!("CREATE INDEX {ki} ON {name} (k);")));
     stmts.push(StmtKind::Raw(format!("ANALYZE {name};")));
-    g.heap.tables.push(HeapTable { name: name.clone(), live: true, rows, k_index: ki });
-    g.heap
-        .events
-        .push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.heap.tables.push(HeapTable {
+        name: name.clone(),
+        live: true,
+        rows,
+        k_index: ki,
+    });
+    g.heap.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -331,7 +354,10 @@ fn gen_nonhot(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.heap.tables[ti].name.clone();
     let rows = g.heap.tables[ti].rows;
     let (lo, hi) = band(g, rows);
-    let shape = g.weights.pick(g.rng, &["heap:nonhot:key", "heap:nonhot:pk", "heap:nonhot:both"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["heap:nonhot:key", "heap:nonhot:pk", "heap:nonhot:both"],
+    );
     g.fire(shape);
     let mut stmts = Vec::new();
     match shape {
@@ -382,7 +408,11 @@ fn gen_abortchurn(g: &mut Gen) -> Vec<StmtKind> {
     let (lo, hi) = band(g, rows);
     let shape = g.weights.pick(
         g.rng,
-        &["heap:abort:rollback", "heap:abort:savepoint", "heap:abort:insabort"],
+        &[
+            "heap:abort:rollback",
+            "heap:abort:savepoint",
+            "heap:abort:insabort",
+        ],
     );
     g.fire(shape);
     match shape {
@@ -456,7 +486,12 @@ fn gen_lock(g: &mut Gen) -> Vec<StmtKind> {
     let hi = hi0.min(lo + 60);
     let mode = match g.weights.pick(
         g.rng,
-        &["heap:lock:keyshare", "heap:lock:share", "heap:lock:nokeyupd", "heap:lock:update"],
+        &[
+            "heap:lock:keyshare",
+            "heap:lock:share",
+            "heap:lock:nokeyupd",
+            "heap:lock:update",
+        ],
     ) {
         "heap:lock:keyshare" => "KEY SHARE",
         "heap:lock:share" => "SHARE",
@@ -465,7 +500,12 @@ fn gen_lock(g: &mut Gen) -> Vec<StmtKind> {
     };
     let shape = g.weights.pick(
         g.rng,
-        &["heap:lock:plain", "heap:lock:upgrade", "heap:lock:abortlock", "heap:lock:lockwrite"],
+        &[
+            "heap:lock:plain",
+            "heap:lock:upgrade",
+            "heap:lock:abortlock",
+            "heap:lock:lockwrite",
+        ],
     );
     g.fire(shape);
     let sel = |m: &str, lo: u32, hi: u32| {
@@ -552,7 +592,9 @@ fn gen_toastwrite(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.heap.tables[ti].name.clone();
     let lo = 1 + g.rng.below((TOAST_BAND - 4) as u64) as u32;
     let hi = (lo + 2 + g.rng.below(5) as u32).min(TOAST_BAND);
-    let shape = g.weights.pick(g.rng, &["heap:tw:comp", "heap:tw:incomp", "heap:tw:both"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["heap:tw:comp", "heap:tw:incomp", "heap:tw:both"]);
     g.fire(shape);
     // Compressible: 4kB-56kB before compression.
     let comp_n = 2000 + g.rng.below(26000);
@@ -595,7 +637,12 @@ fn gen_toastread(g: &mut Gen) -> Vec<StmtKind> {
     let t = g.heap.tables[ti].name.clone();
     let shape = g.weights.pick(
         g.rng,
-        &["heap:tr:slice", "heap:tr:len", "heap:tr:full", "heap:tr:size"],
+        &[
+            "heap:tr:slice",
+            "heap:tr:len",
+            "heap:tr:full",
+            "heap:tr:size",
+        ],
     );
     g.fire(shape);
     let col = if g.rng.chance(1, 2) { "txt" } else { "ext" };
@@ -641,7 +688,12 @@ fn gen_toastupd(g: &mut Gen) -> Vec<StmtKind> {
     let hi = (lo + 3 + g.rng.below(6) as u32).min(TOAST_BAND);
     let shape = g.weights.pick(
         g.rng,
-        &["heap:tu:append", "heap:tu:null", "heap:tu:plaincol", "heap:tu:delins"],
+        &[
+            "heap:tu:append",
+            "heap:tu:null",
+            "heap:tu:plaincol",
+            "heap:tu:delins",
+        ],
     );
     g.fire(shape);
     let mut stmts = Vec::new();
@@ -729,16 +781,19 @@ fn gen_vacuum(g: &mut Gen) -> Vec<StmtKind> {
             // keyword: should_freeze / prepare_freeze under a normal
             // (then table-age-aggressive) scan.
             return bracket(
-                &[("vacuum_freeze_min_age", "0"), ("vacuum_freeze_table_age", "0")],
+                &[
+                    ("vacuum_freeze_min_age", "0"),
+                    ("vacuum_freeze_table_age", "0"),
+                ],
                 {
                     stmts.push(StmtKind::Raw(format!("VACUUM {t};")));
                     stmts
                 },
             );
         }
-        "heap:vac:skip" => {
-            stmts.push(StmtKind::Raw(format!("VACUUM (DISABLE_PAGE_SKIPPING) {t};")))
-        }
+        "heap:vac:skip" => stmts.push(StmtKind::Raw(format!(
+            "VACUUM (DISABLE_PAGE_SKIPPING) {t};"
+        ))),
         "heap:vac:indexoff" => {
             stmts.push(StmtKind::Raw(format!("VACUUM (INDEX_CLEANUP OFF) {t};")))
         }
@@ -882,7 +937,10 @@ fn gen_cluster(g: &mut Gen) -> Vec<StmtKind> {
             lo + 12
         )),
     ];
-    let shape = g.weights.pick(g.rng, &["heap:cluster:pk", "heap:cluster:k", "heap:cluster:full"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["heap:cluster:pk", "heap:cluster:k", "heap:cluster:full"],
+    );
     g.fire(shape);
     match shape {
         "heap:cluster:pk" => stmts.push(StmtKind::Raw(format!("CLUSTER {t} USING {t}_pkey;"))),
@@ -1030,9 +1088,15 @@ mod tests {
                     open_sets.remove(pos.unwrap());
                 }
             }
-            assert!(open_sets.is_empty(), "unclosed SETs at group end: {open_sets:?}");
-            assert!(!in_txn, "unclosed transaction bracket at group end: {:?}",
-                group.iter().map(|k| k.to_sql()).collect::<Vec<_>>());
+            assert!(
+                open_sets.is_empty(),
+                "unclosed SETs at group end: {open_sets:?}"
+            );
+            assert!(
+                !in_txn,
+                "unclosed transaction bracket at group end: {:?}",
+                group.iter().map(|k| k.to_sql()).collect::<Vec<_>>()
+            );
         }
     }
 
@@ -1047,7 +1111,8 @@ mod tests {
                 } else if sql == "COMMIT;" || sql == "ROLLBACK;" {
                     in_txn = false;
                 }
-                if sql.starts_with("VACUUM") || sql.starts_with("CLUSTER")
+                if sql.starts_with("VACUUM")
+                    || sql.starts_with("CLUSTER")
                     || sql.contains("CONCURRENTLY")
                 {
                     assert!(!in_txn, "utility statement inside txn bracket: {sql}");
@@ -1062,7 +1127,10 @@ mod tests {
         // ORDER BY pk.
         for sql in flat(13, 700) {
             if sql.starts_with("SELECT pk,") {
-                assert!(sql.contains("ORDER BY pk"), "unordered row-returning SELECT: {sql}");
+                assert!(
+                    sql.contains("ORDER BY pk"),
+                    "unordered row-returning SELECT: {sql}"
+                );
             }
         }
     }
@@ -1215,7 +1283,10 @@ mod tests {
             "ON CONFLICT (pk) DO NOTHING",
             "DELETE FROM fz_hp_",
         ] {
-            assert!(stmts.contains(needle), "family never fired in 2500 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "family never fired in 2500 groups: {needle}"
+            );
         }
     }
 }

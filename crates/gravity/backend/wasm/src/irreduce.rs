@@ -55,7 +55,12 @@ fn preds(f: &Function) -> Vec<Vec<Block>> {
     p
 }
 
-fn process_region(g: &mut Function, mut blocks: Vec<Block>, virtual_entry: Option<Block>, changed: &mut bool) -> Result<(), Fail> {
+fn process_region(
+    g: &mut Function,
+    mut blocks: Vec<Block>,
+    virtual_entry: Option<Block>,
+    changed: &mut bool,
+) -> Result<(), Fail> {
     stack_depth_core::check_stack_depth_or_panic();
     loop {
         let sccs = sccs(g, &blocks);
@@ -63,7 +68,11 @@ fn process_region(g: &mut Function, mut blocks: Vec<Block>, virtual_entry: Optio
         let mut fixed = false;
         for scc in &sccs {
             let in_scc = |b: Block| scc.contains(&b);
-            let mut entries: Vec<Block> = scc.iter().copied().filter(|&b| virtual_entry == Some(b) || pr[b.index()].iter().any(|&p| !in_scc(p))).collect();
+            let mut entries: Vec<Block> = scc
+                .iter()
+                .copied()
+                .filter(|&b| virtual_entry == Some(b) || pr[b.index()].iter().any(|&p| !in_scc(p)))
+                .collect();
             entries.sort();
             if entries.len() > 1 {
                 if entries.iter().any(|&e| virtual_entry == Some(e)) {
@@ -81,7 +90,11 @@ fn process_region(g: &mut Function, mut blocks: Vec<Block>, virtual_entry: Optio
         }
         for scc in sccs {
             let in_scc = |b: Block| scc.contains(&b);
-            let header = scc.iter().copied().find(|&b| virtual_entry == Some(b) || pr[b.index()].iter().any(|&p| !in_scc(p))).expect("a loop has an entry");
+            let header = scc
+                .iter()
+                .copied()
+                .find(|&b| virtual_entry == Some(b) || pr[b.index()].iter().any(|&p| !in_scc(p)))
+                .expect("a loop has an entry");
             let inner: Vec<Block> = scc.iter().copied().filter(|&b| b != header).collect();
             if !inner.is_empty() {
                 process_region(g, inner, None, changed)?;
@@ -115,7 +128,13 @@ fn sccs(g: &Function, blocks: &[Block]) -> Vec<Vec<Block>> {
         st.next += 1;
         st.stack.push(v);
         st.on[v.index()] = true;
-        let succs: Vec<Block> = st.g.block(v).term.edges().map(|e| e.target).filter(|&w| st.member[w.index()]).collect();
+        let succs: Vec<Block> =
+            st.g.block(v)
+                .term
+                .edges()
+                .map(|e| e.target)
+                .filter(|&w| st.member[w.index()])
+                .collect();
         let mut self_loop = false;
         for w in succs {
             if w == v {
@@ -144,7 +163,16 @@ fn sccs(g: &Function, blocks: &[Block]) -> Vec<Vec<Block>> {
             }
         }
     }
-    let mut st = St { g, member, index: vec![u32::MAX; n], low: vec![0; n], on: vec![false; n], stack: Vec::new(), next: 0, out: Vec::new() };
+    let mut st = St {
+        g,
+        member,
+        index: vec![u32::MAX; n],
+        low: vec![0; n],
+        on: vec![false; n],
+        stack: Vec::new(),
+        next: 0,
+        out: Vec::new(),
+    };
     for &b in blocks {
         if st.index[b.index()] == u32::MAX {
             visit(&mut st, b);
@@ -172,10 +200,24 @@ fn single_entry(g: &mut Function, entries: &[Block]) -> Block {
         slices.push(slice);
     }
     let (last, rest) = entries.split_last().expect("two or more entries");
-    let cases = m.slice_collect(rest.iter().enumerate().map(|(i, &e)| SwitchCase { value: i as u64, edge: m.edge(e, &slices[i]) }));
+    let cases = m.slice_collect(rest.iter().enumerate().map(|(i, &e)| SwitchCase {
+        value: i as u64,
+        edge: m.edge(e, &slices[i]),
+    }));
     let default = m.edge(*last, &slices[entries.len() - 1]);
-    g.blocks.push(BasicBlock { params: IrSlice::from_vec(params), insts: m.vec(), term: Terminator::Switch { value: label, cases, default } });
-    let entry_types: Vec<Vec<Type>> = slices.iter().map(|s| s.iter().map(|&v| g.value_type(v)).collect()).collect();
+    g.blocks.push(BasicBlock {
+        params: IrSlice::from_vec(params),
+        insts: m.vec(),
+        term: Terminator::Switch {
+            value: label,
+            cases,
+            default,
+        },
+    });
+    let entry_types: Vec<Vec<Type>> = slices
+        .iter()
+        .map(|s| s.iter().map(|&v| g.value_type(v)).collect())
+        .collect();
     for p in 0..g.blocks.len() - 1 {
         let Function { blocks, values, .. } = g;
         let BasicBlock { insts, term, .. } = &mut blocks[p];
@@ -184,9 +226,17 @@ fn single_entry(g: &mut Function, entries: &[Block]) -> Block {
             Value(values.len() as u32 - 1)
         };
         for edge in edges_mut(term) {
-            let Some(i) = entries.iter().position(|&e| e == edge.target) else { continue };
+            let Some(i) = entries.iter().position(|&e| e == edge.target) else {
+                continue;
+            };
             let lv = fresh(Type::I32);
-            insts.push(Instruction { result: Some(lv), op: Op::Const { ty: Type::I32, bits: i as u64 } });
+            insts.push(Instruction {
+                result: Some(lv),
+                op: Op::Const {
+                    ty: Type::I32,
+                    bits: i as u64,
+                },
+            });
             let mut args = m.vec_from(&[lv]);
             for (j, tys) in entry_types.iter().enumerate() {
                 if j == i {
@@ -196,13 +246,25 @@ fn single_entry(g: &mut Function, entries: &[Block]) -> Block {
                 for &ty in tys {
                     if ty.is_vector() {
                         let z = fresh(ty.lane());
-                        insts.push(Instruction { result: Some(z), op: Op::Const { ty: ty.lane(), bits: 0 } });
+                        insts.push(Instruction {
+                            result: Some(z),
+                            op: Op::Const {
+                                ty: ty.lane(),
+                                bits: 0,
+                            },
+                        });
                         let v = fresh(ty);
-                        insts.push(Instruction { result: Some(v), op: Op::VecSplat { ty, a: z } });
+                        insts.push(Instruction {
+                            result: Some(v),
+                            op: Op::VecSplat { ty, a: z },
+                        });
                         args.push(v);
                     } else {
                         let z = fresh(ty);
-                        insts.push(Instruction { result: Some(z), op: Op::Const { ty, bits: 0 } });
+                        insts.push(Instruction {
+                            result: Some(z),
+                            op: Op::Const { ty, bits: 0 },
+                        });
                         args.push(z);
                     }
                 }
@@ -217,8 +279,16 @@ fn single_entry(g: &mut Function, entries: &[Block]) -> Block {
 fn edges_mut(t: &mut Terminator) -> Vec<&mut Edge> {
     match t {
         Terminator::Br(e) => vec![e],
-        Terminator::CondBr { then_edge, else_edge, .. } => vec![then_edge, else_edge],
-        Terminator::Switch { cases, default, .. } => cases.iter_mut().map(|c| &mut c.edge).chain(core::iter::once(default)).collect(),
+        Terminator::CondBr {
+            then_edge,
+            else_edge,
+            ..
+        } => vec![then_edge, else_edge],
+        Terminator::Switch { cases, default, .. } => cases
+            .iter_mut()
+            .map(|c| &mut c.edge)
+            .chain(core::iter::once(default))
+            .collect(),
         Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
     }
 }

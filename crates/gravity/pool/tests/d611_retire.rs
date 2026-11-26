@@ -48,7 +48,11 @@ fn gate() -> bool {
             }
         }
     };
-    if n == AT_CALL.load(Ordering::Acquire) as u32 && RETIRE.fetch_update(Ordering::AcqRel, Ordering::Acquire, |r| r.checked_sub(1)).is_ok() {
+    if n == AT_CALL.load(Ordering::Acquire) as u32
+        && RETIRE
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |r| r.checked_sub(1))
+            .is_ok()
+    {
         RETIRED.fetch_add(1, Ordering::AcqRel);
         std::panic::panic_any(parallel::standing::PoolRetireRaw);
     }
@@ -96,11 +100,31 @@ fn a_thread_retiring_across_the_crash_fence_loses_no_morsel_and_runs_none_twice(
     RETIRE.store(3, Ordering::Release);
     AT_CALL.store(1, Ordering::Release);
     let runs = counts();
-    assert_eq!(section(&pool, 8, &runs), Ok(()), "a retire before the claim never fails the section");
-    assert!(!parallel::standing::pool_crash_pending(), "the section's leader closed the crash window");
-    assert_eq!(RETIRED.load(Ordering::Acquire), 3, "the three scripted threads retired");
-    let bad: Vec<(usize, u64)> = runs.iter().map(|c| c.load(Ordering::Acquire)).enumerate().filter(|&(_, n)| n != 1).collect();
-    assert!(bad.is_empty(), "granules run other than once: {:?}", &bad[..bad.len().min(8)]);
+    assert_eq!(
+        section(&pool, 8, &runs),
+        Ok(()),
+        "a retire before the claim never fails the section"
+    );
+    assert!(
+        !parallel::standing::pool_crash_pending(),
+        "the section's leader closed the crash window"
+    );
+    assert_eq!(
+        RETIRED.load(Ordering::Acquire),
+        3,
+        "the three scripted threads retired"
+    );
+    let bad: Vec<(usize, u64)> = runs
+        .iter()
+        .map(|c| c.load(Ordering::Acquire))
+        .enumerate()
+        .filter(|&(_, n)| n != 1)
+        .collect();
+    assert!(
+        bad.is_empty(),
+        "granules run other than once: {:?}",
+        &bad[..bad.len().min(8)]
+    );
 
     // the fence moving between a thread's pre-claim gate and its claim (a new crash reset mid-section): the section fails
     // and the thread dies (never swallowed to retire again at its next claim); no granule ran twice
@@ -111,17 +135,35 @@ fn a_thread_retiring_across_the_crash_fence_loses_no_morsel_and_runs_none_twice(
     let r = section(&pool, 5, &runs);
     let retired_mid = RETIRED.load(Ordering::Acquire) - 3;
     if retired_mid == 1 {
-        assert_eq!(r, Err(Error::host("gravity: worker panicked in a claim")), "a retire inside the claim fails the section");
+        assert_eq!(
+            r,
+            Err(Error::host("gravity: worker panicked in a claim")),
+            "a retire inside the claim fails the section"
+        );
     } else {
-        assert_eq!(r, Ok(()), "no thread reached a second gate call in this section");
+        assert_eq!(
+            r,
+            Ok(()),
+            "no thread reached a second gate call in this section"
+        );
     }
-    assert!(runs.iter().all(|c| c.load(Ordering::Acquire) <= 1), "no granule ran twice");
+    assert!(
+        runs.iter().all(|c| c.load(Ordering::Acquire) <= 1),
+        "no granule ran twice"
+    );
     RETIRE.store(0, Ordering::Release);
 
     // the surviving threads serve a whole section again
     let runs = counts();
-    assert_eq!(section(&pool, 4, &runs), Ok(()), "the pool serves after the retires");
-    assert!(runs.iter().all(|c| c.load(Ordering::Acquire) == 1), "every granule once after the retires");
+    assert_eq!(
+        section(&pool, 4, &runs),
+        Ok(()),
+        "the pool serves after the retires"
+    );
+    assert!(
+        runs.iter().all(|c| c.load(Ordering::Acquire) == 1),
+        "every granule once after the retires"
+    );
 
     // every retiring thread gave its step's execution permit back (a leaked permit per retire starved the respawned
     // pool: a server whose every thread retired after a crash hung its next section): once the survivors park, all

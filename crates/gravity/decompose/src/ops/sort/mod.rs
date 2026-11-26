@@ -6,24 +6,24 @@ use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::Sort;
 use types_nodes::Node;
 
-use crate::ops::shared::sort::NO_SCALE;
-use crate::ops::shared::sort::{indeterminate, INDETERMINATE_COLL};
-use crate::expr;
+use crate::admit::Refusal;
+use crate::catalog::typefacts::{self, KeyColl};
 use crate::catalog::{keys, Facts, KeyReq};
-use crate::graph::{Bound, Op, Source};
+use crate::expr;
 use crate::facts::hints::Hint;
+use crate::graph::{Bound, Op, Source};
 use crate::join::JoinDesc;
 use crate::ledger::Kind;
 use crate::ops;
-use crate::admit::Refusal;
 use crate::ops::shared::breaker::{close, emit};
 use crate::ops::shared::order::reformed_family;
 use crate::ops::shared::sort::dump_keys;
-use crate::catalog::typefacts::{self, KeyColl};
-use crate::walk::{Builder, Open};
-use crate::ops::shared::sort::{keys_layout, SortDesc, SortForm, SortKey};
-use crate::ops::shared::sort::{below, reads_whole};
 pub(crate) use crate::ops::shared::sort::whole_read;
+use crate::ops::shared::sort::NO_SCALE;
+use crate::ops::shared::sort::{below, reads_whole};
+use crate::ops::shared::sort::{indeterminate, INDETERMINATE_COLL};
+use crate::ops::shared::sort::{keys_layout, SortDesc, SortForm, SortKey};
+use crate::walk::{Builder, Open};
 
 impl SortKey {
     /// O3 (M3 decision 16): a `name` key (sorted by an ordering operator over `name`: `namelt` / `namegt`), which
@@ -51,9 +51,30 @@ impl SortKey {
     }
 
     /// A key from its type's catalog facts alone (no child to read a numeric scale through; V4R-84).
-    pub fn of_type(facts: &dyn Facts, resno: i16, opno: u32, desc: bool, nulls_first: bool, typid: u32, coll: KeyColl) -> SortKey {
+    pub fn of_type(
+        facts: &dyn Facts,
+        resno: i16,
+        opno: u32,
+        desc: bool,
+        nulls_first: bool,
+        typid: u32,
+        coll: KeyColl,
+    ) -> SortKey {
         let (kind, image) = crate::catalog::keysem::image::sort_key_form(facts, typid, coll.oid);
-        SortKey { resno, opno, desc, nulls_first, kind, image, scale: NO_SCALE, coll, own_family: false, no_proc: None, eq_tie: false, per_row: false }
+        SortKey {
+            resno,
+            opno,
+            desc,
+            nulls_first,
+            kind,
+            image,
+            scale: NO_SCALE,
+            coll,
+            own_family: false,
+            no_proc: None,
+            eq_tie: false,
+            per_row: false,
+        }
     }
 }
 
@@ -66,23 +87,51 @@ pub use crate::catalog::keysem::image::order_image;
 pub fn starts_raise(o: &Op<'_>) -> bool {
     use crate::ops::shared::window::FrameBound::{Following, Preceding};
     match o {
-        Op::Window(w) => !matches!(w.frame.start, Preceding(_) | Following(_)) && !matches!(w.frame.end, Preceding(_) | Following(_)),
+        Op::Window(w) => {
+            !matches!(w.frame.start, Preceding(_) | Following(_))
+                && !matches!(w.frame.end, Preceding(_) | Following(_))
+        }
         // v0.4: a Limit of no count (an OFFSET alone) pulls too unless its offset is computed (evaluated first), and so
         // does a Unique's first-of-run (nodeUnique pulls its first tuple at its first call)
-        Op::Limit { count: Bound::All, offset, .. } => matches!(offset, Bound::Const(_) | Bound::All),
+        Op::Limit {
+            count: Bound::All,
+            offset,
+            ..
+        } => matches!(offset, Bound::Const(_) | Bound::All),
         // and a merge join over the Sort as its outer: ExecMergeJoin fetches its outer first at its first call
         Op::Join(crate::join::JoinDesc::Merge { .. }) => true,
-        _ => matches!(o, Op::Project(_) | Op::Filter(_) | Op::Limit { count: Bound::Const(1..), .. } | Op::FirstOfRun(_)),
+        _ => matches!(
+            o,
+            Op::Project(_)
+                | Op::Filter(_)
+                | Op::Limit {
+                    count: Bound::Const(1..),
+                    ..
+                }
+                | Op::FirstOfRun(_)
+        ),
     }
 }
 
 /// The pipeline other than `k` that reads the breaker pipeline `k` ends in through a Sort, with that Sort (a feeder of a
 /// top over an Append: ops/sort/sort_raise.rs `wrap_feeder` in lowerv4 raises at the feeder's open when that Sort raises).
-pub fn sort_over_feeder<'a, 'p>(pipes: &'a [crate::graph::PipelineNode<'p>], k: usize) -> Option<(usize, &'a SortDesc<'p>)> {
-    let gravity_program::End::Breaker(x) = pipes.get(k)?.desc.ends_in else { return None };
-    pipes.iter().enumerate().find_map(|(j, p)| match (&p.source, p.ops.iter().find_map(|o| if let Op::Sort(d) = o { Some(d) } else { None })) {
-        (Source::Breaker { slot }, Some(d)) if *slot == x.slot && j != k => Some((j, d)),
-        _ => None,
+pub fn sort_over_feeder<'a, 'p>(
+    pipes: &'a [crate::graph::PipelineNode<'p>],
+    k: usize,
+) -> Option<(usize, &'a SortDesc<'p>)> {
+    let gravity_program::End::Breaker(x) = pipes.get(k)?.desc.ends_in else {
+        return None;
+    };
+    pipes.iter().enumerate().find_map(|(j, p)| {
+        match (
+            &p.source,
+            p.ops
+                .iter()
+                .find_map(|o| if let Op::Sort(d) = o { Some(d) } else { None }),
+        ) {
+            (Source::Breaker { slot }, Some(d)) if *slot == x.slot && j != k => Some((j, d)),
+            _ => None,
+        }
     })
 }
 
@@ -111,7 +160,13 @@ pub fn holds_no_proc(g: &crate::graph::PipelineGraph<'_>) -> bool {
     g.pipelines.iter().any(pipe)
 }
 
-fn sort_keys<'p>(b: &Builder<'p, '_>, child: &Open<'p>, s: &Sort<'p>, k: Kind, id: i32) -> Result<ArenaVec<SortKey>, Refusal> {
+fn sort_keys<'p>(
+    b: &Builder<'p, '_>,
+    child: &Open<'p>,
+    s: &Sort<'p>,
+    k: Kind,
+    id: i32,
+) -> Result<ArenaVec<SortKey>, Refusal> {
     let n = s.numCols as usize;
     if n == 0 || s.sortColIdx.len() < n || s.sortOperators.len() < n || s.nullsFirst.len() < n {
         return Err(Refusal::shape(k, id, "a sort without keys"));
@@ -123,14 +178,35 @@ fn sort_keys<'p>(b: &Builder<'p, '_>, child: &Open<'p>, s: &Sort<'p>, k: Kind, i
         // its order its own (`own_family`). core-0241: bpchar_pattern_ops' likewise: its compare
         // (internal_bpchar_pattern_compare: trailing blanks off, memcmp, then length) is bpcharcmp's under "C"
         let pattern = keys::key_order(opno).filter(|o| o.bytes);
-        let (resno, coll) = (s.sortColIdx[i], if pattern.is_some() { typefacts::C_COLLATION } else { s.collations.get(i).copied().unwrap_or(0) });
-        let e = (resno as usize).checked_sub(1).filter(|&j| j < s.plan.targetlist.len()).and_then(|j| s.plan.targetlist.nth(j).as_target_entry()).ok_or(Refusal::shape(k, id, "a key outside the target list"))?;
+        let (resno, coll) = (
+            s.sortColIdx[i],
+            if pattern.is_some() {
+                typefacts::C_COLLATION
+            } else {
+                s.collations.get(i).copied().unwrap_or(0)
+            },
+        );
+        let e = (resno as usize)
+            .checked_sub(1)
+            .filter(|&j| j < s.plan.targetlist.len())
+            .and_then(|j| s.plan.targetlist.nth(j).as_target_entry())
+            .ok_or(Refusal::shape(k, id, "a key outside the target list"))?;
         // D1346 / USEROP: another family's operator over any type orders by that family's comparator alone (the CompareFn
         // key kind, `SortKey::compare_fn`: lowerv4 gives the key its comparator or refuses it by name, never its image)
         // KeySem slice 3: the key's one order answer (`Facts::key`): its type's default family is the direction table's
         let (desc, own_family, no_proc) = match b.facts.key(KeyReq::sort(opno)) {
             // D858: an int4 column sorted by oid's `<` (a merge side under a relabel) orders by oid's comparator alone
-            Some(o) if o.default_family && reformed_family(b.facts, opno, crate::catalog::expr_type::type_of(e.expr)).is_some() => (o.desc, true, None),
+            Some(o)
+                if o.default_family
+                    && reformed_family(
+                        b.facts,
+                        opno,
+                        crate::catalog::expr_type::type_of(e.expr),
+                    )
+                    .is_some() =>
+            {
+                (o.desc, true, None)
+            }
             Some(o) if o.default_family => (o.desc, false, None),
             _ if pattern.is_some() => (pattern.is_some_and(|o| o.desc), true, None),
             Some(o) => {
@@ -139,19 +215,65 @@ fn sort_keys<'p>(b: &Builder<'p, '_>, child: &Open<'p>, s: &Sort<'p>, k: Kind, i
                 let np = (o.no_proc && k == Kind::Sort).then_some((o.opcintype, o.family));
                 (o.desc, np.is_none(), np)
             }
-            None => return Err(Refusal::shape(k, id, "a sort operator outside the direction table")),
+            None => {
+                return Err(Refusal::shape(
+                    k,
+                    id,
+                    "a sort operator outside the direction table",
+                ))
+            }
         };
-        if k != Kind::Sort && crate::catalog::expr_type::type_of(e.expr).is_some_and(|t| indeterminate(b.facts, t, coll)) {
+        if k != Kind::Sort
+            && crate::catalog::expr_type::type_of(e.expr)
+                .is_some_and(|t| indeterminate(b.facts, t, coll))
+        {
             return Err(Refusal::shape(k, id, INDETERMINATE_COLL)); // a full Sort's: `map` after its form
         }
         let eq_tie = !own_family && record_eq_tie(b, id, resno, e.expr);
-        let per_row = !own_family && crate::catalog::expr_type::type_of(e.expr).is_some_and(crate::catalog::anonymous_record) && crate::facts::record::per_row(b, id, resno, e.expr, false);
+        let per_row = !own_family
+            && crate::catalog::expr_type::type_of(e.expr)
+                .is_some_and(crate::catalog::anonymous_record)
+            && crate::facts::record::per_row(b, id, resno, e.expr, false);
         let key = match crate::ops::agg::key_facts(b, child, e.expr, coll) {
             Some((kind, image, scale)) => {
-                let (kind, image) = crate::catalog::expr_type::type_of(e.expr).map_or((kind, image), |t| crate::catalog::keysem::image::order_image(b.facts, t, kind, image));
-                SortKey { resno, opno, desc, nulls_first: s.nullsFirst[i], kind, image, scale, coll: b.facts.coll(coll), own_family, no_proc, eq_tie, per_row }
+                let (kind, image) = crate::catalog::expr_type::type_of(e.expr)
+                    .map_or((kind, image), |t| {
+                        crate::catalog::keysem::image::order_image(b.facts, t, kind, image)
+                    });
+                SortKey {
+                    resno,
+                    opno,
+                    desc,
+                    nulls_first: s.nullsFirst[i],
+                    kind,
+                    image,
+                    scale,
+                    coll: b.facts.coll(coll),
+                    own_family,
+                    no_proc,
+                    eq_tie,
+                    per_row,
+                }
             }
-            None => SortKey { own_family, no_proc, eq_tie, per_row, ..SortKey::of_type(b.facts, resno, opno, desc, s.nullsFirst[i], crate::catalog::expr_type::type_of(e.expr).ok_or(Refusal::shape(k, id, "a key of unknown type"))?, b.facts.coll(coll)) },
+            None => SortKey {
+                own_family,
+                no_proc,
+                eq_tie,
+                per_row,
+                ..SortKey::of_type(
+                    b.facts,
+                    resno,
+                    opno,
+                    desc,
+                    s.nullsFirst[i],
+                    crate::catalog::expr_type::type_of(e.expr).ok_or(Refusal::shape(
+                        k,
+                        id,
+                        "a key of unknown type",
+                    ))?,
+                    b.facts.coll(coll),
+                )
+            },
         };
         keys.push(key);
     }
@@ -170,13 +292,23 @@ fn record_eq_tie<'p>(b: &Builder<'p, '_>, id: i32, resno: i16, e: Node<'p>) -> b
     if !crate::catalog::expr_type::type_of(e).is_some_and(crate::catalog::anonymous_record) {
         return false;
     }
-    let Some(mut row) = crate::facts::record::key_row(b, id, resno, e, false) else { return false };
+    let Some(mut row) = crate::facts::record::key_row(b, id, resno, e, false) else {
+        return false;
+    };
     while let Some(a) = expr::through_relabel(row) {
         row = a;
     }
-    let Some(args) = row.as_row_expr().map(|r| &r.args) else { return false };
-    let plain = |t: u32| typefacts::facts_of(b.facts, t).is_some_and(|f| f.cmp != 0 && !f.collatable && f.image.equality());
-    args.len() != 0 && args.iter().all(|a| crate::catalog::expr_type::type_of(a).is_some_and(plain))
+    let Some(args) = row.as_row_expr().map(|r| &r.args) else {
+        return false;
+    };
+    let plain = |t: u32| {
+        typefacts::facts_of(b.facts, t)
+            .is_some_and(|f| f.cmp != 0 && !f.collatable && f.image.equality())
+    };
+    args.len() != 0
+        && args
+            .iter()
+            .all(|a| crate::catalog::expr_type::type_of(a).is_some_and(plain))
 }
 
 const fn row_bytes(natts: usize) -> u64 {
@@ -208,10 +340,13 @@ fn cut_licensed<'p>(b: &Builder<'p, '_>, count: Bound<'p>, offset: Bound<'p>) ->
 /// array. C10 (SPILL-DEBT TopKShare deleted): a top over the share declares the runs its lowering spills, so no top is
 /// declared to grow past its grant.
 fn topk_budget(count: Bound<'_>, offset: Bound<'_>, ties: bool, natts: usize) -> (Budget, Spill) {
-    let fixed = |rows: u64| Budget::Fixed((64 + rows * row_bytes(natts)).min(u32::MAX as u64) as u32);
+    let fixed =
+        |rows: u64| Budget::Fixed((64 + rows * row_bytes(natts)).min(u32::MAX as u64) as u32);
     match (count, offset) {
         _ if ties => (Budget::Share, Spill::Runs),
-        (Bound::Const(c), Bound::Const(o)) if c >= 0 && o >= 0 => (fixed(c as u64 + o as u64), Spill::None),
+        (Bound::Const(c), Bound::Const(o)) if c >= 0 && o >= 0 => {
+            (fixed(c as u64 + o as u64), Spill::None)
+        }
         (Bound::Const(c), Bound::All) if c >= 0 => (fixed(c as u64), Spill::None),
         _ => (Budget::Share, Spill::Runs),
     }
@@ -259,32 +394,84 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
     // runs.sort's row sort through the comparator, never form G's record order), the Limit above cutting its rows as
     // PostgreSQL's Limit over its Sort does (the Limit always keeps its own step). A pattern family's key (text_pattern_ops:
     // its image under "C" is its order) sorts the rows by that image the same way.
-    const OWN_KEY: &str = "a presorted, zone-walked or breaker-fed key of a non-default btree family (D3036)";
+    const OWN_KEY: &str =
+        "a presorted, zone-walked or breaker-fed key of a non-default btree family (D3036)";
     let own = keys.iter().any(|x| x.own_family);
-    let presorted = if keys.iter().take(presorted as usize).any(|x| x.own_family) { 0 } else { presorted };
+    let presorted = if keys.iter().take(presorted as usize).any(|x| x.own_family) {
+        0
+    } else {
+        presorted
+    };
     let hint = Hint::of_sort(s).filter(|_| !own);
     let breaker_fed = matches!(open.source, Source::Breaker { .. });
     let layout = keys_layout(b.arena, keys.iter().map(|x| x.kind));
     let natts = plan.targetlist.len();
     let form = match (hint, limit) {
-        (Some(Hint::ZoneWalk { .. }), Some((count, offset, _))) if !cut_licensed(b, count, offset) => return Err(Refusal::shape(k, id, CUT_ACTS)),
-        (Some(Hint::ZoneWalk { attno, desc, nulls_first }), Some((count, offset, ties))) => SortForm::Walk { attno, desc, nulls_first, count, offset, ties },
-        (Some(Hint::ZoneWalk { .. }), None) => return Err(Refusal::shape(k, id, "a ZoneWalk without a Limit above")),
+        (Some(Hint::ZoneWalk { .. }), Some((count, offset, _)))
+            if !cut_licensed(b, count, offset) =>
+        {
+            return Err(Refusal::shape(k, id, CUT_ACTS))
+        }
+        (
+            Some(Hint::ZoneWalk {
+                attno,
+                desc,
+                nulls_first,
+            }),
+            Some((count, offset, ties)),
+        ) => SortForm::Walk {
+            attno,
+            desc,
+            nulls_first,
+            count,
+            offset,
+            ties,
+        },
+        (Some(Hint::ZoneWalk { .. }), None) => {
+            return Err(Refusal::shape(k, id, "a ZoneWalk without a Limit above"))
+        }
         (Some(_), _) => return Err(Refusal::shape(k, id, "a hint that is not ZoneWalk on Sort")),
         (None, Some(_)) if breaker_fed && own => SortForm::Runs,
-        (None, Some((count, offset, ties))) if !matches!(count, Bound::All) && cut_licensed(b, count, offset) => SortForm::TopK { count, offset, ties },
+        (None, Some((count, offset, ties)))
+            if !matches!(count, Bound::All) && cut_licensed(b, count, offset) =>
+        {
+            SortForm::TopK {
+                count,
+                offset,
+                ties,
+            }
+        }
         _ => SortForm::Runs,
     };
     if breaker_fed && own && !matches!(form, SortForm::Runs) {
         return Err(Refusal::shape(k, id, OWN_KEY));
     }
     if pg_presorted > 0 && (presorted == 0 || matches!(form, SortForm::Runs)) {
-        let _ahead = lazy_ahead(b, s, limit.is_some_and(|l| !matches!(l.0, Bound::All)), presorted == 0, k, id)?;
+        let _ahead = lazy_ahead(
+            b,
+            s,
+            limit.is_some_and(|l| !matches!(l.0, Bound::All)),
+            presorted == 0,
+            k,
+            id,
+        )?;
     }
-    let sd = SortDesc { keys, presorted, form, tlist: &plan.targetlist };
+    let sd = SortDesc {
+        keys,
+        presorted,
+        form,
+        tlist: &plan.targetlist,
+    };
     // Option 1 serves a full sort's raise, and a top's under a constant count past 0 (PG's Limit pulls the Sort, which
     // begins and raises; a count of 0 or a run-time one may leave the Sort unstarted)
-    let starts = match sd.form { SortForm::Runs => true, SortForm::TopK { count: Bound::Const(c), .. } => c > 0, _ => false };
+    let starts = match sd.form {
+        SortForm::Runs => true,
+        SortForm::TopK {
+            count: Bound::Const(c),
+            ..
+        } => c > 0,
+        _ => false,
+    };
     if !starts && crate::effects::sort_raises(b.facts, &sd) {
         return Err(Refusal::shape(k, id, INDETERMINATE_COLL));
     }
@@ -294,7 +481,17 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
     let (keys, form) = (sd.keys, sd.form);
     let (kind, budget, spill) = match form {
         SortForm::Runs => (BreakerKind::Sort, Budget::Share, Spill::Runs),
-        SortForm::TopK { count, offset, ties } | SortForm::Walk { count, offset, ties, .. } => {
+        SortForm::TopK {
+            count,
+            offset,
+            ties,
+        }
+        | SortForm::Walk {
+            count,
+            offset,
+            ties,
+            ..
+        } => {
             let (budget, spill) = topk_budget(count, offset, ties, natts);
             (BreakerKind::TopK, budget, spill)
         }
@@ -302,13 +499,21 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
     // a grouping-sets union (gsets.rs `map_sets`: each arm projects, the union's open none) under a top keeps its
     // Materialize form (append.rs `copies`): the Sort's own tlist (PG's dummy references) projects the union's row, as
     // map_append's Append tlist does, so the run row has its columns
-    if open.union.is_some() && !open.ops.iter().any(|op| matches!(op, Op::Project(_))) && !(matches!(form, SortForm::Runs) && presorted == 0) {
+    if open.union.is_some()
+        && !open.ops.iter().any(|op| matches!(op, Op::Project(_)))
+        && !(matches!(form, SortForm::Runs) && presorted == 0)
+    {
         ops::project(&mut open, &plan.targetlist);
     }
     if matches!(form, SortForm::Runs) && open.desc.is_eligible() && open.desc.driving_site >= 0 {
         open.desc = open.desc.finishing();
     }
-    open.push(Op::Sort(SortDesc { keys, presorted, form, tlist: &plan.targetlist }));
+    open.push(Op::Sort(SortDesc {
+        keys,
+        presorted,
+        form,
+        tlist: &plan.targetlist,
+    }));
     let slot = close(b, open, kind, layout, budget, spill, k, id)?;
     let mut out = emit(b, id, slot);
     ops::project(&mut out, &plan.targetlist);
@@ -337,8 +542,17 @@ pub const LAZY_AHEAD: &str = "D2316: an Incremental Sort that reads its whole in
 /// checks). `None`: no read ahead at this site (no stop it departs from; a LIMIT's own rule), the held form (lowerv4
 /// ops/sort/inc_held.rs holds the held error's licence), or a denial that keeps the form with no licence: input that
 /// acts, or a read that may stop (a merge that may stop reading the side, a LIMIT over a grouping-sets union: D4121 (b)).
-fn lazy_ahead<'p>(b: &mut Builder<'p, '_>, s: &'p Sort<'p>, limited: bool, over_union: bool, k: Kind, id: i32) -> Result<Option<crate::effects::Licence>, Refusal> {
-    use crate::effects::{denying, denying_bounded, licence, of_plan, unobservable, Cx, Departure, Effects};
+fn lazy_ahead<'p>(
+    b: &mut Builder<'p, '_>,
+    s: &'p Sort<'p>,
+    limited: bool,
+    over_union: bool,
+    k: Kind,
+    id: i32,
+) -> Result<Option<crate::effects::Licence>, Refusal> {
+    use crate::effects::{
+        denying, denying_bounded, licence, of_plan, unobservable, Cx, Departure, Effects,
+    };
     let whole = !limited && whole_read(b, id);
     let merge = !limited && !whole && merge_stops(b, id);
     #[allow(clippy::nonminimal_bool)]
@@ -350,7 +564,17 @@ fn lazy_ahead<'p>(b: &mut Builder<'p, '_>, s: &'p Sort<'p>, limited: bool, over_
     if own == Effects::NONE {
         return Ok(unobservable(own));
     }
-    let ask = if own.may_raise { own.and(Effects { acts: crate::effects::of_statement_acts(&crate::effects::Cx::new(b.stmt, b.facts, b.arena), &mut b.graph.acts_read), ..Effects::NONE }) } else { own };
+    let ask = if own.may_raise {
+        own.and(Effects {
+            acts: crate::effects::of_statement_acts(
+                &crate::effects::Cx::new(b.stmt, b.facts, b.arena),
+                &mut b.graph.acts_read,
+            ),
+            ..Effects::NONE
+        })
+    } else {
+        own
+    };
     match licence(ask, Departure::Ahead) {
         Ok(l) => {
             b.graph.licensed(&l);
@@ -363,8 +587,14 @@ fn lazy_ahead<'p>(b: &mut Builder<'p, '_>, s: &'p Sort<'p>, limited: bool, over_
             b.graph.held_incs.push(id);
             Ok(None)
         }
-        Err(_) if denying() && own.may_raise && (!whole || denying_bounded()) => Err(Refusal::shape(k, id, LAZY_AHEAD)),
-        Err(_) => Ok(if whole { crate::effects::whole_read(own).ok() } else { None }),
+        Err(_) if denying() && own.may_raise && (!whole || denying_bounded()) => {
+            Err(Refusal::shape(k, id, LAZY_AHEAD))
+        }
+        Err(_) => Ok(if whole {
+            crate::effects::whole_read(own).ok()
+        } else {
+            None
+        }),
     }
 }
 
@@ -383,15 +613,25 @@ fn merge_stops(b: &Builder<'_, '_>, id: i32) -> bool {
             return Some(seen);
         }
         let fills = |jt: JoinType| match outer {
-            true => matches!(jt, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL),
-            false => matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI | JoinType::JOIN_FULL),
+            true => matches!(
+                jt,
+                JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL
+            ),
+            false => matches!(
+                jt,
+                JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI | JoinType::JOIN_FULL
+            ),
         };
         Some(match n.as_merge_join() {
             Some(m) => (!fills(m.join.jointype)).then_some(true),
             None => (!reads_whole(n)).then_some(false),
         })
     }
-    b.stmt.planTree.and_then(|r| go(r, id)).flatten().unwrap_or(false)
+    b.stmt
+        .planTree
+        .and_then(|r| go(r, id))
+        .flatten()
+        .unwrap_or(false)
 }
 
 pub fn dump_bound(x: Bound<'_>, out: &mut dyn Write) -> fmt::Result {
@@ -411,14 +651,31 @@ impl SortDesc<'_> {
         }
         match self.form {
             SortForm::Runs => write!(out, " form=runs"),
-            SortForm::TopK { count, offset, ties } => {
+            SortForm::TopK {
+                count,
+                offset,
+                ties,
+            } => {
                 write!(out, " form=topk{} count=", if ties { "-ties" } else { "" })?;
                 dump_bound(count, out)?;
                 write!(out, " offset=")?;
                 dump_bound(offset, out)
             }
-            SortForm::Walk { attno, desc, nulls_first, count, offset, ties } => {
-                write!(out, " form=zonewalk{} att={attno} {}{} count=", if ties { "-ties" } else { "" }, if desc { "desc" } else { "asc" }, if nulls_first { " nulls_first" } else { "" })?;
+            SortForm::Walk {
+                attno,
+                desc,
+                nulls_first,
+                count,
+                offset,
+                ties,
+            } => {
+                write!(
+                    out,
+                    " form=zonewalk{} att={attno} {}{} count=",
+                    if ties { "-ties" } else { "" },
+                    if desc { "desc" } else { "asc" },
+                    if nulls_first { " nulls_first" } else { "" }
+                )?;
                 dump_bound(count, out)?;
                 write!(out, " offset=")?;
                 dump_bound(offset, out)
@@ -430,28 +687,57 @@ impl SortDesc<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::typefacts::KeyColl;
     use crate::catalog::NoFacts;
     use crate::ops::shared::sort::KeyImage;
-    use crate::catalog::typefacts::KeyColl;
 
     /// USEROP: a key is CompareFn exactly when its operator's family is not its type's default (an int4, a box, an array
     /// under a user opclass), except a text / bpchar key of a pattern family under a collation that orders by bytes (its
     /// image is its order); a default family's key is not.
     #[test]
     fn compare_fn_is_a_non_default_family_off_its_image() {
-        let c = KeyColl { oid: 950, bytes_eq: true, bytes_order: true };
-        let libc = KeyColl { oid: 100, bytes_eq: true, bytes_order: false };
-        let op = |opno: u32, typid: u32, coll: KeyColl, own_family: bool| SortKey { own_family, ..SortKey::of_type(&NoFacts, 1, opno, false, false, typid, coll) };
+        let c = KeyColl {
+            oid: 950,
+            bytes_eq: true,
+            bytes_order: true,
+        };
+        let libc = KeyColl {
+            oid: 100,
+            bytes_eq: true,
+            bytes_order: false,
+        };
+        let op = |opno: u32, typid: u32, coll: KeyColl, own_family: bool| SortKey {
+            own_family,
+            ..SortKey::of_type(&NoFacts, 1, opno, false, false, typid, coll)
+        };
         let key = |typid: u32, coll: KeyColl, own_family: bool| op(0, typid, coll, own_family);
         for t in [23, 20, 701, 1082, 1007, 19, 25] {
-            assert!(key(t, c, true).compare_fn(), "type {t} under a user family, \"C\" too");
-            assert!(!key(t, c, false).compare_fn(), "type {t} under its default family");
+            assert!(
+                key(t, c, true).compare_fn(),
+                "type {t} under a user family, \"C\" too"
+            );
+            assert!(
+                !key(t, c, false).compare_fn(),
+                "type {t} under its default family"
+            );
         }
         // OID-17 (overfit, keep): 2314 / 2326 are text_pattern_ops' / bpchar_pattern_ops' ~<~, the bootstrap catalog's
         let text = op(2314, 25, c, true);
-        assert!(text.image == KeyImage::Text && !text.compare_fn(), "a pattern family's text key under C orders by its image");
-        assert!(!op(2326, 1042, c, true).compare_fn(), "bpchar_pattern_ops' likewise");
-        assert!(key(25, libc, true).compare_fn(), "a non-default family's text key under a libc collation orders by its comparator");
-        assert!(!key(25, libc, false).compare_fn(), "text under its default family");
+        assert!(
+            text.image == KeyImage::Text && !text.compare_fn(),
+            "a pattern family's text key under C orders by its image"
+        );
+        assert!(
+            !op(2326, 1042, c, true).compare_fn(),
+            "bpchar_pattern_ops' likewise"
+        );
+        assert!(
+            key(25, libc, true).compare_fn(),
+            "a non-default family's text key under a libc collation orders by its comparator"
+        );
+        assert!(
+            !key(25, libc, false).compare_fn(),
+            "text under its default family"
+        );
     }
 }

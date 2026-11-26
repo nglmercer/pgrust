@@ -190,7 +190,10 @@ fn gen_fn_group(g: &mut Gen) -> Vec<StmtKind> {
             name
         )));
     }
-    out.push(StmtKind::Raw(format!("DROP FUNCTION {}(int4, int4);", name)));
+    out.push(StmtKind::Raw(format!(
+        "DROP FUNCTION {}(int4, int4);",
+        name
+    )));
     out
 }
 
@@ -297,12 +300,12 @@ fn body_exc(g: &mut Gen) -> (&'static str, String) {
     } else {
         // Inner handler catches div0, converts to unique_violation; the
         // outer handler catches that by name.
-            "DECLARE v int4 := 0; BEGIN BEGIN v := a / b; \
+        "DECLARE v int4 := 0; BEGIN BEGIN v := a / b; \
              EXCEPTION WHEN division_by_zero THEN \
              RAISE EXCEPTION 'fz dup' USING ERRCODE = 'unique_violation'; END; \
              RETURN 'ok:' || v::text; \
-             EXCEPTION WHEN unique_violation THEN RETURN 'U:' || SQLSTATE || ':' || SQLERRM; END".to_string(
-        )
+             EXCEPTION WHEN unique_violation THEN RETURN 'U:' || SQLSTATE || ':' || SQLERRM; END"
+            .to_string()
     };
     ("text", body)
 }
@@ -396,10 +399,7 @@ fn gen_srf_group(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE FUNCTION {}(a int4, b int4) RETURNS SETOF int4 LANGUAGE plpgsql \
              AS $fzp$ DECLARE i int4; BEGIN FOR i IN 1..{} LOOP \
              RETURN NEXT i * coalesce(a, 1);{} END LOOP;{} RETURN; END $fzp$;",
-            name,
-            n,
-            " CONTINUE WHEN i = 2;",
-            query_leg
+            name, n, " CONTINUE WHEN i = 2;", query_leg
         )));
         let (x, y) = (int_arg(g), int_arg(g));
         out.push(StmtKind::Raw(format!(
@@ -434,7 +434,10 @@ fn gen_srf_group(g: &mut Gen) -> Vec<StmtKind> {
             name, x, y
         )));
     }
-    out.push(StmtKind::Raw(format!("DROP FUNCTION {}(int4, int4);", name)));
+    out.push(StmtKind::Raw(format!(
+        "DROP FUNCTION {}(int4, int4);",
+        name
+    )));
     out
 }
 
@@ -471,7 +474,10 @@ fn gen_proc_group(g: &mut Gen) -> Vec<StmtKind> {
         g.rng.range_i64(0, 99),
     );
     vec![
-        StmtKind::Raw(format!("CREATE TABLE {} (pk int4 PRIMARY KEY, v int4);", tname)),
+        StmtKind::Raw(format!(
+            "CREATE TABLE {} (pk int4 PRIMARY KEY, v int4);",
+            tname
+        )),
         StmtKind::Raw(format!(
             "CREATE PROCEDURE {}() LANGUAGE plpgsql AS $fzp$ BEGIN \
              INSERT INTO {} VALUES (1, {v1}); COMMIT; \
@@ -588,7 +594,11 @@ fn gen_trig_group(g: &mut Gen) -> Vec<StmtKind> {
         let ft = format!("fz_ptf_{}t", n);
         let (event, refclause, reltab) = match g.rng.below(3) {
             0 => ("INSERT", "REFERENCING NEW TABLE AS fz_nt", "fz_nt"),
-            1 => ("UPDATE", "REFERENCING OLD TABLE AS fz_ot NEW TABLE AS fz_nt", "fz_nt"),
+            1 => (
+                "UPDATE",
+                "REFERENCING OLD TABLE AS fz_ot NEW TABLE AS fz_nt",
+                "fz_nt",
+            ),
             _ => ("DELETE", "REFERENCING OLD TABLE AS fz_ot", "fz_ot"),
         };
         out.push(StmtKind::Raw(format!(
@@ -634,7 +644,10 @@ fn gen_trig_group(g: &mut Gen) -> Vec<StmtKind> {
         "UPDATE {} SET k_int = k_int + 10 WHERE pk <= 3;",
         tname
     )));
-    out.push(StmtKind::Raw(format!("DELETE FROM {} WHERE pk IN (2, 6);", tname)));
+    out.push(StmtKind::Raw(format!(
+        "DELETE FROM {} WHERE pk IN (2, 6);",
+        tname
+    )));
     // unique_violation fuel inside an EXCEPTION block (whole subxact rolls
     // back, so the probe image is unaffected).
     if g.rng.chance(1, 3) {
@@ -741,7 +754,11 @@ fn gen_coll_group(g: &mut Gen) -> Vec<StmtKind> {
     g.fire(form);
     let create = match form {
         "plpg:coll:from" => {
-            let src = if g.rng.chance(1, 2) { "\"C\"" } else { "\"POSIX\"" };
+            let src = if g.rng.chance(1, 2) {
+                "\"C\""
+            } else {
+                "\"POSIX\""
+            };
             format!("CREATE COLLATION {} FROM {};", cname, src)
         }
         "plpg:coll:lc_pair" => format!(
@@ -754,10 +771,7 @@ fn gen_coll_group(g: &mut Gen) -> Vec<StmtKind> {
         }
     };
     let mut out = vec![StmtKind::Raw(create)];
-    let (l1, l2) = (
-        g.gen_literal(SqlType::Text),
-        g.gen_literal(SqlType::Text),
-    );
+    let (l1, l2) = (g.gen_literal(SqlType::Text), g.gen_literal(SqlType::Text));
     out.push(StmtKind::Raw(format!(
         "SELECT {} < {} COLLATE {}, ({} COLLATE {}) >= {};",
         l1, l2, cname, l2, cname, l1
@@ -861,9 +875,15 @@ fn gen_opclass_group(g: &mut Gen) -> Vec<StmtKind> {
     let tname = format!("fz_plt_{}", g.plpg.next_table);
     g.plpg.next_table += 1;
     let idx = format!("fz_pli_{}", id);
-    let am_btree = g.weights.pick(g.rng, &["plpg:opclass:btree", "plpg:opclass:hash"])
+    let am_btree = g
+        .weights
+        .pick(g.rng, &["plpg:opclass:btree", "plpg:opclass:hash"])
         == "plpg:opclass:btree";
-    g.fire(if am_btree { "plpg:opclass:btree" } else { "plpg:opclass:hash" });
+    g.fire(if am_btree {
+        "plpg:opclass:btree"
+    } else {
+        "plpg:opclass:hash"
+    });
     let mut out = Vec::new();
     let mut fam: Option<String> = None;
     if am_btree && g.rng.chance(1, 2) {
@@ -940,7 +960,10 @@ fn gen_opclass_group(g: &mut Gen) -> Vec<StmtKind> {
         if am_btree { "btree" } else { "hash" }
     )));
     if let Some(f) = fam {
-        out.push(StmtKind::Raw(format!("DROP OPERATOR FAMILY {} USING btree;", f)));
+        out.push(StmtKind::Raw(format!(
+            "DROP OPERATOR FAMILY {} USING btree;",
+            f
+        )));
     }
     out
 }
@@ -1111,9 +1134,9 @@ mod tests {
                 }
             }
             for (kind, name) in &created {
-                let dropped = group.iter().any(|sql| {
-                    sql.starts_with("DROP ") && sql.contains(name.as_str())
-                });
+                let dropped = group
+                    .iter()
+                    .any(|sql| sql.starts_with("DROP ") && sql.contains(name.as_str()));
                 assert!(dropped, "group leaks {kind} {name}: {group:?}");
             }
             // Drops come after the last use: the final statement of any
@@ -1140,15 +1163,17 @@ mod tests {
         );
         let mut saw = false;
         for group in &groups {
-            let Some(create) = group.first() else { continue };
-            let Some(rest) = create.strip_prefix("CREATE TABLE ") else { continue };
+            let Some(create) = group.first() else {
+                continue;
+            };
+            let Some(rest) = create.strip_prefix("CREATE TABLE ") else {
+                continue;
+            };
             let tname = rest.split(' ').next().unwrap().to_string();
             saw = true;
             let probe_at = group
                 .iter()
-                .position(|s| {
-                    *s == format!("SELECT pk, k_int, k_text FROM {} ORDER BY pk;", tname)
-                })
+                .position(|s| *s == format!("SELECT pk, k_int, k_text FROM {} ORDER BY pk;", tname))
                 .unwrap_or_else(|| panic!("no probe in trig group: {group:?}"));
             let drop_at = group
                 .iter()
@@ -1171,7 +1196,10 @@ mod tests {
         );
         let mut saw = false;
         for group in &groups {
-            let resets = group.iter().filter(|s| *s == "RESET enable_seqscan;").count();
+            let resets = group
+                .iter()
+                .filter(|s| *s == "RESET enable_seqscan;")
+                .count();
             let set_only = group
                 .iter()
                 .filter(|s| *s == "SET enable_seqscan TO off;")
@@ -1191,7 +1219,13 @@ mod tests {
         let mut seen: Vec<String> = Vec::new();
         for group in &groups {
             for sql in group {
-                for pfx in ["CREATE FUNCTION ", "CREATE PROCEDURE ", "CREATE TABLE ", "CREATE VIEW ", "CREATE COLLATION "] {
+                for pfx in [
+                    "CREATE FUNCTION ",
+                    "CREATE PROCEDURE ",
+                    "CREATE TABLE ",
+                    "CREATE VIEW ",
+                    "CREATE COLLATION ",
+                ] {
                     if let Some(rest) = sql.strip_prefix(pfx) {
                         let name = rest.split(['(', ' ']).next().unwrap().to_string();
                         assert!(

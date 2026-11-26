@@ -19,8 +19,12 @@ use gravity_abi::ctx::site_ptr;
 use gravity_abi::site::{next, seek, site};
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::{Ctx, MorselRange};
-use gravity_driver::{Call, Claimed, Entry, Grant, Merge, Partial, Result, State, Step, DEPOT, SHARE_FLOOR};
-use gravity_program::{Arena, Code, End, Layout as ProgLayout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_driver::{
+    Call, Claimed, Entry, Grant, Merge, Partial, Result, State, Step, DEPOT, SHARE_FLOOR,
+};
+use gravity_program::{
+    Arena, Code, End, Layout as ProgLayout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 use memledger::Acct;
 
 /// Door 1, as the server's allocator wrapper counts it (init_small oom.rs).
@@ -139,9 +143,36 @@ fn program() -> Program {
     let st = Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
     let out = [OutCol::new("count", 20, -1, 8, true)];
-    let breaker = Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_grow)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit))];
-    Program::with_pipelines(ProgLayout { nsites: 1, out_natts: 1, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let breaker = Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_grow),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        ProgLayout {
+            nsites: 1,
+            out_natts: 1,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 fn bytes(a: Acct) -> i64 {
@@ -161,21 +192,41 @@ fn park_then_trim(a: u32, c: u32, claim: u64) -> (i64, u64, i64) {
     let mut entry = Entry::new(2);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(1))).unwrap();
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(Grant::of(1)))
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+        .unwrap();
     for k in 0..CLAIMS {
         let lo = k * claim;
-        assert_eq!(open.run_claim((k % WIDTH as u64) as u16, MorselRange::new(lo, lo + claim)).unwrap(), Claimed::Done, "claim {k}");
+        assert_eq!(
+            open.run_claim((k % WIDTH as u64) as u16, MorselRange::new(lo, lo + claim))
+                .unwrap(),
+            Claimed::Done,
+            "claim {k}"
+        );
     }
     for o in 0..WIDTH {
         let grew = open.partial(o).bytes.len() > 4 * SHARE_FLOOR as usize;
-        assert_eq!(grew, claim == GROWN, "worker {o}'s partial grew past its share several times only in the grown statement");
+        assert_eq!(
+            grew,
+            claim == GROWN,
+            "worker {o}'s partial grew past its share several times only in the grown statement"
+        );
     }
     entry.close_section(open, &mut b, &CountRows, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, Call::batch(8)).unwrap(), Step::Done);
+    assert_eq!(
+        entry.run(&mut exec, &mut b, Call::batch(8)).unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
-    assert_eq!(sink.sorted(), vec![vec![blocks * PER_BLOCK]], "every row counted");
+    assert_eq!(
+        sink.sorted(),
+        vec![vec![blocks * PER_BLOCK]],
+        "every row counted"
+    );
     assert_eq!(DEPOT.stats().entries, 1, "the set parks");
     drop(entry);
     memledger::unbind_backend();
@@ -184,7 +235,10 @@ fn park_then_trim(a: u32, c: u32, claim: u64) -> (i64, u64, i64) {
     let acct = Acct::backend(c);
     let c0 = bytes(acct);
     let (f0, b0) = memledger::floored();
-    assert!(DEPOT.trim_for(usize::MAX) > 0, "the trim drops the parked set");
+    assert!(
+        DEPOT.trim_for(usize::MAX) > 0,
+        "the trim drops the parked set"
+    );
     assert_eq!(DEPOT.stats().entries, 0);
     let c1 = bytes(acct);
     let (f1, b1) = memledger::floored();
@@ -193,7 +247,8 @@ fn park_then_trim(a: u32, c: u32, claim: u64) -> (i64, u64, i64) {
 }
 
 #[test]
-fn a_parked_sets_lists_leave_with_their_statement_and_its_drop_on_another_backend_frees_none_of_them() {
+fn a_parked_sets_lists_leave_with_their_statement_and_its_drop_on_another_backend_frees_none_of_them(
+) {
     std::thread::spawn(|| {
         DEPOT.clear();
         memledger::set_floor(true);

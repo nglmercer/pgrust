@@ -37,7 +37,13 @@ fn a_bundle_ending_in_c_takes_the_next_word_as_the_command() {
 
 #[test]
 fn a_bundle_ending_in_c_takes_the_rest_of_the_word_as_the_command() {
-    let (rc, _, err) = psql(&["-Atcselect 1", &format!("-h{NOSOCK}"), "-p1", "--", "postgres"]);
+    let (rc, _, err) = psql(&[
+        "-Atcselect 1",
+        &format!("-h{NOSOCK}"),
+        "-p1",
+        "--",
+        "postgres",
+    ]);
     assert!(!err.contains("option"), "command line refused: {err}");
     assert_eq!(rc, 2, "expected a connect failure, stderr: {err}");
 }
@@ -46,5 +52,8 @@ fn a_bundle_ending_in_c_takes_the_rest_of_the_word_as_the_command() {
 fn an_unknown_short_option_in_a_bundle_is_refused_as_c_does() {
     let (rc, _, err) = psql(&["-AZ", "-c", "select 1"]);
     assert_eq!(rc, 1);
-    assert!(err.starts_with("psql: invalid option -- 'Z'\n"), "stderr: {err}");
+    assert!(
+        err.starts_with("psql: invalid option -- 'Z'\n"),
+        "stderr: {err}"
+    );
 }

@@ -434,8 +434,7 @@ fn FindLockCycleRecurseMember(
                 lastGroupMember = checkProc;
             } else {
                 lock::wq_foreach(lock, |other| {
-                    if GetPGProcByNumber(other).lockGroupLeader.load(Relaxed) == checkProcLeader
-                    {
+                    if GetPGProcByNumber(other).lockGroupLeader.load(Relaxed) == checkProcLeader {
                         lastGroupMember = other;
                     }
                     true
@@ -618,7 +617,10 @@ pub fn DeadLockReport() -> PgResult<()> {
     let details: Vec<DeadLockInfo> = WORKSPACE.with(|w| {
         let ws = w.borrow();
         let ws = ws.as_ref().expect("InitDeadLockChecking not run");
-        ::mcx::std_vec_from_slice("DeadLockReport", &ws.deadlockDetails[..ws.nDeadlockDetails as usize])
+        ::mcx::std_vec_from_slice(
+            "DeadLockReport",
+            &ws.deadlockDetails[..ws.nDeadlockDetails as usize],
+        )
     })?;
     let n = details.len();
 
@@ -636,7 +638,10 @@ pub fn DeadLockReport() -> PgResult<()> {
         clientbuf.push_str(&format!(
             "Process {} waits for {} on {}; blocked by process {}.",
             info.pid,
-            lock::GetLockmodeName(info.locktag.locktag_lockmethodid as LOCKMETHODID, info.lockmode),
+            lock::GetLockmodeName(
+                info.locktag.locktag_lockmethodid as LOCKMETHODID,
+                info.lockmode
+            ),
             locktag_desc,
             nextpid
         ));

@@ -1,17 +1,23 @@
-use gravity_abi::PtrWord;
-use gravity_abi::ctx::{hdr, lane};
-use gravity_abi::{Ctx, Lane, Site};
-use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::breaker::{HashAgg, RecordLayout, SlotKind};
+use gravity_abi::ctx::{hdr, lane};
+use gravity_abi::status::{DONE, ERROR};
+use gravity_abi::PtrWord;
+use gravity_abi::{Ctx, Lane, Site};
 
-use crate::util::{advance, done, emit, end, int4_of, int8_datum, lane, partial, range_seek, row_valid, site as site_of, Cell};
+use crate::util::{
+    advance, done, emit, end, int4_of, int8_datum, lane, partial, range_seek, row_valid,
+    site as site_of, Cell,
+};
 use crate::{Touch, SITE_EXEC_CELLS};
 
 pub const THR_PARAM: usize = 0;
 /// The plain aggregate's record: no keys, one `Count` slot (16 B; a one-record table).
 pub const LAYOUT: RecordLayout = RecordLayout::new(&[], &[SlotKind::Count]);
 pub const BYTES: u32 = HashAgg::bytes(&LAYOUT, 1);
-pub const TOUCH: Touch = Touch { hdr: &[hdr::RESUME], sites: &[(0, SITE_EXEC_CELLS)] };
+pub const TOUCH: Touch = Touch {
+    hdr: &[hdr::RESUME],
+    sites: &[(0, SITE_EXEC_CELLS)],
+};
 
 /// # Safety
 /// `ctx` is laid out per `programs::par_scan_count` with `partial` at a one-record table of `LAYOUT`.
@@ -35,7 +41,11 @@ pub unsafe extern "C-unwind" fn par_scan_count(ctx: *mut Ctx) -> i64 {
                 (end(s) - s.cursor) as i64
             } else {
                 let l = lane(s, 0);
-                if l.flags & lane::VERDICT_MASK == lane::VERDICT_ALL_MATCH { (end(s) - s.cursor) as i64 } else { crate::by_width!(l.width, count_lt(s, l, thr)) }
+                if l.flags & lane::VERDICT_MASK == lane::VERDICT_ALL_MATCH {
+                    (end(s) - s.cursor) as i64
+                } else {
+                    crate::by_width!(l.width, count_lt(s, l, thr))
+                }
             };
             agg.add_count(0, hits);
             s.rows_out += hits as u64;
@@ -53,7 +63,11 @@ unsafe fn count_lt<T: Cell>(s: &Site, l: &Lane, thr: i32) -> i64 {
         if l.valid.ptr().is_null() {
             return vals.iter().filter(|x| x.i32() < thr).count() as i64;
         }
-        return vals.iter().enumerate().map(|(i, x)| (row_valid(l.valid.ptr(), from + i) && x.i32() < thr) as i64).sum();
+        return vals
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (row_valid(l.valid.ptr(), from + i) && x.i32() < thr) as i64)
+            .sum();
     }
     let mut c = 0i64;
     for j in s.cursor..s.sel_n {

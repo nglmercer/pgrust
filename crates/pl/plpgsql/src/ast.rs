@@ -488,8 +488,12 @@ pub fn stmt_typename(s: &PlStmt) -> &'static str {
         PlStmt::Call { is_call: false, .. } => "DO",
         PlStmt::Commit { .. } => "COMMIT",
         PlStmt::Rollback { .. } => "ROLLBACK",
-        PlStmt::GetDiag { is_stacked: false, .. } => "GET DIAGNOSTICS",
-        PlStmt::GetDiag { is_stacked: true, .. } => "GET STACKED DIAGNOSTICS",
+        PlStmt::GetDiag {
+            is_stacked: false, ..
+        } => "GET DIAGNOSTICS",
+        PlStmt::GetDiag {
+            is_stacked: true, ..
+        } => "GET STACKED DIAGNOSTICS",
         PlStmt::DynExecute { .. } => "EXECUTE",
         PlStmt::ReturnNext { .. } => "RETURN NEXT",
         PlStmt::ReturnQuery { .. } => "RETURN QUERY",
@@ -508,7 +512,10 @@ pub fn stmt_typename(s: &PlStmt) -> &'static str {
 pub enum FnTrigger {
     NotTrigger,
     DmlTrigger,
-    EventTrigger { tg_event_varno: Dno, tg_tag_varno: Dno },
+    EventTrigger {
+        tg_event_varno: Dno,
+        tg_tag_varno: Dno,
+    },
 }
 
 // PLpgSQL_function (phase-1 fields).

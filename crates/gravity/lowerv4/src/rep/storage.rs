@@ -16,12 +16,19 @@ pub(crate) struct Storage {
 
 /// `get_typlenbyvalalign(t)`; the catalog's error for a type it does not know.
 pub(crate) fn of<'m>(catalog: &dyn Catalog<'m>, t: u32) -> PgResult<Storage> {
-    catalog.type_facts(t).map(|f| Storage { len: f.len, byval: f.byval, align: f.align })
+    catalog.type_facts(t).map(|f| Storage {
+        len: f.len,
+        byval: f.byval,
+        align: f.align,
+    })
 }
 
 /// A value of `t` is a whole row: RECORD, or a composite type once its domains are stripped (PostgreSQL's
 /// `type_is_rowtype`: `getBaseType`, then `typtype` 'c'). A type the catalog does not know is none.
 pub(crate) fn whole_row<'m>(catalog: &dyn Catalog<'m>, t: u32) -> bool {
     let base = catalog.base_type(t, &mut -1).unwrap_or(t);
-    base == RECORDOID || catalog.type_facts(base).is_ok_and(|f| f.typtype == b'c' as i8)
+    base == RECORDOID
+        || catalog
+            .type_facts(base)
+            .is_ok_and(|f| f.typtype == b'c' as i8)
 }

@@ -1,9 +1,13 @@
 //! Every fold here merges as `Rec::fold` does: a table folds byte for byte as `HashAgg::fold_run` folds it.
+use super::fold_jit;
 use crate::ops::sort::topn::t3::{Plan, NPARAMS};
 use crate::ops::sort::topn::t3_dense::{Area, Dense, AREA_PAIRS, AREA_SHIFT};
-use gravity_abi::breaker::{float8_pl, prefetch_read, Candidates, HashAgg, Rec, RecordLayout, SlotKind, SubSplit, FOLD_OVERFLOW, FOLD_PF, LAYOUT_IMPLICIT_COUNT, LAYOUT_KEY_TIES, MAX_RECORD_KEYS, MAX_RECORD_SLOTS, MOVING};
+use gravity_abi::breaker::{
+    float8_pl, prefetch_read, Candidates, HashAgg, Rec, RecordLayout, SlotKind, SubSplit,
+    FOLD_OVERFLOW, FOLD_PF, LAYOUT_IMPLICIT_COUNT, LAYOUT_KEY_TIES, MAX_RECORD_KEYS,
+    MAX_RECORD_SLOTS, MOVING,
+};
 use gravity_abi::hash::KeyHash;
-use super::fold_jit;
 
 /// `k`: an add's source mask; an extreme's order key (the source wins where `s ^ k < d ^ k`); a float sum's 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +42,12 @@ impl Fold {
     /// `None` where a merge reads across slots (`LAYOUT_KEY_TIES`, a hosted state) or the layout is wide.
     pub fn of(l: &RecordLayout) -> Option<Fold> {
         let (nw, ns) = (l.nkeys(), l.nslots());
-        if l.is_wide() || l.flags & LAYOUT_KEY_TIES != 0 || nw == 0 || nw > MAX_RECORD_KEYS || ns > MAX_RECORD_SLOTS {
+        if l.is_wide()
+            || l.flags & LAYOUT_KEY_TIES != 0
+            || nw == 0
+            || nw > MAX_RECORD_KEYS
+            || ns > MAX_RECORD_SLOTS
+        {
             return None;
         }
         let implicit = l.flags & LAYOUT_IMPLICIT_COUNT != 0;
@@ -58,9 +67,15 @@ impl Fold {
         };
         for j in 0..ns {
             let off = l.slot_off(j);
-            let op = |off: u32, k: u64| Op { off, j: j as u32, k };
+            let op = |off: u32, k: u64| Op {
+                off,
+                j: j as u32,
+                k,
+            };
             match l.slot_kind(j) {
-                SlotKind::Count if implicit && off == l.sentinel_off() => f.implicit = Some(op(off, 0)),
+                SlotKind::Count if implicit && off == l.sentinel_off() => {
+                    f.implicit = Some(op(off, 0))
+                }
                 SlotKind::Count => f.push(0, op(off, !MOVING)),
                 SlotKind::SumI64 => f.push(0, op(off, !0)),
                 SlotKind::SumI128 => f.push(1, op(off, 0)),
@@ -100,7 +115,8 @@ impl Fold {
     /// The zero key's word sits past the table's last identity, inside the record space (`8 * nw + 8` bytes a record).
     fn ident(l: &RecordLayout) -> Option<(usize, usize, usize)> {
         let nw = l.nkeys();
-        let fits = !l.is_wide() && (1..=MAX_RECORD_KEYS).contains(&nw) && l.size() as usize >= 8 * nw + 8;
+        let fits =
+            !l.is_wide() && (1..=MAX_RECORD_KEYS).contains(&nw) && l.size() as usize >= 8 * nw + 8;
         fits.then(|| (nw, l.partition_keys(), l.size() as usize))
     }
 
@@ -225,12 +241,21 @@ impl Fold {
     /// Out of line: one copy for every key word count.
     #[inline(never)]
     unsafe fn slot(&self, j: usize, dst: *mut u8, src: *const u8) -> bool {
-        Rec::at(dst, &self.layout).fold_slot(j, &Rec::at(src as *mut u8, &self.layout)).is_ok()
+        Rec::at(dst, &self.layout)
+            .fold_slot(j, &Rec::at(src as *mut u8, &self.layout))
+            .is_ok()
     }
 
     /// # Safety
     /// `FoldFn`'s contract.
-    pub unsafe fn run(&self, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates) -> i64 {
+    pub unsafe fn run(
+        &self,
+        t: *mut HashAgg,
+        recs: *const u8,
+        nrecs: usize,
+        split: SubSplit,
+        cand: *mut Candidates,
+    ) -> i64 {
         match self.nw {
             1 => run::<1>(t, recs, nrecs, split, cand, self),
             2 => run::<2>(t, recs, nrecs, split, cand, self),
@@ -243,7 +268,14 @@ impl Fold {
         }
     }
 
-    unsafe fn run_ident<H: IdentHook>(&self, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, hook: &H) -> i64 {
+    unsafe fn run_ident<H: IdentHook>(
+        &self,
+        t: *mut HashAgg,
+        recs: *const u8,
+        nrecs: usize,
+        split: SubSplit,
+        hook: &H,
+    ) -> i64 {
         debug_assert_eq!(self.nw, 2, "the dense hook's pair");
         run_ident::<2, H>(t, recs, nrecs, split, hook, self)
     }
@@ -251,7 +283,10 @@ impl Fold {
 
 #[inline(always)]
 unsafe fn words(o: &Op, dst: *mut u8, src: *const u8) -> (*mut u64, *const u64) {
-    (dst.add(o.off as usize) as *mut u64, src.add(o.off as usize) as *const u64)
+    (
+        dst.add(o.off as usize) as *mut u64,
+        src.add(o.off as usize) as *const u64,
+    )
 }
 
 #[inline(always)]
@@ -263,7 +298,8 @@ unsafe fn add(o: &Op, dst: *mut u8, src: *const u8) {
 #[inline(always)]
 unsafe fn wide(o: &Op, dst: *mut u8, src: *const u8) {
     let (d, s) = words(o, dst, src);
-    let v = ((*d as u128) | (*d.add(1) as u128) << 64).wrapping_add((*s as u128) | (*s.add(1) as u128) << 64);
+    let v = ((*d as u128) | (*d.add(1) as u128) << 64)
+        .wrapping_add((*s as u128) | (*s.add(1) as u128) << 64);
     *d = v as u64;
     *d.add(1) = (v >> 64) as u64;
 }
@@ -303,7 +339,11 @@ unsafe fn hash<const NW: usize>(p: *const u8) -> KeyHash {
 
 #[inline(always)]
 unsafe fn route<const NW: usize>(h: KeyHash, src: *const u8, pw: usize) -> KeyHash {
-    if pw == NW { h } else { KeyHash::of(core::slice::from_raw_parts(src as *const u64, pw)) }
+    if pw == NW {
+        h
+    } else {
+        KeyHash::of(core::slice::from_raw_parts(src as *const u64, pw))
+    }
 }
 
 #[inline(always)]
@@ -354,7 +394,14 @@ pub(crate) const fn full_at(cap: u32) -> u32 {
 /// and folds (`note`) at the insert, while the record is in L1. The first `quiet` records insert without a note.
 /// A full table returns the fill at the record it met (`filled`); nothing is unwound: the finer re-read of the
 /// same stream keeps the records before that position quiet.
-unsafe fn run_ident<const NW: usize, H: IdentHook>(t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, hook: &H, f: &Fold) -> i64 {
+unsafe fn run_ident<const NW: usize, H: IdentHook>(
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    hook: &H,
+    f: &Fold,
+) -> i64 {
     let (rec, pw) = (f.rec, f.pw);
     let base = (*t).base_ptr();
     let mask = (*t).cap as usize - 1;
@@ -458,7 +505,14 @@ impl IdentHook for Riding<'_> {
     }
 }
 
-unsafe fn run<const NW: usize>(t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates, f: &Fold) -> i64 {
+unsafe fn run<const NW: usize>(
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    cand: *mut Candidates,
+    f: &Fold,
+) -> i64 {
     let (rec, sent, pw) = (f.rec, f.sent, f.pw);
     let base = (*t).base_ptr();
     let mask = (*t).cap as usize - 1;
@@ -566,7 +620,14 @@ macro_rules! by_width {
 /// table holds identities — `NW` words per slot at a stride of `8 * NW`, an all-zero slot empty; the all-zero key is
 /// the word past the last slot (`Fold::ident`) and counts in `len` without a slot. The fill protocol is `run_ident`'s.
 #[inline(never)]
-unsafe fn run_plain<const NW: usize, const FULL: bool>(t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, rec: usize, pw: usize) -> i64 {
+unsafe fn run_plain<const NW: usize, const FULL: bool>(
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    rec: usize,
+    pw: usize,
+) -> i64 {
     let base = (*t).base_ptr();
     let cap = (*t).cap as usize;
     let mask = cap - 1;
@@ -625,7 +686,13 @@ unsafe fn run_plain<const NW: usize, const FULL: bool>(t: *mut HashAgg, recs: *c
 /// and each next slice's head when the cursor enters a slice.
 /// Perf: out of line; inlined into `ident_iov`'s dispatch the loops reload the table's bounds from the stack (+10 %).
 #[inline(never)]
-unsafe fn run_plain_iov<const NW: usize, const FULL: bool>(t: *mut HashAgg, sl: &[(*const u8, usize)], stride: usize, split: SubSplit, pw: usize) -> i64 {
+unsafe fn run_plain_iov<const NW: usize, const FULL: bool>(
+    t: *mut HashAgg,
+    sl: &[(*const u8, usize)],
+    stride: usize,
+    split: SubSplit,
+    pw: usize,
+) -> i64 {
     let base = (*t).base_ptr();
     let cap = (*t).cap as usize;
     let mask = cap - 1;
@@ -722,7 +789,12 @@ pub type IovRunFn = unsafe fn(*mut HashAgg, &[(*const u8, usize)], usize, SubSpl
 /// `-1 - folded` on a full table, or `FOLD_OVERFLOW` where the generic fold raises one (`FoldFn`'s contract).
 /// # Safety
 /// Each slice holds whole records of `stride >= 8 * nkeys` bytes, read-only for the call; `t` is the owner's live table.
-pub unsafe fn ident_iov(t: *mut HashAgg, sl: &[(*const u8, usize)], stride: usize, split: SubSplit) -> i64 {
+pub unsafe fn ident_iov(
+    t: *mut HashAgg,
+    sl: &[(*const u8, usize)],
+    stride: usize,
+    split: SubSplit,
+) -> i64 {
     if let Some((nw, pw, _)) = Fold::ident(&(*t).layout) {
         return by_width!(run_plain_iov, nw, pw == nw, (t, sl, stride, split, pw));
     }
@@ -736,7 +808,10 @@ pub unsafe fn ident_iov(t: *mut HashAgg, sl: &[(*const u8, usize)], stride: usiz
         for i in 0..n {
             let r = Rec::at(img.as_mut_ptr() as *mut u8, &l);
             r.clear();
-            r.open(core::slice::from_raw_parts(p.add(i * stride) as *const u64, nk));
+            r.open(core::slice::from_raw_parts(
+                p.add(i * stride) as *const u64,
+                nk,
+            ));
             let v = (*t).fold_run(img.as_ptr() as *const u8, 1, split, &mut cand);
             if v == FOLD_OVERFLOW {
                 return v;
@@ -764,7 +839,15 @@ pub fn dense_folds(l: &RecordLayout) -> bool {
 
 /// # Safety
 /// `FoldFn`'s contract; `area` laid over the owner's region for this table.
-pub unsafe fn area_fold(t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, area: &Area, f: &Fold, r: usize) -> i64 {
+pub unsafe fn area_fold(
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    area: &Area,
+    f: &Fold,
+    r: usize,
+) -> i64 {
     f.run_ident(t, recs, nrecs, split, &Riding { area, r })
 }
 
@@ -774,7 +857,14 @@ pub unsafe fn area_fold(t: *mut HashAgg, recs: *const u8, nrecs: usize, split: S
 /// `Fills` keep the records noted before the fill quiet on the re-read.
 /// # Safety
 /// `FoldFn`'s contract.
-pub unsafe fn owner_fold_dense(params: *const u64, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates) -> i64 {
+pub unsafe fn owner_fold_dense(
+    params: *const u64,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    cand: *mut Candidates,
+) -> i64 {
     if let Some(mut d) = Dense::at_table(params, t) {
         if let Some(f) = Fold::dense(&(*t).layout) {
             let mut fill = 0u64;
@@ -784,31 +874,47 @@ pub unsafe fn owner_fold_dense(params: *const u64, t: *mut HashAgg, recs: *const
             return v;
         }
     }
-    if plain_owner(params, t)
-        && Fold::ident(&(*t).layout).is_some() {
-            return owner_fold_ident(params, t, recs, nrecs, split, cand);
+    if plain_owner(params, t) && Fold::ident(&(*t).layout).is_some() {
+        return owner_fold_ident(params, t, recs, nrecs, split, cand);
     }
     owner_fold(params, t, recs, nrecs, split, cand)
 }
 
 /// The hand plan's `count(DISTINCT x)` alone over its pair table: `distinct_reduce` sums `len`, nothing reads the slots.
 unsafe fn plain_owner(params: *const u64, t: *const HashAgg) -> bool {
-    Plan::from_words(core::slice::from_raw_parts(params, NPARAMS)).is_some_and(|pl| pl.nkeys == 1 && !pl.gmark && !pl.two_pass && (*t).layout == pl.layout())
+    Plan::from_words(core::slice::from_raw_parts(params, NPARAMS))
+        .is_some_and(|pl| pl.nkeys == 1 && !pl.gmark && !pl.two_pass && (*t).layout == pl.layout())
 }
 
 /// `OwnerFns.fold` of exec's plain distinct owner (`owner.rs` `ident_form`: the reduce reads `len`): the pair
 /// table's identity fold, else `owner_fold`.
 /// # Safety
 /// `FoldFn`'s contract.
-pub unsafe fn owner_fold_ident(params: *const u64, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates) -> i64 {
-    let Some((nw, pw, rec)) = Fold::ident(&(*t).layout) else { return owner_fold(params, t, recs, nrecs, split, cand) };
+pub unsafe fn owner_fold_ident(
+    params: *const u64,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    cand: *mut Candidates,
+) -> i64 {
+    let Some((nw, pw, rec)) = Fold::ident(&(*t).layout) else {
+        return owner_fold(params, t, recs, nrecs, split, cand);
+    };
     by_width!(run_plain, nw, pw == nw, (t, recs, nrecs, split, rec, pw))
 }
 
 /// `OwnerFns.fold`. The compiled fold has no split filter: a sub-split takes the counted loops.
 /// # Safety
 /// `FoldFn`'s contract.
-pub unsafe fn owner_fold(_params: *const u64, t: *mut HashAgg, recs: *const u8, nrecs: usize, split: SubSplit, cand: *mut Candidates) -> i64 {
+pub unsafe fn owner_fold(
+    _params: *const u64,
+    t: *mut HashAgg,
+    recs: *const u8,
+    nrecs: usize,
+    split: SubSplit,
+    cand: *mut Candidates,
+) -> i64 {
     let key = fold_jit::key(&(*t).layout);
     if split.depth == 0 {
         if let Some((_pin, e)) = fold_jit::find(&key).and_then(|p| p.entry().map(|e| (p, e))) {
@@ -816,14 +922,21 @@ pub unsafe fn owner_fold(_params: *const u64, t: *mut HashAgg, recs: *const u8, 
         }
     }
     match Fold::of(&(*t).layout) {
-        Some(f) if split.depth == 0 => match fold_jit::get(&f, &key).and_then(|p| p.entry().map(|e| (p, e))) {
-            Some((_pin, e)) => fold_jit::run(e, t, recs, nrecs, cand),
-            None => f.run(t, recs, nrecs, split, cand),
-        },
-        Some(f) => f.run(t, recs, nrecs, split, cand),
-        None if crate::ops::agg::trans::hosted::handle_slot(&(*t).layout).is_some() => {
-            (*t).fold_run_with(recs, nrecs, split, &mut *cand, &mut crate::ops::agg::trans::hosted::owner_combine)
+        Some(f) if split.depth == 0 => {
+            match fold_jit::get(&f, &key).and_then(|p| p.entry().map(|e| (p, e))) {
+                Some((_pin, e)) => fold_jit::run(e, t, recs, nrecs, cand),
+                None => f.run(t, recs, nrecs, split, cand),
+            }
         }
+        Some(f) => f.run(t, recs, nrecs, split, cand),
+        None if crate::ops::agg::trans::hosted::handle_slot(&(*t).layout).is_some() => (*t)
+            .fold_run_with(
+                recs,
+                nrecs,
+                split,
+                &mut *cand,
+                &mut crate::ops::agg::trans::hosted::owner_combine,
+            ),
         None => (*t).fold_run(recs, nrecs, split, &mut *cand),
     }
 }

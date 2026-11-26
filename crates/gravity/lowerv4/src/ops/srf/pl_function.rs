@@ -19,24 +19,57 @@ use gravity_decompose::ops::shared::srf::SrfPlace;
 use gravity_decompose::Op;
 use mcx::PgBox;
 
+use crate::admit::refusal::Reason;
 use crate::face::kinds::KindId;
 use crate::face::step::StepMech;
 use crate::frame::frame::StepMaker;
 use crate::frame::px::Px;
-use crate::admit::refusal::Reason;
 use crate::ops::Table;
 
 use crate::ops::srf::function_store::store_step;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrfPl, &StepMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrfPl, &StepMaker(make))],
+    ..crate::ops::NONE
+};
 
 fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
-    let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id);
-    let Op::Srf(d) = &p.ops[j] else { crate::refuse!(node, Reason::Bug { payload: "a srf.pl step over another op" }) };
-    let SrfPlace::From { scanrelid, ordinality } = d.place else { crate::refuse!(node, Reason::Bug { payload: "a target-list set as srf.pl" }) };
+    let node = p
+        .node_ops
+        .iter()
+        .rev()
+        .find(|n| n.first_op as usize <= j)
+        .map_or(p.node_id, |n| n.node_id);
+    let Op::Srf(d) = &p.ops[j] else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a srf.pl step over another op"
+            }
+        )
+    };
+    let SrfPlace::From {
+        scanrelid,
+        ordinality,
+    } = d.place
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "a target-list set as srf.pl"
+            }
+        )
+    };
     let ex = crate::frame::iface::expr_face(&node).0;
     let ncols = d.functions.iter().map(|f| f.cols as usize).sum::<usize>() + ordinality as usize;
-    store_step(px, ex, (k, j), d, (scanrelid as i32, ordinality, ncols), node)
+    store_step(
+        px,
+        ex,
+        (k, j),
+        d,
+        (scanrelid as i32, ordinality, ncols),
+        node,
+    )
 }

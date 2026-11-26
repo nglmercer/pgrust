@@ -7,11 +7,9 @@ use lwlock::{
 };
 use types_core::{BlockNumber, Buffer, BufferIsValid, XLogRecPtr, BLCKSZ};
 use types_error::{ErrorLocation, PgResult, ERROR};
-use types_storage::buf::{
-    buftag, BM_DIRTY, BM_JUST_DIRTIED, BM_LOCKED, BM_PIN_COUNT_WAITER,
-};
-use types_storage::storage::ProcSignalReason;
+use types_storage::buf::{buftag, BM_DIRTY, BM_JUST_DIRTIED, BM_LOCKED, BM_PIN_COUNT_WAITER};
 use types_storage::bufpage::PageRef;
+use types_storage::storage::ProcSignalReason;
 
 use crate::buf_hdr::{
     BufferDesc, BufferGetBlockPtr, GetBufferDescriptor, LockBufHdr, UnlockBufHdr,
@@ -121,7 +119,11 @@ pub fn LockBufferForCleanup(buffer: Buffer) -> PgResult<()> {
                     ERROR,
                     "multiple backends attempting to wait for pincount 1",
                 )
-                .with_error_location(ErrorLocation::new(file!(), line!() as i32, "LockBufferForCleanup")),
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "LockBufferForCleanup",
+                )),
             ));
         }
         // SAFETY: header lock held.
@@ -357,4 +359,3 @@ pub fn overwrite_buffer_page(buffer: Buffer, page: &[u8]) {
     // SAFETY: pinned + caller holds the exclusive content lock during redo.
     unsafe { core::ptr::copy_nonoverlapping(page.as_ptr(), p, page.len()) };
 }
-

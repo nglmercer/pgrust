@@ -1,5 +1,7 @@
 use gravity_abi::ctx::site_ptr;
-use gravity_abi::status::{WRITE_CONFLICT, WRITE_DONE, WRITE_NOT_MATCHED, WRITE_RECHECK, WRITE_SKIPPED, WRITE_SUBPLAN};
+use gravity_abi::status::{
+    WRITE_CONFLICT, WRITE_DONE, WRITE_NOT_MATCHED, WRITE_RECHECK, WRITE_SKIPPED, WRITE_SUBPLAN,
+};
 use gravity_abi::Ctx;
 
 use super::{fail, guarded, inner_of};

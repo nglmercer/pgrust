@@ -160,8 +160,17 @@ impl Counters {
 fn counters_of(t: &TreeStats) -> Counters {
     let total = t.arena_footprint.max(t.used);
     let free = t.free_bytes.min(total);
-    let nblocks = if t.kind == "Slab" { t.nblocks } else { t.nblocks.max(1) };
-    Counters { nblocks, freechunks: t.free_chunks, totalspace: total, freespace: free }
+    let nblocks = if t.kind == "Slab" {
+        t.nblocks
+    } else {
+        t.nblocks.max(1)
+    };
+    Counters {
+        nblocks,
+        freechunks: t.free_chunks,
+        totalspace: total,
+        freespace: free,
+    }
 }
 
 /// Each allocator's stats string (aset.c:1596, generation.c:1076, slab.c:978,
@@ -241,7 +250,15 @@ fn stats_internal(
     let mut shown = 0;
     if level <= max_level && !stack_depth_core::stack_is_too_deep() {
         for child in t.children.iter().take(max_children) {
-            stats_internal(child, level + 1, max_level, max_children, totals, print_to_stderr, emit)?;
+            stats_internal(
+                child,
+                level + 1,
+                max_level,
+                max_children,
+                totals,
+                print_to_stderr,
+                emit,
+            )?;
             shown += 1;
         }
     }
@@ -444,8 +461,7 @@ mod tests {
         let _kid = a.new_child("kid");
         {
             let _b = mcx::MemoryContext::new_bump("root-b");
-            let names: Vec<_> =
-                backend_context_forest().iter().map(|t| t.name).collect();
+            let names: Vec<_> = backend_context_forest().iter().map(|t| t.name).collect();
             assert!(names.contains(&"root-a") && names.contains(&"root-b"));
         }
         let forest = backend_context_forest();
@@ -461,12 +477,21 @@ mod tests {
         let _top = mcx::MemoryContext::new("TopMemoryContext");
         let _other = mcx::MemoryContext::new("tree-other");
         let tree = backend_context_tree();
-        assert_eq!(tree.len(), 1, "one level-1 context, as C's TopMemoryContext");
+        assert_eq!(
+            tree.len(),
+            1,
+            "one level-1 context, as C's TopMemoryContext"
+        );
         assert_eq!(tree[0].name, "TopMemoryContext");
         assert!(tree[0].children.iter().any(|t| t.name == "tree-other"));
     }
 
-    fn node(name: &'static str, ident: Option<&str>, used: usize, children: Vec<TreeStats>) -> TreeStats {
+    fn node(
+        name: &'static str,
+        ident: Option<&str>,
+        used: usize,
+        children: Vec<TreeStats>,
+    ) -> TreeStats {
         TreeStats {
             name,
             ident: ident.map(String::from),
@@ -486,14 +511,28 @@ mod tests {
         }
     }
 
-    fn dump(root: &TreeStats, max_level: usize, max_children: usize, to_stderr: bool) -> (Vec<String>, Counters) {
+    fn dump(
+        root: &TreeStats,
+        max_level: usize,
+        max_children: usize,
+        to_stderr: bool,
+    ) -> (Vec<String>, Counters) {
         let mut lines = Vec::new();
         let mut totals = Counters::default();
         let mut emit = |l: String| {
             lines.push(l);
             Ok(())
         };
-        stats_internal(root, 1, max_level, max_children, &mut totals, to_stderr, &mut emit).unwrap();
+        stats_internal(
+            root,
+            1,
+            max_level,
+            max_children,
+            &mut totals,
+            to_stderr,
+            &mut emit,
+        )
+        .unwrap();
         (lines, totals)
     }
 
@@ -505,9 +544,15 @@ mod tests {
         let t = node("PortalContext", Some("<unnamed>"), 392, vec![]);
         let (lines, totals) = dump(&t, 100, 100, false);
         assert_eq!(lines, ["level: 1; PortalContext: 400 total in 1 blocks; 8 free (0 chunks); 392 used: <unnamed>"]);
-        assert_eq!(grand_total_line(&totals), "Grand total: 400 bytes in 1 blocks; 8 free (0 chunks); 392 used");
+        assert_eq!(
+            grand_total_line(&totals),
+            "Grand total: 400 bytes in 1 blocks; 8 free (0 chunks); 392 used"
+        );
         let (lines, _) = dump(&node("TopMemoryContext", None, 10, vec![]), 100, 100, false);
-        assert_eq!(lines, ["level: 1; TopMemoryContext: 18 total in 1 blocks; 8 free (0 chunks); 10 used"]);
+        assert_eq!(
+            lines,
+            ["level: 1; TopMemoryContext: 18 total in 1 blocks; 8 free (0 chunks); 10 used"]
+        );
     }
 
     // mcxt.c:1018: a dynahash context is labelled by its table name alone.
@@ -515,7 +560,10 @@ mod tests {
     fn dynahash_context_is_relabelled_by_its_ident() {
         let t = node("dynahash", Some("Prepared Queries"), 100, vec![]);
         let (lines, _) = dump(&t, 100, 100, false);
-        assert_eq!(lines, ["level: 1; Prepared Queries: 108 total in 1 blocks; 8 free (0 chunks); 100 used"]);
+        assert_eq!(
+            lines,
+            ["level: 1; Prepared Queries: 108 total in 1 blocks; 8 free (0 chunks); 100 used"]
+        );
     }
 
     // mcxt.c:1027-1048: clip at 100 bytes on a character boundary + "...",
@@ -523,23 +571,57 @@ mod tests {
     #[test]
     fn ident_is_clipped_and_scrubbed() {
         let long = format!("PREPARE p AS SELECT '{}'", "a".repeat(120));
-        let (lines, _) = dump(&node("CachedPlanSource", Some(&long), 1, vec![]), 100, 100, false);
+        let (lines, _) = dump(
+            &node("CachedPlanSource", Some(&long), 1, vec![]),
+            100,
+            100,
+            false,
+        );
         let expect = format!(": {}...", &long[..100]);
         assert!(lines[0].ends_with(&expect), "{}", lines[0]);
-        assert_eq!(lines[0].len(), "level: 1; CachedPlanSource: 9 total in 1 blocks; 8 free (0 chunks); 1 used".len() + 2 + 100 + 3);
+        assert_eq!(
+            lines[0].len(),
+            "level: 1; CachedPlanSource: 9 total in 1 blocks; 8 free (0 chunks); 1 used".len()
+                + 2
+                + 100
+                + 3
+        );
 
         // byte 100 falls inside a 3-byte character: clip before it (pg_mbcliplen)
         let mb = format!("{}€€", "x".repeat(99));
-        let (lines, _) = dump(&node("CachedPlanSource", Some(&mb), 1, vec![]), 100, 100, false);
-        assert!(lines[0].ends_with(&format!(": {}...", "x".repeat(99))), "{}", lines[0]);
+        let (lines, _) = dump(
+            &node("CachedPlanSource", Some(&mb), 1, vec![]),
+            100,
+            100,
+            false,
+        );
+        assert!(
+            lines[0].ends_with(&format!(": {}...", "x".repeat(99))),
+            "{}",
+            lines[0]
+        );
 
         let multi = "PREPARE q AS SELECT 1,\n2;\ttab\r";
-        let (lines, _) = dump(&node("CachedPlanSource", Some(multi), 1, vec![]), 100, 100, false);
-        assert!(lines[0].ends_with(": PREPARE q AS SELECT 1, 2; tab "), "{}", lines[0]);
+        let (lines, _) = dump(
+            &node("CachedPlanSource", Some(multi), 1, vec![]),
+            100,
+            100,
+            false,
+        );
+        assert!(
+            lines[0].ends_with(": PREPARE q AS SELECT 1, 2; tab "),
+            "{}",
+            lines[0]
+        );
 
         // exactly 100 bytes is not truncated
         let exact = "y".repeat(100);
-        let (lines, _) = dump(&node("CachedPlanSource", Some(&exact), 1, vec![]), 100, 100, false);
+        let (lines, _) = dump(
+            &node("CachedPlanSource", Some(&exact), 1, vec![]),
+            100,
+            100,
+            false,
+        );
         assert!(lines[0].ends_with(&format!(": {exact}")) && !lines[0].ends_with("..."));
     }
 
@@ -548,24 +630,60 @@ mod tests {
     #[test]
     fn extra_children_are_summarized_with_totals() {
         let kids: Vec<TreeStats> = (0..5)
-            .map(|i| node("CachedPlanSource", None, 10 * (i + 1), vec![node("CachedPlanQuery", None, 1, vec![])]))
+            .map(|i| {
+                node(
+                    "CachedPlanSource",
+                    None,
+                    10 * (i + 1),
+                    vec![node("CachedPlanQuery", None, 1, vec![])],
+                )
+            })
             .collect();
         let t = node("Prepared Queries", None, 100, kids);
         let (lines, totals) = dump(&t, 100, 2, false);
         assert_eq!(lines.len(), 1 + 2 * 2 + 1);
-        assert_eq!(lines[1], "level: 2; CachedPlanSource: 18 total in 1 blocks; 8 free (0 chunks); 10 used");
-        assert_eq!(lines[2], "level: 3; CachedPlanQuery: 9 total in 1 blocks; 8 free (0 chunks); 1 used");
+        assert_eq!(
+            lines[1],
+            "level: 2; CachedPlanSource: 18 total in 1 blocks; 8 free (0 chunks); 10 used"
+        );
+        assert_eq!(
+            lines[2],
+            "level: 3; CachedPlanQuery: 9 total in 1 blocks; 8 free (0 chunks); 1 used"
+        );
         // 3 unshown children + 3 grandchildren = 6 contexts;
         // totals 38+48+58 + 3*9 = 171, 6 blocks, 48 free
         assert_eq!(lines[5], "level: 1; 6 more child contexts containing 171 total in 6 blocks; 48 free (0 chunks); 123 used");
-        assert_eq!(totals, Counters { nblocks: 1 + 4 + 6, freechunks: 0, totalspace: 108 + 18 + 9 + 28 + 9 + 171, freespace: 8 * 11 });
+        assert_eq!(
+            totals,
+            Counters {
+                nblocks: 1 + 4 + 6,
+                freechunks: 0,
+                totalspace: 108 + 18 + 9 + 28 + 9 + 171,
+                freespace: 8 * 11
+            }
+        );
     }
 
     // mcxt.c:905: `level <= max_level` gates the recursion; deeper levels
     // are summarized, never printed.
     #[test]
     fn depth_beyond_max_level_is_summarized() {
-        let chain = node("l1", None, 1, vec![node("l2", None, 2, vec![node("l3", None, 3, vec![node("l4", None, 4, vec![node("l5", None, 5, vec![])])])])]);
+        let chain = node(
+            "l1",
+            None,
+            1,
+            vec![node(
+                "l2",
+                None,
+                2,
+                vec![node(
+                    "l3",
+                    None,
+                    3,
+                    vec![node("l4", None, 4, vec![node("l5", None, 5, vec![])])],
+                )],
+            )],
+        );
         let (lines, _) = dump(&chain, 2, 100, false);
         assert_eq!(
             lines,
@@ -583,7 +701,10 @@ mod tests {
         }
         let (lines, _) = dump(&deep, 100, 100, false);
         assert_eq!(lines.len(), 102);
-        assert_eq!(lines[100], "level: 101; n: 9 total in 1 blocks; 8 free (0 chunks); 1 used");
+        assert_eq!(
+            lines[100],
+            "level: 101; n: 9 total in 1 blocks; 8 free (0 chunks); 1 used"
+        );
         assert_eq!(lines[101], "level: 101; 4 more child contexts containing 36 total in 4 blocks; 32 free (0 chunks); 4 used");
     }
 
@@ -591,7 +712,17 @@ mod tests {
     // two-space indentation per level instead of "level: N; ".
     #[test]
     fn stderr_shape_indents_by_level() {
-        let t = node("TopMemoryContext", None, 1, vec![node("dynahash", Some("Prepared Queries"), 2, vec![node("a", None, 3, vec![]), node("b", None, 3, vec![])])]);
+        let t = node(
+            "TopMemoryContext",
+            None,
+            1,
+            vec![node(
+                "dynahash",
+                Some("Prepared Queries"),
+                2,
+                vec![node("a", None, 3, vec![]), node("b", None, 3, vec![])],
+            )],
+        );
         let (lines, _) = dump(&t, 100, 1, true);
         assert_eq!(
             lines,
@@ -614,7 +745,10 @@ mod tests {
         t.nblocks = 0;
         t.free_bytes = 0;
         let (lines, _) = dump(&t, 100, 100, false);
-        assert_eq!(lines[0], "level: 1; node48: 0 total in 0 blocks; 0 empty blocks; 0 free (0 chunks); 0 used");
+        assert_eq!(
+            lines[0],
+            "level: 1; node48: 0 total in 0 blocks; 0 empty blocks; 0 free (0 chunks); 0 used"
+        );
         t.arena_footprint = 3 * 8192;
         t.used = 3 * 8192;
         t.nblocks = 1;
@@ -630,10 +764,27 @@ mod tests {
 
     #[test]
     fn stats_string_follows_each_allocator() {
-        let c = Counters { nblocks: 2, freechunks: 0, totalspace: 100, freespace: 40 };
-        assert_eq!(stats_string("AllocSet", &c, 0), "100 total in 2 blocks; 40 free (0 chunks); 60 used");
-        assert_eq!(stats_string("Generation", &c, 0), "100 total in 2 blocks (0 chunks); 40 free (0 chunks); 60 used");
-        assert_eq!(stats_string("Slab", &c, 3), "100 total in 2 blocks; 3 empty blocks; 40 free (0 chunks); 60 used");
-        assert_eq!(stats_string("Bump", &c, 0), "100 total in 2 blocks; 40 free; 60 used");
+        let c = Counters {
+            nblocks: 2,
+            freechunks: 0,
+            totalspace: 100,
+            freespace: 40,
+        };
+        assert_eq!(
+            stats_string("AllocSet", &c, 0),
+            "100 total in 2 blocks; 40 free (0 chunks); 60 used"
+        );
+        assert_eq!(
+            stats_string("Generation", &c, 0),
+            "100 total in 2 blocks (0 chunks); 40 free (0 chunks); 60 used"
+        );
+        assert_eq!(
+            stats_string("Slab", &c, 3),
+            "100 total in 2 blocks; 3 empty blocks; 40 free (0 chunks); 60 used"
+        );
+        assert_eq!(
+            stats_string("Bump", &c, 0),
+            "100 total in 2 blocks; 40 free; 60 used"
+        );
     }
 }

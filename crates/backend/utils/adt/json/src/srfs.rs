@@ -31,12 +31,14 @@ fn admit<T>(rows: &mut Vec<T>) -> PgResult<()> {
     if n >= 256 && n.is_power_of_two() {
         ::mcx::check_alloc_size(n.saturating_mul(2 * core::mem::size_of::<*const u8>()))?;
     }
-    rows.try_reserve(1).map_err(|_| ::mcx::oom_named("json SRF", core::mem::size_of::<T>()).into())
+    rows.try_reserve(1)
+        .map_err(|_| ::mcx::oom_named("json SRF", core::mem::size_of::<T>()).into())
 }
 
 fn owned(b: &[u8]) -> PgResult<Vec<u8>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(b.len()).map_err(|_| ::mcx::oom_named("json SRF", b.len()))?;
+    v.try_reserve_exact(b.len())
+        .map_err(|_| ::mcx::oom_named("json SRF", b.len()))?;
     v.extend_from_slice(b);
     Ok(v)
 }
@@ -63,11 +65,13 @@ pub(crate) fn srf_drive(
         .expect("user_fctx is SrfRows");
     let mcx = fcinfo.result_mcx();
     let out: Option<Option<Datum>> = match rows {
-        SrfRows::Texts(v) => v.get(idx).map(|r| r.as_ref().map(|bytes|
+        SrfRows::Texts(v) => v.get(idx).map(|r| {
+            r.as_ref().map(|bytes| {
                 varlena::cstring_to_text(mcx, bytes)
                     .map(varlena_result)
                     .expect("text result")
-            )),
+            })
+        }),
         SrfRows::Tuples(v) => v
             .get(idx)
             .map(|img| Some(byref_result(mcx, img).expect("tuple result"))),
@@ -132,7 +136,10 @@ pub fn object_keys_rows(mcx: Mcx<'_>, json: &[u8]) -> PgResult<SrfRows> {
 // path, pgrust main), or owned values collected for the Gravity SRF cells (each_pairs / elements_rows).
 #[allow(clippy::large_enum_variant)]
 enum RowSink<'a, 'mcx, T> {
-    Srf { sink: &'a mut MaterializedSRF<'mcx>, tmp_cxt: MemoryContext },
+    Srf {
+        sink: &'a mut MaterializedSRF<'mcx>,
+        tmp_cxt: MemoryContext,
+    },
     Collect(Vec<T>),
 }
 
@@ -260,7 +267,11 @@ pub(crate) fn each_worker(
 /// C: each_worker's parse — the (key, value) pairs before they are formed into rows (the
 /// value bytes are the raw json text, or the normalized string / None for a null when `as_text`).
 /// The Gravity json_each cell's entry (gravity_fn srf.rs).
-pub fn each_pairs(mcx: Mcx<'_>, json: &[u8], as_text: bool) -> PgResult<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
+pub fn each_pairs(
+    mcx: Mcx<'_>,
+    json: &[u8],
+    as_text: bool,
+) -> PgResult<Vec<(Vec<u8>, Option<Vec<u8>>)>> {
     let mut lex = JsonLexDe::new(mcx, json, mbutils::GetDatabaseEncoding());
     let mut state = EachState {
         input: json,
@@ -271,7 +282,9 @@ pub fn each_pairs(mcx: Mcx<'_>, json: &[u8], as_text: bool) -> PgResult<Vec<(Vec
         out: RowSink::Collect(Vec::new()),
     };
     parse_sem_or_ereport(&mut lex, &mut state)?;
-    let RowSink::Collect(pairs) = state.out else { unreachable!("collect sink") };
+    let RowSink::Collect(pairs) = state.out else {
+        unreachable!("collect sink")
+    };
     Ok(pairs)
 }
 
@@ -375,8 +388,7 @@ pub(crate) fn elements_worker(
         // SAFETY: catalog arg 0 is a non-null json varlena (strict fn).
         let json = unsafe { fcinfo.arg_varlena_packed(0)? };
         let json = json.data();
-        let mut lex =
-            JsonLexDe::with_escapes(mcx, json, mbutils::GetDatabaseEncoding(), as_text);
+        let mut lex = JsonLexDe::with_escapes(mcx, json, mbutils::GetDatabaseEncoding(), as_text);
         let mut state = ElementsState {
             input: json,
             function_name,
@@ -386,7 +398,9 @@ pub(crate) fn elements_worker(
             result_start: 0,
             out: RowSink::Srf {
                 sink: &mut srf,
-                tmp_cxt: mcx.context().new_child_wholesale("json_array_elements temporary cxt"),
+                tmp_cxt: mcx
+                    .context()
+                    .new_child_wholesale("json_array_elements temporary cxt"),
             },
         };
         parse_sem_or_ereport(&mut lex, &mut state)?;
@@ -413,7 +427,9 @@ pub fn elements_rows(
         out: RowSink::Collect(Vec::new()),
     };
     parse_sem_or_ereport(&mut lex, &mut state)?;
-    let RowSink::Collect(rows) = state.out else { unreachable!("collect sink") };
+    let RowSink::Collect(rows) = state.out else {
+        unreachable!("collect sink")
+    };
     Ok(SrfRows::Texts(rows))
 }
 

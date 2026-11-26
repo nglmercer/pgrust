@@ -84,7 +84,15 @@ pub const UNSUPPORTED_DOMAIN: u8 = 6;
 /// region's, and a sort that spilled too many runs printed the out region's text.
 pub const UNSUPPORTED_SPILL: u8 = 7;
 /// D1493: every kind by its name, one entry each: no two kinds share a number (`glue::unsupported_message` names each).
-pub const UNSUPPORTED_KINDS: [(u8, &str); 7] = [(UNSUPPORTED_SHAPE, "shape"), (UNSUPPORTED_SCRATCH, "scratch"), (UNSUPPORTED_NULL_KEY, "null_key"), (UNSUPPORTED_ON_WORKER, "on_worker"), (UNSUPPORTED_OUT_REGION, "out_region"), (UNSUPPORTED_DOMAIN, "domain"), (UNSUPPORTED_SPILL, "spill")];
+pub const UNSUPPORTED_KINDS: [(u8, &str); 7] = [
+    (UNSUPPORTED_SHAPE, "shape"),
+    (UNSUPPORTED_SCRATCH, "scratch"),
+    (UNSUPPORTED_NULL_KEY, "null_key"),
+    (UNSUPPORTED_ON_WORKER, "on_worker"),
+    (UNSUPPORTED_OUT_REGION, "out_region"),
+    (UNSUPPORTED_DOMAIN, "domain"),
+    (UNSUPPORTED_SPILL, "spill"),
+];
 
 /// `write` / `lock` values; `WRITE_CONFLICT` = ON CONFLICT DO UPDATE's locked row, its cells in the conflict site (the write site's successor).
 pub const WRITE_SKIPPED: i64 = 0;
@@ -124,7 +132,11 @@ pub const FAULT_PART_BITS: u32 = 15;
 const FAULT_PART_SHIFT: u32 = 24 + FAULT_CODE_BITS;
 const _: () = assert!(FAULT_PART_SHIFT + FAULT_PART_BITS <= 63);
 pub const fn fault_at(site: u8, lane: u8, code: u32, part: u32) -> i64 {
-    -((-FAULT) | ((site as i64) << 8) | ((lane as i64) << 16) | ((code as i64 & ((1 << FAULT_CODE_BITS) - 1)) << 24) | ((part as i64 & ((1 << FAULT_PART_BITS) - 1)) << FAULT_PART_SHIFT))
+    -((-FAULT)
+        | ((site as i64) << 8)
+        | ((lane as i64) << 16)
+        | ((code as i64 & ((1 << FAULT_CODE_BITS) - 1)) << 24)
+        | ((part as i64 & ((1 << FAULT_PART_BITS) - 1)) << FAULT_PART_SHIFT))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,13 +146,28 @@ pub enum Status {
     Cancelled,
     Error,
     /// `ERROR` with a raise mask (`raised`): `raise::first(mask)` is the error reported.
-    Raised { mask: u64 },
-    Suspend { out_full: bool },
-    Recheck { site: u8 },
+    Raised {
+        mask: u64,
+    },
+    Suspend {
+        out_full: bool,
+    },
+    Recheck {
+        site: u8,
+    },
     /// D824: the lazy build the pipeline's `consumed`-th slot names must run before the stopped call resumes.
-    BuildWait { consumed: u8 },
-    Unsupported { kind: u8 },
-    Fault { site: u8, lane: u8, code: u32, part: u32 },
+    BuildWait {
+        consumed: u8,
+    },
+    Unsupported {
+        kind: u8,
+    },
+    Fault {
+        site: u8,
+        lane: u8,
+        code: u32,
+        part: u32,
+    },
     Bad(i64),
 }
 
@@ -154,12 +181,27 @@ impl Status {
             STOP if payload == 0 => Status::Stop,
             CANCELLED if payload == 0 => Status::Cancelled,
             ERROR if payload == 0 => Status::Error,
-            ERROR => Status::Raised { mask: payload as u64 },
-            SUSPEND if payload <= 1 => Status::Suspend { out_full: payload == 1 },
-            RECHECK if payload < 256 => Status::Recheck { site: payload as u8 },
-            BUILD_WAIT if payload < 256 => Status::BuildWait { consumed: payload as u8 },
-            UNSUPPORTED if payload < 256 => Status::Unsupported { kind: payload as u8 },
-            FAULT => Status::Fault { site: payload as u8, lane: (payload >> 8) as u8, code: (payload >> 16) as u32 & ((1 << FAULT_CODE_BITS) - 1), part: (payload >> (FAULT_PART_SHIFT - 8)) as u32 & ((1 << FAULT_PART_BITS) - 1) },
+            ERROR => Status::Raised {
+                mask: payload as u64,
+            },
+            SUSPEND if payload <= 1 => Status::Suspend {
+                out_full: payload == 1,
+            },
+            RECHECK if payload < 256 => Status::Recheck {
+                site: payload as u8,
+            },
+            BUILD_WAIT if payload < 256 => Status::BuildWait {
+                consumed: payload as u8,
+            },
+            UNSUPPORTED if payload < 256 => Status::Unsupported {
+                kind: payload as u8,
+            },
+            FAULT => Status::Fault {
+                site: payload as u8,
+                lane: (payload >> 8) as u8,
+                code: (payload >> 16) as u32 & ((1 << FAULT_CODE_BITS) - 1),
+                part: (payload >> (FAULT_PART_SHIFT - 8)) as u32 & ((1 << FAULT_PART_BITS) - 1),
+            },
             _ => Status::Bad(v),
         }
     }
@@ -175,7 +217,12 @@ impl Status {
             Status::Recheck { site } => recheck(site as usize),
             Status::BuildWait { consumed } => build_wait(consumed),
             Status::Unsupported { kind } => unsupported(kind),
-            Status::Fault { site, lane, code, part } => fault_at(site, lane, code, part),
+            Status::Fault {
+                site,
+                lane,
+                code,
+                part,
+            } => fault_at(site, lane, code, part),
             Status::Bad(v) => v,
         }
     }
@@ -213,7 +260,8 @@ pub mod unwind {
     /// this one: the kernels' `contract::entryN::<H>` and `guard!`, the driver's `hostimpl::guarded`.
     #[inline(always)]
     pub fn pad<T>(body: impl FnOnce() -> T) -> Option<T> {
-        match std::panic::catch_unwind(core::panic::AssertUnwindSafe(body)) { // unwind-ok: c-callback
+        match std::panic::catch_unwind(core::panic::AssertUnwindSafe(body)) {
+            // unwind-ok: c-callback
             Ok(v) => Some(v),
             Err(payload) => {
                 park(payload);

@@ -12,8 +12,8 @@
 //! PGRUST_GRAVITY_REPORT, the one knob that prints the line); off, a fetch costs one thread-local read and a lowering none.
 use core::cell::{Cell, RefCell};
 
-use crate::face::kinds::KindSet;
 use crate::admit::refusal::Variant;
+use crate::face::kinds::KindSet;
 
 /// The record's own bit (no kind has id 127): set by every lowering that ran with the record on. A program lowered with
 /// the record off (0) is unknown to the line (`kinds=?`), never "no kind" (main 09-29: the program cache is process-wide,
@@ -111,7 +111,13 @@ pub fn used_scope<R>(f: impl FnOnce() -> R) -> (R, u128) {
     }
     let _back = Back(USED.with(|u| core::mem::replace(&mut *u.borrow_mut(), [0; 128])));
     let r = f();
-    let used = USED.with(|u| u.borrow().iter().enumerate().filter(|c| *c.1 > 0).fold(RECORDED, |s, (i, _)| s | 1u128 << i));
+    let used = USED.with(|u| {
+        u.borrow()
+            .iter()
+            .enumerate()
+            .filter(|c| *c.1 > 0)
+            .fold(RECORDED, |s, (i, _)| s | 1u128 << i)
+    });
     (r, used)
 }
 
@@ -122,7 +128,11 @@ pub fn used_names(used: u128) -> String {
         return "?".to_string(); // alloc: Cold
     }
     let v: Vec<&'static str> = KindSet(used & !RECORDED).iter().map(|k| k.name()).collect(); // alloc: Cold
-    if v.is_empty() { "-".to_string() } else { v.join(",") } // alloc: Cold
+    if v.is_empty() {
+        "-".to_string()
+    } else {
+        v.join(",")
+    } // alloc: Cold
 }
 
 #[cfg(test)]
@@ -163,10 +173,12 @@ mod tests {
             declined(SORT); // one face handed over, the other made the sort
             let ((), inner) = used_scope(|| fetched(INNER));
             assert_eq!(used_names(inner), "join.inner");
-            let unwound = std::panic::catch_unwind(|| used_scope(|| {
-                fetched(TOPK);
-                panic!("a refusal")
-            }));
+            let unwound = std::panic::catch_unwind(|| {
+                used_scope(|| {
+                    fetched(TOPK);
+                    panic!("a refusal")
+                })
+            });
             assert!(unwound.is_err());
             fetched(Variant::Kind(KindId::SrcPgrc));
         });
@@ -177,13 +189,22 @@ mod tests {
 
     #[test]
     fn no_kind_takes_the_record_bit() {
-        assert!(crate::face::kinds::KINDS.iter().all(|d| (d.id as u32) < 127), "a kind at id 127 would read as the record bit");
+        assert!(
+            crate::face::kinds::KINDS
+                .iter()
+                .all(|d| (d.id as u32) < 127),
+            "a kind at id 127 would read as the record bit"
+        );
     }
 
     #[test]
     fn off_by_default_and_off_records_nothing() {
         let ((), used) = used_scope(|| fetched(SORT));
-        assert_eq!((used, used_names(used).as_str()), (0, "?"), "a thread that never switched the record on");
+        assert_eq!(
+            (used, used_names(used).as_str()),
+            (0, "?"),
+            "a thread that never switched the record on"
+        );
         record(true);
         record(false);
         let ((), used) = used_scope(|| {

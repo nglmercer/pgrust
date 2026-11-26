@@ -17,8 +17,12 @@ use gravity_abi::ctx::site_ptr;
 use gravity_abi::site::{next, seek, site};
 use gravity_abi::status::{DONE, ERROR};
 use gravity_abi::{Ctx, MorselRange};
-use gravity_driver::{Call, Claimed, Entry, Grant, Merge, Partial, Result, State, Step, SHARE_FLOOR};
-use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};
+use gravity_driver::{
+    Call, Claimed, Entry, Grant, Merge, Partial, Result, State, Step, SHARE_FLOOR,
+};
+use gravity_program::{
+    Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan,
+};
 
 const PER_BLOCK: u64 = 64;
 /// A claim's blocks: 128 rows of 16 bytes, well under the 64 KiB share floor: the workers never grow.
@@ -82,8 +86,14 @@ unsafe extern "C-unwind" fn k_grow(ctx: *mut Ctx) -> i64 {
 unsafe fn totals(p: *const u8) -> [u64; 4] {
     let h = &*(p as *const GrowHdr);
     let len = h.limit as u64;
-    let head = (GROW_HDR..h.head).step_by(8).map(|o| *(p.add(o as usize) as *const u64)).sum::<u64>();
-    let tail = (len - h.tail..len).step_by(8).map(|o| !*(p.add(o as usize) as *const u64)).sum::<u64>();
+    let head = (GROW_HDR..h.head)
+        .step_by(8)
+        .map(|o| *(p.add(o as usize) as *const u64))
+        .sum::<u64>();
+    let tail = (len - h.tail..len)
+        .step_by(8)
+        .map(|o| !*(p.add(o as usize) as *const u64))
+        .sum::<u64>();
     [h.count, h.sum, head, tail]
 }
 
@@ -129,10 +139,42 @@ unsafe extern "C-unwind" fn k_emit(ctx: *mut Ctx) -> i64 {
 fn program() -> Program {
     let st = Arena::new(1 << 12);
     let sites = [SiteDesc::range_source(st.handle(), 2001, &[1, 2])];
-    let out = [OutCol::new("count", 20, -1, 8, true), OutCol::new("sum", 20, -1, 8, true), OutCol::new("head", 20, -1, 8, true), OutCol::new("tail", 20, -1, 8, true)];
-    let breaker = Breaker { kind: BreakerKind::HashBuild, slot: 0, bytes: 0, budget: Budget::Share, spill: Spill::None };
-    let pipes = [(Pipeline::eligible(0, End::Breaker(breaker), 1000), Code::hand(k_grow)), (Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite), Code::hand(k_emit))];
-    Program::with_pipelines(Layout { nsites: 1, out_natts: 4, out_rows: 8, scratch_bytes: 0, exec_bytes: 0 }, &sites, &out, WritePlan::SELECT, pipes)
+    let out = [
+        OutCol::new("count", 20, -1, 8, true),
+        OutCol::new("sum", 20, -1, 8, true),
+        OutCol::new("head", 20, -1, 8, true),
+        OutCol::new("tail", 20, -1, 8, true),
+    ];
+    let breaker = Breaker {
+        kind: BreakerKind::HashBuild,
+        slot: 0,
+        bytes: 0,
+        budget: Budget::Share,
+        spill: Spill::None,
+    };
+    let pipes = [
+        (
+            Pipeline::eligible(0, End::Breaker(breaker), 1000),
+            Code::hand(k_grow),
+        ),
+        (
+            Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+            Code::hand(k_emit),
+        ),
+    ];
+    Program::with_pipelines(
+        Layout {
+            nsites: 1,
+            out_natts: 4,
+            out_rows: 8,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        },
+        &sites,
+        &out,
+        WritePlan::SELECT,
+        pipes,
+    )
 }
 
 #[test]
@@ -144,21 +186,44 @@ fn the_leader_grown_by_every_fold_of_one_close_grows_through_a_fresh_home() {
     let flag = AtomicU8::new(0);
     let mut sink = LegSink::new();
     let mut b = binding(&[0], &NULLS, &mut sink, &flag);
-    let mut exec = entry.start(None, &program, &mut derive, &mut b, lease(Grant::of(1))).unwrap();
-    let open = entry.open_section(&mut exec, &b, &mut derive, 0, WIDTH).unwrap();
+    let mut exec = entry
+        .start(None, &program, &mut derive, &mut b, lease(Grant::of(1)))
+        .unwrap();
+    let open = entry
+        .open_section(&mut exec, &b, &mut derive, 0, WIDTH)
+        .unwrap();
     for c in 0..CLAIMS {
         let lo = c * CLAIM;
-        assert_eq!(open.run_claim(c as u16, MorselRange::new(lo, lo + CLAIM)).unwrap(), Claimed::Done, "claim {c}");
+        assert_eq!(
+            open.run_claim(c as u16, MorselRange::new(lo, lo + CLAIM))
+                .unwrap(),
+            Claimed::Done,
+            "claim {c}"
+        );
     }
     for o in 0..WIDTH {
-        assert!(open.partial(o).bytes.len() <= SHARE_FLOOR as usize, "worker {o}'s partial stayed in its share");
+        assert!(
+            open.partial(o).bytes.len() <= SHARE_FLOOR as usize,
+            "worker {o}'s partial stayed in its share"
+        );
     }
     let merge = GrowMerge(AtomicU32::new(0));
     entry.close_section(open, &mut b, &merge, true).unwrap();
-    assert_eq!(merge.0.load(Ordering::Relaxed), WIDTH as u32, "the leader grew at every fold");
-    assert_eq!(entry.run(&mut exec, &mut b, Call::batch(8)).unwrap(), Step::Done);
+    assert_eq!(
+        merge.0.load(Ordering::Relaxed),
+        WIDTH as u32,
+        "the leader grew at every fold"
+    );
+    assert_eq!(
+        entry.run(&mut exec, &mut b, Call::batch(8)).unwrap(),
+        Step::Done
+    );
     entry.end(exec, true);
     let rows = BLOCKS * PER_BLOCK;
     let sum = rows * (rows - 1) / 2;
-    assert_eq!(sink.sorted(), vec![vec![rows, sum, sum, sum]], "every partial's totals in the grown leader");
+    assert_eq!(
+        sink.sorted(),
+        vec![vec![rows, sum, sum, sum]],
+        "every partial's totals in the grown leader"
+    );
 }

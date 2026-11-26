@@ -23,7 +23,11 @@ pub fn pg_check_dir(dir: &Path) -> i32 {
                     return 4;
                 }
             }
-            if mount_found { result = 3; } else if dot_found { result = 2; }
+            if mount_found {
+                result = 3;
+            } else if dot_found {
+                result = 2;
+            }
             result
         }
     }
@@ -31,7 +35,10 @@ pub fn pg_check_dir(dir: &Path) -> i32 {
 
 pub fn mkdir_p(path: &Path, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new().recursive(true).mode(mode).create(path)
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(mode)
+        .create(path)
 }
 
 pub fn mkdir(path: &Path, mode: u32) -> std::io::Result<()> {
@@ -46,7 +53,9 @@ pub fn chmod(path: &Path, mode: u32) -> std::io::Result<()> {
 
 fn fsync_fname(path: &Path, isdir: bool) {
     use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return };
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return;
+    };
     let flags = if isdir { libc::O_RDONLY } else { libc::O_RDWR };
     // SAFETY: NUL-terminated path; fd owned here.
     unsafe {
@@ -55,7 +64,11 @@ fn fsync_fname(path: &Path, isdir: bool) {
             return;
         }
         if libc::fsync(fd) != 0 {
-            eprintln!("initdb: warning: could not fsync file \"{}\": {}", path.display(), std::io::Error::last_os_error());
+            eprintln!(
+                "initdb: warning: could not fsync file \"{}\": {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            );
         }
         libc::close(fd);
     }

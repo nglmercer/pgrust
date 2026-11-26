@@ -23,11 +23,38 @@ pub fn order_free(g: &GroupDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::agg::FinalForm;
     use gravity_decompose::ops::shared::agg_class::Class::*;
     use gravity_decompose::ops::shared::agg_class::{Ext, Mods};
-    let exact = |c| matches!(c, CountStar | CountAny | CountPair | SumI64 | SumI128 | SumNum | AvgI128 | AvgNum | BoolAnd | BoolOr | BitI64(_))
-        || matches!(c, Min(Ext::Int | Ext::U64 | Ext::Tid) | Max(Ext::Int | Ext::U64 | Ext::Tid));
+    let exact = |c| {
+        matches!(
+            c,
+            CountStar
+                | CountAny
+                | CountPair
+                | SumI64
+                | SumI128
+                | SumNum
+                | AvgI128
+                | AvgNum
+                | BoolAnd
+                | BoolOr
+                | BitI64(_)
+        ) || matches!(
+            c,
+            Min(Ext::Int | Ext::U64 | Ext::Tid) | Max(Ext::Int | Ext::U64 | Ext::Tid)
+        )
+    };
     let home = |d: &gravity_decompose::ops::shared::agg::AggDecl<'_>| {
         let pair = matches!(d.final_, FinalForm::PairCount | FinalForm::PairFold);
-        order::order_free(d.class, &if pair { Mods { distinct: 0, ..d.mods } } else { d.mods })
+        order::order_free(
+            d.class,
+            &if pair {
+                Mods {
+                    distinct: 0,
+                    ..d.mods
+                }
+            } else {
+                d.mods
+            },
+        )
     };
     let kept = g.form == GroupForm::Plain && g.empty_no_row && !g.pinned.is_empty();
     !kept && g.aggs.iter().all(|d| exact(d.class) || home(d))
@@ -48,9 +75,13 @@ pub fn walk_free(g: &GroupDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::agg_class::Class::*;
     use gravity_decompose::ops::shared::agg_class::Ext;
     let member = |d: &gravity_decompose::ops::shared::agg::AggDecl<'_>| match d.class {
-        Min(Ext::Text | Ext::Bytes) | Max(Ext::Text | Ext::Bytes) => d.coll.bytes_eq && args_one_image(d.fnoid),
+        Min(Ext::Text | Ext::Bytes) | Max(Ext::Text | Ext::Bytes) => {
+            d.coll.bytes_eq && args_one_image(d.fnoid)
+        }
         Min(Ext::Opaque) | Max(Ext::Opaque) if args_one_image(d.fnoid) => true,
-        Min(Ext::Num | Ext::Opaque) | Max(Ext::Num | Ext::Opaque) => matches!(d.reg, Register::MinNum | Register::MaxNum),
+        Min(Ext::Num | Ext::Opaque) | Max(Ext::Num | Ext::Opaque) => {
+            matches!(d.reg, Register::MinNum | Register::MaxNum)
+        }
         _ => true,
     };
     // the group's equality is its image's: the datum's bits, or a text / byte string's bytes (the key's image:
@@ -67,7 +98,24 @@ pub fn walk_free(g: &GroupDecl<'_>) -> bool {
 /// licence but rounds by its input order, and PostgreSQL's hashed Agg feeds each group its rows in the seq scan's order.
 pub fn bits_free(g: &GroupDecl<'_>) -> bool {
     use gravity_decompose::ops::shared::agg_class::Class::*;
-    g.aggs.iter().all(|d| matches!(d.class, CountStar | CountAny | CountPair | SumI64 | SumI128 | SumNum | AvgI128 | AvgNum | BoolAnd | BoolOr | BitI64(_) | Min(_) | Max(_)))
+    g.aggs.iter().all(|d| {
+        matches!(
+            d.class,
+            CountStar
+                | CountAny
+                | CountPair
+                | SumI64
+                | SumI128
+                | SumNum
+                | AvgI128
+                | AvgNum
+                | BoolAnd
+                | BoolOr
+                | BitI64(_)
+                | Min(_)
+                | Max(_)
+        )
+    })
 }
 
 /// An opaque min / max whose argument types typesem calls one image (inet / cidr, enum, timetz): a tie's member prints
@@ -80,7 +128,9 @@ pub fn one_image_extremum(d: &gravity_decompose::ops::shared::agg::AggDecl<'_>) 
 /// OID-23: whether every argument type of built-in aggregate `fnoid` has one image per equal value (typesem `one_image`:
 /// text, bytea; not bpchar, whose trailing blanks compare equal). A user aggregate has no row and fails closed.
 pub(crate) fn args_one_image(fnoid: u32) -> bool {
-    gravity_fn::typesem::args_one_image(gravity_decompose::ops::agg::trans::table::row(fnoid).map(|r| r.args))
+    gravity_fn::typesem::args_one_image(
+        gravity_decompose::ops::agg::trans::table::row(fnoid).map(|r| r.args),
+    )
 }
 
 #[cfg(test)]

@@ -156,11 +156,14 @@ fn code(text: &str) -> String {
 
 fn reads(text: &str) -> usize {
     let t = code(text);
-    t.match_indices("constvalue").filter(|(i, _)| {
-        let before = t[..*i].chars().next_back();
-        let after = t[i + "constvalue".len()..].chars().next();
-        !before.is_some_and(|c| c.is_alphanumeric() || c == '_') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
-    }).count()
+    t.match_indices("constvalue")
+        .filter(|(i, _)| {
+            let before = t[..*i].chars().next_back();
+            let after = t[i + "constvalue".len()..].chars().next();
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+        .count()
 }
 
 fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -180,7 +183,10 @@ fn source_lints_live_in_gravity_lint() {
     let root = gravity();
     let mut stray = Vec::new();
     for e in std::fs::read_dir(&root).into_iter().flatten().flatten() {
-        let (krate, tests) = (e.file_name().to_string_lossy().into_owned(), e.path().join("tests"));
+        let (krate, tests) = (
+            e.file_name().to_string_lossy().into_owned(),
+            e.path().join("tests"),
+        );
         if krate == "lint" {
             continue;
         }
@@ -203,13 +209,30 @@ fn every_bake_read_is_listed_with_its_by_value_class() {
         rs_files(&root.join(krate).join("src"), &mut files);
         for f in files {
             let t = code(&std::fs::read_to_string(&f).unwrap());
-            let n = t.match_indices("bake::read(").filter(|(i, _)| !t[..*i].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_')).count();
+            let n = t
+                .match_indices("bake::read(")
+                .filter(|(i, _)| {
+                    !t[..*i]
+                        .chars()
+                        .next_back()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                })
+                .count();
             if n > 0 {
-                found.insert(f.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"), n);
+                found.insert(
+                    f.strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    n,
+                );
             }
         }
     }
-    let listed: BTreeMap<String, (usize, &ByValue)> = DECIDES.iter().map(|(f, n, c, _)| (f.to_string(), (*n, c))).collect();
+    let listed: BTreeMap<String, (usize, &ByValue)> = DECIDES
+        .iter()
+        .map(|(f, n, c, _)| (f.to_string(), (*n, c)))
+        .collect();
     let mut bad = Vec::new();
     for (f, n) in found.iter() {
         match listed.get(f) {
@@ -220,10 +243,17 @@ fn every_bake_read_is_listed_with_its_by_value_class() {
     }
     for (f, (m, c)) in listed.iter() {
         if !found.contains_key(f) {
-            bad.push(format!("{f}: listed with {m} calls ({c:?}), has none (remove the row)"));
+            bad.push(format!(
+                "{f}: listed with {m} calls ({c:?}), has none (remove the row)"
+            ));
         }
     }
-    assert!(bad.is_empty(), "{} bake-read findings:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} bake-read findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 #[test]
@@ -236,11 +266,18 @@ fn every_plan_const_value_read_is_the_bake_accessor_or_listed() {
         for f in files {
             let n = reads(&std::fs::read_to_string(&f).unwrap());
             if n > 0 {
-                found.insert(f.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/"), n);
+                found.insert(
+                    f.strip_prefix(&root)
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    n,
+                );
             }
         }
     }
-    let listed: BTreeMap<String, usize> = READS.iter().map(|(f, n, _)| (f.to_string(), *n)).collect();
+    let listed: BTreeMap<String, usize> =
+        READS.iter().map(|(f, n, _)| (f.to_string(), *n)).collect();
     let mut bad = Vec::new();
     for (f, n) in found.iter() {
         match listed.get(f) {
@@ -251,10 +288,17 @@ fn every_plan_const_value_read_is_the_bake_accessor_or_listed() {
     }
     for (f, m) in listed.iter() {
         if !found.contains_key(f) {
-            bad.push(format!("{f}: listed with {m} reads, has none (remove the row)"));
+            bad.push(format!(
+                "{f}: listed with {m} reads, has none (remove the row)"
+            ));
         }
     }
-    assert!(bad.is_empty(), "{} bake-lint findings:\n{}", bad.len(), bad.join("\n"));
+    assert!(
+        bad.is_empty(),
+        "{} bake-lint findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }
 
 /// Per file under every gravity crate's src whose code names `ConstNode` or `ExprNode::Const`: its `.read()` +
@@ -270,8 +314,15 @@ fn ir_calls(root: &Path) -> (BTreeMap<String, usize>, BTreeMap<String, usize>) {
         if !t.contains("ConstNode") && !t.contains("ExprNode::Const") {
             continue;
         }
-        let name = f.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
-        let (r, w) = (t.matches(".read()").count() + t.matches(".fields()").count(), t.matches(".need()").count() + t.matches(".list()").count());
+        let name = f
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let (r, w) = (
+            t.matches(".read()").count() + t.matches(".fields()").count(),
+            t.matches(".need()").count() + t.matches(".list()").count(),
+        );
         if r > 0 {
             reads.insert(name.clone(), r);
         }
@@ -287,7 +338,9 @@ fn ir_calls(root: &Path) -> (BTreeMap<String, usize>, BTreeMap<String, usize>) {
 fn every_ir_const_read_is_listed_with_its_by_value_class() {
     let (reads, words) = ir_calls(&gravity());
     let mut bad = Vec::new();
-    let mut check = |what: &str, found: &BTreeMap<String, usize>, listed: BTreeMap<String, usize>| {
+    let mut check = |what: &str,
+                     found: &BTreeMap<String, usize>,
+                     listed: BTreeMap<String, usize>| {
         for (f, n) in found.iter() {
             match listed.get(f) {
                 None => bad.push(format!("{f}: {n} {what} call(s) not listed: a by-value word read there is logged nowhere, so list its class and why")),
@@ -297,11 +350,32 @@ fn every_ir_const_read_is_listed_with_its_by_value_class() {
         }
         for (f, m) in listed.iter() {
             if !found.contains_key(f) {
-                bad.push(format!("{f}: listed with {m} {what} calls, has none (remove the row)"));
+                bad.push(format!(
+                    "{f}: listed with {m} {what} calls, has none (remove the row)"
+                ));
             }
         }
     };
-    check("`.read()` / `.fields()`", &reads, IR_READS.iter().map(|(f, n, _, _)| (f.to_string(), *n)).collect());
-    check("`.need()` / `.list()`", &words, IR_WORDS.iter().map(|(f, n, _)| (f.to_string(), *n)).collect());
-    assert!(bad.is_empty(), "{} IR Const read findings:\n{}", bad.len(), bad.join("\n"));
+    check(
+        "`.read()` / `.fields()`",
+        &reads,
+        IR_READS
+            .iter()
+            .map(|(f, n, _, _)| (f.to_string(), *n))
+            .collect(),
+    );
+    check(
+        "`.need()` / `.list()`",
+        &words,
+        IR_WORDS
+            .iter()
+            .map(|(f, n, _)| (f.to_string(), *n))
+            .collect(),
+    );
+    assert!(
+        bad.is_empty(),
+        "{} IR Const read findings:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
 }

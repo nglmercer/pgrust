@@ -26,7 +26,11 @@ fn probes_at(used: u32, n: u64, seed: u64) -> (f64, usize) {
     let pre = 0x5a3c_96e1_d2b4_8f07u64.rotate_left(seed as u32 * 7);
     let prefix = (pre >> free) << free;
     let salt = seed.wrapping_mul(0x2545_f491_4f6c_dd1d);
-    let mask = if free == 64 { u64::MAX } else { (1u64 << free) - 1 };
+    let mask = if free == 64 {
+        u64::MAX
+    } else {
+        (1u64 << free) - 1
+    };
     for i in 0..n {
         let h = prefix | mix_m(i.wrapping_add(salt) & mask, free);
         let kh = KeyHash::word(hash::word_preimage(h)); // the key whose hash is `h`
@@ -51,16 +55,33 @@ fn probes_at(used: u32, n: u64, seed: u64) -> (f64, usize) {
 #[test]
 fn d446_probe_length_past_the_old_wall_is_no_worse_than_at_it() {
     let wall: Vec<(f64, usize)> = (0..8).map(|s| probes_at(32, 1 << 20, s)).collect();
-    let (m32, x32) = (wall.iter().map(|w| w.0).fold(0.0, f64::max), wall.iter().map(|w| w.1).max().unwrap());
-    eprintln!("used 32 n {} x8: means {:?} maxes {:?}", 1 << 20, wall.iter().map(|w| (w.0 * 1000.0).round() / 1000.0).collect::<Vec<_>>(), wall.iter().map(|w| w.1).collect::<Vec<_>>());
+    let (m32, x32) = (
+        wall.iter().map(|w| w.0).fold(0.0, f64::max),
+        wall.iter().map(|w| w.1).max().unwrap(),
+    );
+    eprintln!(
+        "used 32 n {} x8: means {:?} maxes {:?}",
+        1 << 20,
+        wall.iter()
+            .map(|w| (w.0 * 1000.0).round() / 1000.0)
+            .collect::<Vec<_>>(),
+        wall.iter().map(|w| w.1).collect::<Vec<_>>()
+    );
     for used in [33u32, 36, 40, 43, 44, 45, 48, 52, 56, 60, 62, 63] {
         let n = (1u64 << 20).min(1u64 << (64 - used));
         for seed in 0..4 {
             let (m, x) = probes_at(used, n, 100 + seed);
             eprintln!("used {used} n {n} set {seed}: mean {m:.3} max {x}");
-            assert!(m <= m32 + 0.01 && x <= x32 + x32 / 4, "used {used} set {seed}: mean {m} max {x} vs at the wall {m32} {x32}");
+            assert!(
+                m <= m32 + 0.01 && x <= x32 + x32 / 4,
+                "used {used} set {seed}: mean {m} max {x} vs at the wall {m32} {x32}"
+            );
             if used >= 44 {
-                assert_eq!((m, x), (0.0, 0), "used {used}: the keys fit their homes one apiece");
+                assert_eq!(
+                    (m, x),
+                    (0.0, 0),
+                    "used {used}: the keys fit their homes one apiece"
+                );
             }
         }
     }

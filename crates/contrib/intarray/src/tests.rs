@@ -160,9 +160,15 @@ fn int_array_layout_matches_c() {
 fn resize_rejects_gist_doubled_key_over_max_alloc() {
     let mut a = IntArray::new(1);
     a.elems_mut()[0] = 7;
-    let err = a.resize(2 * 134_217_725).err().expect("oversized resize must fail");
+    let err = a
+        .resize(2 * 134_217_725)
+        .err()
+        .expect("oversized resize must fail");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
     assert_eq!(a.elems(), &[7]);
     assert_eq!(a.as_bytes().len(), 28);
 }
@@ -181,7 +187,7 @@ fn resize_multidim_dims_rewrite() {
     w.extend_from_slice(&1i32.to_ne_bytes()); // lb[0]
     w.extend_from_slice(&1i32.to_ne_bytes()); // lb[1]
     for v in [4, 3, 2, 1] {
-        w.extend_from_slice(& i32::to_ne_bytes(v));
+        w.extend_from_slice(&i32::to_ne_bytes(v));
     }
     let mut a = IntArray::from_image(&w).unwrap();
     assert_eq!(a.nelems().unwrap(), 4);
@@ -239,7 +245,8 @@ fn checkarrvalid_accepts_bitmap_without_nulls() {
 #[test]
 fn unique_is_adjacent_dedup() {
     let mut a = IntArray::new(5);
-    a.elems_mut().copy_from_slice(&[1234234, -30, -30, 234234, -30]);
+    a.elems_mut()
+        .copy_from_slice(&[1234234, -30, -30, 234234, -30]);
     a.unique().unwrap();
     assert_eq!(a.elems(), &[1234234, -30, 234234, -30]);
 }
@@ -287,7 +294,10 @@ fn findoprnd_left_offset_overflow() {
     assert!(!boolop(&[2], &fits));
     let e = parse_query(format!("0|{}", balanced("1", 15)).as_bytes()).unwrap_err();
     assert_eq!(e.err.message(), "query_int expression is too complex");
-    assert_eq!(e.err.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+    assert_eq!(
+        e.err.sqlstate(),
+        types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED
+    );
     assert!(e.soft);
 }
 
@@ -318,7 +328,10 @@ fn cardinality_limit_checks_only_dimensions() {
 #[test]
 fn deparse_of_a_long_chain_is_linear() {
     let run = || {
-        let src = (1..=100_000).map(|i| i.to_string()).collect::<Vec<_>>().join(" & ");
+        let src = (1..=100_000)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(" & ");
         let t0 = std::time::Instant::now();
         let out = q(&src).unwrap();
         (t0.elapsed(), out == src)

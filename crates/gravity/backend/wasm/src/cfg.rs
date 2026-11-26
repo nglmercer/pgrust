@@ -136,7 +136,14 @@ impl Cfg {
         for b in 0..n {
             merge[b] = fwd_in[b] >= 2;
         }
-        Ok(Cfg { rpo, rpo_num, idom, children, merge, loop_header })
+        Ok(Cfg {
+            rpo,
+            rpo_num,
+            idom,
+            children,
+            merge,
+            loop_header,
+        })
     }
 }
 

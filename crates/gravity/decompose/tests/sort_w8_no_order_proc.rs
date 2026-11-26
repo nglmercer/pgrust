@@ -6,9 +6,11 @@
 use std::fs;
 
 use gravity_decompose::catalog::{IndexExt, KeyOrder, KeyReq, LeafFact};
-use gravity_decompose::ops::sort;
 use gravity_decompose::ops::modifytable::trig_facts::TrigExt;
-use gravity_decompose::{corpus, decompose_in, AttFact, ExprFp, Facts, IndexAm, IndexFact, InsteadOf, Op, RelFact};
+use gravity_decompose::ops::sort;
+use gravity_decompose::{
+    corpus, decompose_in, AttFact, ExprFp, Facts, IndexAm, IndexFact, InsteadOf, Op, RelFact,
+};
 use gravity_program::Arena;
 use mcx::MemoryContext;
 
@@ -49,7 +51,14 @@ impl Facts for NoProc<'_> {
     fn key(&self, req: KeyReq) -> Option<KeyOrder> {
         let (opcintype, family) = NP;
         if req.op == LT {
-            return Some(KeyOrder { desc: false, family, opcintype, default_family: false, cmp: 0, no_proc: self.1 });
+            return Some(KeyOrder {
+                desc: false,
+                family,
+                opcintype,
+                default_family: false,
+                cmp: 0,
+                no_proc: self.1,
+            });
         }
         self.0.key(req)
     }
@@ -75,35 +84,64 @@ impl Facts for NoProc<'_> {
 
 #[test]
 fn a_sort_by_an_operator_with_no_order_proc_carries_pgs_raise() {
-    let text = fs::read_to_string(harness::plans_root().join("regress-full/equivclass-012.plan")).unwrap();
+    let text =
+        fs::read_to_string(harness::plans_root().join("regress-full/equivclass-012.plan")).unwrap();
     let ctx = MemoryContext::new("fixture");
     let fx = corpus::load(ctx.mcx(), &text).expect("equivclass-012 loads");
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, true), fx.mcx).expect("the inner Sort decomposes");
-    let d = g.pipelines.iter().flat_map(|p| p.ops.iter()).find_map(|op| match op {
-        Op::Sort(d) if d.keys.iter().any(|k| k.opno == LT) => Some(d),
-        _ => None,
-    });
+    let g = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, true), fx.mcx)
+        .expect("the inner Sort decomposes");
+    let d = g
+        .pipelines
+        .iter()
+        .flat_map(|p| p.ops.iter())
+        .find_map(|op| match op {
+            Op::Sort(d) if d.keys.iter().any(|k| k.opno == LT) => Some(d),
+            _ => None,
+        });
     let d = d.expect("the Sort by 39117");
-    assert_eq!(sort::no_proc(d), Some(NP), "PG's raise names the key's (opcintype, opfamily)");
-    assert!(sort::holds_no_proc(&g), "exec never files its program in the plan memo");
-    assert!(d.keys.iter().all(|k| !k.own_family), "its type's word order, never its family's compare");
+    assert_eq!(
+        sort::no_proc(d),
+        Some(NP),
+        "PG's raise names the key's (opcintype, opfamily)"
+    );
+    assert!(
+        sort::holds_no_proc(&g),
+        "exec never files its program in the plan memo"
+    );
+    assert!(
+        d.keys.iter().all(|k| !k.own_family),
+        "its type's word order, never its family's compare"
+    );
     let mut s = String::new();
     gravity_decompose::ops::shared::sort::dump_keys(&d.keys, &mut s).unwrap();
     assert!(s.contains("!noproc(39092,1976)"), "{s}");
-    let other = g.pipelines.iter().flat_map(|p| p.ops.iter()).filter_map(|op| if let Op::Sort(d) = op { Some(d) } else { None });
-    assert!(other.filter(|d| !d.keys.iter().any(|k| k.opno == LT)).all(|d| sort::no_proc(d).is_none()), "an int8 Sort has none");
+    let other = g
+        .pipelines
+        .iter()
+        .flat_map(|p| p.ops.iter())
+        .filter_map(|op| if let Op::Sort(d) = op { Some(d) } else { None });
+    assert!(
+        other
+            .filter(|d| !d.keys.iter().any(|k| k.opno == LT))
+            .all(|d| sort::no_proc(d).is_none()),
+        "an int8 Sort has none"
+    );
 
     // USEROP: a family with an order proc orders the key by that comparator (the CompareFn key kind), so the Sort is no
     // longer refused by its operator; the fixture names no family for it (`Facts::op_family`), so the merge join above
     // finds no known order on its inner and refuses by that name (the server's facts name the family)
-    let r = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, false), fx.mcx).err().expect("the merge join refuses");
+    let r = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, false), fx.mcx)
+        .err()
+        .expect("the merge join refuses");
     assert_ne!(r.reason, "a sort operator outside the direction table");
     assert_eq!(r.reason, "a merge join's inner with no known order");
 
     // does not apply: a graph with no such Sort (equivclass-003, an index join) is filed as before
-    let text = fs::read_to_string(harness::plans_root().join("regress-full/equivclass-003.plan")).unwrap();
+    let text =
+        fs::read_to_string(harness::plans_root().join("regress-full/equivclass-003.plan")).unwrap();
     let fx = corpus::load(ctx.mcx(), &text).expect("equivclass-003 loads");
-    let g = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, true), fx.mcx).expect("equivclass-003 decomposes");
+    let g = decompose_in(arena.handle(), fx.stmt, &NoProc(&fx.facts, true), fx.mcx)
+        .expect("equivclass-003 decomposes");
     assert!(!sort::holds_no_proc(&g));
 }

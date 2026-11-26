@@ -32,7 +32,12 @@ pub(crate) enum PullPhase {
     Fresh,
     /// Stopped resumably after its budget: the call's resume word and claim, and the sites its call left live (kept out of
     /// every open's L8 sweep until the next pull resumes the call).
-    Parked { resume: i64, claim: MorselRange, fill: (usize, *mut u8), sites: Vec<i16> },
+    Parked {
+        resume: i64,
+        claim: MorselRange,
+        fill: (usize, *mut u8),
+        sites: Vec<i16>,
+    },
     /// Ran to its end: every later pull answers `Pulled::Done` (sticky).
     Done,
     /// A pull raised: every later pull is an error by name.
@@ -58,7 +63,11 @@ pub(crate) struct Hold {
 /// Restoring the held `(chunk_next, pinned)` put them back under the held call's window, whose next draw reused them
 /// (m6_agg_final's by-ref scratch overwrote a CTE group's key copies). They move down behind the held call's own pins and
 /// the held window's chunks move up past them. Returns the new `(chunk_next, pinned)`.
-pub(crate) fn keep_nested<T>(chunks: &mut [T], held: (usize, usize), nested_end: usize) -> (usize, usize) {
+pub(crate) fn keep_nested<T>(
+    chunks: &mut [T],
+    held: (usize, usize),
+    nested_end: usize,
+) -> (usize, usize) {
     let (next, pinned) = held;
     let k = nested_end.saturating_sub(next);
     if k > 0 {
@@ -73,7 +82,14 @@ pub(crate) fn keep_nested<T>(chunks: &mut [T], held: (usize, usize), nested_end:
 /// where the stale one was (no count changes), then the stale chunks leave the pinned prefix for the free tail at the
 /// cursor, as `rerun_keep_begin` moves a chunk at or over the floor. Returns the stale bases left (more than this run's pins;
 /// a base no longer pinned is dropped) and the new `(chunk_next, pinned)`.
-pub(crate) fn trade_stale<T>(chunks: &mut Vec<T>, base: impl Fn(&T) -> usize, stale: &[usize], from: usize, kept: usize, at: (usize, usize)) -> (Vec<usize>, (usize, usize)) {
+pub(crate) fn trade_stale<T>(
+    chunks: &mut Vec<T>,
+    base: impl Fn(&T) -> usize,
+    stale: &[usize],
+    from: usize,
+    kept: usize,
+    at: (usize, usize),
+) -> (Vec<usize>, (usize, usize)) {
     let (mut next, mut pinned) = at;
     let (mut traded, mut left) = (0, Vec::new()); // alloc: Exec
     for &p in stale {
@@ -99,7 +115,10 @@ pub(crate) fn trade_stale<T>(chunks: &mut Vec<T>, base: impl Fn(&T) -> usize, st
 /// filed by the set's run inside the pull) stays the set's, so the set's next run unpins it or trades it from under its
 /// floor (`trade_stale`, D2641); taken as the pull's, it stayed pinned to the statement's end: one chunk per generation.
 pub(crate) fn unheld(bases: Vec<usize>, sets: &[(u16, Vec<usize>)]) -> Vec<usize> {
-    bases.into_iter().filter(|b| !sets.iter().any(|(_, l)| l.contains(b))).collect() // alloc: Exec
+    bases
+        .into_iter()
+        .filter(|b| !sets.iter().any(|(_, l)| l.contains(b)))
+        .collect() // alloc: Exec
 }
 
 #[cfg(test)]
@@ -131,7 +150,7 @@ pub(crate) mod d2641_trade_stale {
     #[test]
     fn more_stale_pins_than_new_ones_keep_the_rest_filed_and_a_gone_one_is_dropped() {
         let mut c = vec![1, 2, 3, 4, 9, 5]; // alloc: Cold
-        // pinned [0, 5): 2 and 3 stale, 9 the run's one new pin at index 4; 42 is no chunk now
+                                            // pinned [0, 5): 2 and 3 stale, 9 the run's one new pin at index 4; 42 is no chunk now
         let (left, (next, pinned)) = trade_stale(&mut c, id, &[42, 2, 3], 4, 1, (5, 5));
         assert_eq!(left, [3]);
         assert_eq!((next, pinned), (4, 4));
@@ -237,7 +256,11 @@ pub(crate) mod d2751_pull_keeps_set_pins {
             // the pull's filing: what it kept past the reader
             let kept = pinned.saturating_sub(held_pull.1);
             let bases: Vec<usize> = c[held_pull.1..held_pull.1 + kept].to_vec();
-            let took = if steal { bases } else { unheld(bases, &[(1, filed.clone())]) };
+            let took = if steal {
+                bases
+            } else {
+                unheld(bases, &[(1, filed.clone())])
+            };
             filed.retain(|p| !took.contains(p));
             pull_pins.extend(took);
         }
@@ -247,7 +270,10 @@ pub(crate) mod d2751_pull_keeps_set_pins {
     #[test]
     fn a_set_re_run_inside_a_pull_keeps_its_pin_and_two_chunks_serve_every_generation() {
         let (mapped, taken) = generations(false);
-        assert!(mapped <= 2 && taken == 0, "{mapped} chunks mapped, {taken} taken by the pull over 100 generations");
+        assert!(
+            mapped <= 2 && taken == 0,
+            "{mapped} chunks mapped, {taken} taken by the pull over 100 generations"
+        );
         let (mapped, taken) = generations(true);
         assert!(mapped >= 50 && taken >= 50, "the base's leak: {mapped} chunks mapped, {taken} taken by the pull over 100 generations");
     }
@@ -266,7 +292,9 @@ pub(crate) mod d2344_keep_nested {
         assert_eq!((next, pinned), (5, 3));
         assert_eq!(c, ["P0", "N3", "N4", "W1", "W2", "F5"]);
         // a fresh call rewinds `chunk_next = pinned`: every chunk it may draw from is the held window's or free
-        assert!(c[pinned..].iter().all(|x| !x.starts_with('N') && !x.starts_with('P')));
+        assert!(c[pinned..]
+            .iter()
+            .all(|x| !x.starts_with('N') && !x.starts_with('P')));
         assert!(c[..pinned].iter().all(|x| !x.starts_with('W')));
     }
 
@@ -285,7 +313,14 @@ impl Node {
         let i = match self.pulls.iter().position(|p| p.last == last) {
             Some(i) => i,
             None => {
-                self.pulls.push(Pull { last, ran: Vec::new(), phase: PullPhase::Fresh, pins: Vec::new(), win: None, resumed_in: None }); // alloc: Exec
+                self.pulls.push(Pull {
+                    last,
+                    ran: Vec::new(),
+                    phase: PullPhase::Fresh,
+                    pins: Vec::new(),
+                    win: None,
+                    resumed_in: None,
+                }); // alloc: Exec
                 self.pulls.len() - 1
             }
         };
@@ -313,16 +348,29 @@ impl Node {
     /// left live that no outer hold keeps), for the next pull to resume.
     pub(crate) fn park_pull(&mut self, last: u16) {
         let (resume, claim) = raw::resume_claim(self.inner.ctx);
-        let sites: Vec<i16> = (0..self.program.sites.len()).filter(|&i| self.site_words_live(i) && !self.held_sites.contains(&(i as i16))).map(|i| i as i16).collect(); // alloc: Exec
+        let sites: Vec<i16> = (0..self.program.sites.len())
+            .filter(|&i| self.site_words_live(i) && !self.held_sites.contains(&(i as i16)))
+            .map(|i| i as i16)
+            .collect(); // alloc: Exec
         let fill = (self.inner.refill_off, self.inner.fill_base);
-        self.pull_of(last).phase = PullPhase::Parked { resume, claim, fill, sites };
+        self.pull_of(last).phase = PullPhase::Parked {
+            resume,
+            claim,
+            fill,
+            sites,
+        };
     }
 
     /// M8 (RT-2f): the parked call of `last` back in the context for its resume; `false`: nothing parked (its first call).
     pub(crate) fn unpark_pull(&mut self, last: u16) -> Result<bool> {
         let ctx = self.inner.ctx;
         match core::mem::replace(&mut self.pull_of(last).phase, PullPhase::Fresh) {
-            PullPhase::Parked { resume, claim, fill, .. } => {
+            PullPhase::Parked {
+                resume,
+                claim,
+                fill,
+                ..
+            } => {
                 // its regions, its fill cursors, its resume word and claim back (the reader's call pointed them at its own)
                 let pointed = self.point_at(last as usize);
                 (self.inner.refill_off, self.inner.fill_base) = fill;
@@ -366,23 +414,40 @@ impl Node {
     /// owner run: unfiled, each pull's by-reference images would stay pinned for the whole call.
     /// D3244: a parked member whose window ends in a chunk filed here (one it grew now, or the one its resume started in)
     /// keeps that window for its next resume.
-    pub(crate) fn reattach_pull(&mut self, q: usize, h: Hold, parked: bool, last: u16) -> Result<()> {
-        let (from, filed) = (h.chunks.1, self.rerun_keep.is_some_and(|(_, d)| d == h.sites));
+    pub(crate) fn reattach_pull(
+        &mut self,
+        q: usize,
+        h: Hold,
+        parked: bool,
+        last: u16,
+    ) -> Result<()> {
+        let (from, filed) = (
+            h.chunks.1,
+            self.rerun_keep.is_some_and(|(_, d)| d == h.sites),
+        );
         let (win, held_end) = (raw::arena_window(self.inner.ctx), h.arena.1);
         let pointed = self.reattach_keeping(q, h, parked);
         let kept = self.inner.pinned.saturating_sub(from);
         let mut grown_in = false;
         if kept > 0 && !filed {
             // D2751: a chunk a rerun set's run inside the pull filed stays the set's (`unheld`)
-            let bases: Vec<usize> = self.inner.chunks[from..from + kept].iter().map(|c| c.as_ptr() as usize).collect(); // alloc: Exec
+            let bases: Vec<usize> = self.inner.chunks[from..from + kept]
+                .iter()
+                .map(|c| c.as_ptr() as usize)
+                .collect(); // alloc: Exec
             let bases = unheld(bases, &self.rerun_pins);
             let end = win.1 as usize;
-            grown_in = self.inner.chunks[from..from + kept].iter().any(|c| c.as_ptr() as usize + c.len() == end && bases.contains(&(c.as_ptr() as usize)));
+            grown_in = self.inner.chunks[from..from + kept].iter().any(|c| {
+                c.as_ptr() as usize + c.len() == end && bases.contains(&(c.as_ptr() as usize))
+            });
             self.unfile_pulls(&bases);
             self.pull_of(last).pins.extend(bases); // alloc: Exec
         }
         let p = self.pull_of(last);
-        let own = parked && !filed && win.1 != held_end && (grown_in || p.resumed_in.take() == Some(win.1));
+        let own = parked
+            && !filed
+            && win.1 != held_end
+            && (grown_in || p.resumed_in.take() == Some(win.1));
         (p.win, p.resumed_in) = (own.then_some(win), None);
         pointed
     }
@@ -394,21 +459,32 @@ impl Node {
 
     /// Chunk bases `bases` taken off every pull's filed pins (`unfile`: one owner per pinned chunk).
     pub(crate) fn unfile_pulls(&mut self, bases: &[usize]) {
-        self.pulls.iter_mut().for_each(|p| p.pins.retain(|b| !bases.contains(b)));
+        self.pulls
+            .iter_mut()
+            .for_each(|p| p.pins.retain(|b| !bases.contains(b)));
     }
 
     pub(crate) fn pull_over(&mut self, last: u16, ok: bool) {
-        self.pull_of(last).phase = if ok { PullPhase::Done } else { PullPhase::Failed };
+        self.pull_of(last).phase = if ok {
+            PullPhase::Done
+        } else {
+            PullPhase::Failed
+        };
     }
 
     /// D2498: a pulled set producing `slot` ran to its end (`Done`): no pull or statement-end drain writes the store again.
     pub(crate) fn pull_done_into(&self, slot: u8) -> bool {
-        self.pulls.iter().any(|p| matches!(p.phase, PullPhase::Done) && self.program.pipelines[p.last as usize].produces() == Some(slot))
+        self.pulls.iter().any(|p| {
+            matches!(p.phase, PullPhase::Done)
+                && self.program.pipelines[p.last as usize].produces() == Some(slot)
+        })
     }
 
     /// M8 (RT-2f): the sites a parked pulled call keeps live between pulls.
     pub(crate) fn parked_site(&self, i: usize) -> bool {
-        self.pulls.iter().any(|p| matches!(&p.phase, PullPhase::Parked { sites, .. } if sites.contains(&(i as i16))))
+        self.pulls.iter().any(
+            |p| matches!(&p.phase, PullPhase::Parked { sites, .. } if sites.contains(&(i as i16))),
+        )
     }
 
     /// The sites a held call keeps (`hold`: the outer call's driving site and its other live sites) or a parked pull keeps
@@ -420,7 +496,10 @@ impl Node {
 
     /// M8 (RT-2f): pulled sets parked now (none after a cancel, an error, or the statement's end).
     pub fn parked_pulls(&self) -> usize {
-        self.pulls.iter().filter(|p| matches!(p.phase, PullPhase::Parked { .. })).count()
+        self.pulls
+            .iter()
+            .filter(|p| matches!(p.phase, PullPhase::Parked { .. }))
+            .count()
     }
 
     /// D824: the leader's attachment to pipeline `q`, stopped on `BuildWait`, kept while its lazy build runs out of order:
@@ -429,16 +508,25 @@ impl Node {
     pub(crate) fn hold(&mut self, q: usize) -> Hold {
         let ctx = self.inner.ctx;
         let (resume, claim) = raw::resume_claim(ctx);
-        let h = Hold { resume, claim, arena: raw::arena_window(ctx), scratch: (self.inner.scratch, self.inner.scratch_end), chunks: (self.inner.chunk_next, self.inner.pinned), fill: (self.inner.refill_off, self.inner.fill_base), sites: self.held_sites.len(), floor: self.pin_floor };
+        let h = Hold {
+            resume,
+            claim,
+            arena: raw::arena_window(ctx),
+            scratch: (self.inner.scratch, self.inner.scratch_end),
+            chunks: (self.inner.chunk_next, self.inner.pinned),
+            fill: (self.inner.refill_off, self.inner.fill_base),
+            sites: self.held_sites.len(),
+            floor: self.pin_floor,
+        };
         self.inner.scratch = h.arena.0;
         self.inner.scratch_end = h.arena.1;
         self.inner.pinned = h.chunks.0;
         self.pin_floor = h.chunks.0;
         let d = self.program.pipelines[q].driving_site;
         self.held_sites.push(d); // alloc: Node
-        // the call's other sites with live per-open words: a member without a driving site sweeps every site not held.
-        // D2178 / D2179: a parked pull's sites stay its own (a held one would drop out of its re-park, then an open's sweep
-        // closes it and the pull re-reads from its first block)
+                                 // the call's other sites with live per-open words: a member without a driving site sweeps every site not held.
+                                 // D2178 / D2179: a parked pull's sites stay its own (a held one would drop out of its re-park, then an open's sweep
+                                 // closes it and the pull re-reads from its first block)
         for i in 0..self.program.sites.len() {
             if i as isize != d as isize && self.site_words_live(i) && !self.parked_site(i) {
                 self.held_sites.push(i as i16); // alloc: Node
@@ -463,7 +551,10 @@ impl Node {
     /// call's flags and its out block's cap, which a member's call sets; the nested count up until `unnest`.
     pub(crate) fn nest(&mut self) -> Nest {
         self.nested += 1;
-        Nest { flags: raw::ctx_flags(self.inner.ctx), cap: self.inner.out.cap }
+        Nest {
+            flags: raw::ctx_flags(self.inner.ctx),
+            cap: self.inner.out.cap,
+        }
     }
 
     /// M8 (D1036): an out-of-order run starts: the context's worker ordinal (hir.rs's hosted lane, and the hosted aggregate
@@ -476,7 +567,10 @@ impl Node {
     pub(crate) fn nested_lane(&mut self) -> Result<u16> {
         // a Bug guard: lowerv4 refuses a program with more on-demand groups than lanes (program::v4::on_demand_groups)
         if self.lane_depth >= crate::NESTED_LANES {
-            return Err(Error::host(format!("bug: runs nested more than {} deep inside one row, past lowering's bound (D1036)", crate::NESTED_LANES))); // alloc: Cold
+            return Err(Error::host(format!(
+                "bug: runs nested more than {} deep inside one row, past lowering's bound (D1036)",
+                crate::NESTED_LANES
+            ))); // alloc: Cold
         }
         self.lane_depth += 1;
         let ctx = self.inner.ctx;
@@ -508,14 +602,23 @@ impl Node {
     /// the statement's), so the teardown after the error finds the node as the hold left it.
     pub(crate) fn reattach_keeping(&mut self, q: usize, h: Hold, parked: bool) -> Result<()> {
         let held = self.held_sites.get(h.sites).copied();
-        debug_assert_eq!(held, Some(self.program.pipelines[q].driving_site), "reattach of a pipeline not the innermost held");
+        debug_assert_eq!(
+            held,
+            Some(self.program.pipelines[q].driving_site),
+            "reattach of a pipeline not the innermost held"
+        );
         self.held_sites.truncate(h.sites);
         let pointed = self.point_at(q);
         (self.inner.refill_off, self.inner.fill_base) = h.fill;
         (self.inner.scratch, self.inner.scratch_end) = h.scratch;
         // D2344 / D2379: the pins the nested run took stay pinned (and a parked member's grown chunks with them): see `keep_nested`.
-        let nested_end = if parked { self.inner.chunk_next.max(self.inner.pinned) } else { self.inner.pinned };
-        (self.inner.chunk_next, self.inner.pinned) = keep_nested(&mut self.inner.chunks, h.chunks, nested_end);
+        let nested_end = if parked {
+            self.inner.chunk_next.max(self.inner.pinned)
+        } else {
+            self.inner.pinned
+        };
+        (self.inner.chunk_next, self.inner.pinned) =
+            keep_nested(&mut self.inner.chunks, h.chunks, nested_end);
         self.pin_floor = h.floor;
         // D1339 row C: a rerun set's run files the pins it kept, which its next run unpins (`rerun_keep_begin`). D2641: any
         // other reattach (a pull's, a lazy build's, an Init run's) leaves the filing of the sets that ran inside it: it

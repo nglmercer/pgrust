@@ -10,8 +10,10 @@ use super::*;
 #[test]
 fn oversized_meta_data_is_an_error_not_a_panic() {
     let too_long = STS_CHUNK_DATA_SIZE - core::mem::size_of::<u32>();
-    let outcome = std::panic::catch_unwind(|| SharedTuplestore::new(1, too_long, "b054").map(|_| ()));
-    let result = outcome.expect("sts_initialize must elog(ERROR), not panic, on oversized meta-data");
+    let outcome =
+        std::panic::catch_unwind(|| SharedTuplestore::new(1, too_long, "b054").map(|_| ()));
+    let result =
+        outcome.expect("sts_initialize must elog(ERROR), not panic, on oversized meta-data");
     let err = result.expect_err("oversized meta-data must be refused");
     assert_eq!(err.message(), "meta-data too long");
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);

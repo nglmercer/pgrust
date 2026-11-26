@@ -42,23 +42,48 @@ fn drain(open: &Open<'_>, cursor: &AtomicU64, ordinal: u16) -> Result<u64, Error
 /// kind's lane with no mapped bytes), so both doors' arena bytes.
 fn arena(a: Acct) -> i64 {
     memledger::fold();
-    if pool_armed() { memledger::kind_bytes(a, Kind::Arena) } else { memledger::kind_mapped_bytes(a, Kind::Arena) }
+    if pool_armed() {
+        memledger::kind_bytes(a, Kind::Arena)
+    } else {
+        memledger::kind_mapped_bytes(a, Kind::Arena)
+    }
 }
 
 /// One unkeyed parallel statement under `SALT` on backend `acct`: its worker slots from (and back to) the depot. Returns
 /// what its end (`Entry::end`: the slots go back to the depot) moved off `acct`'s mapped arena bytes; the Node stays.
-fn cycle(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive, flag: &AtomicU8, acct: Acct) -> i64 {
+fn cycle(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    derive: &mut FakeDerive,
+    flag: &AtomicU8,
+    acct: Acct,
+) -> i64 {
     let mut sink = LegSink::new();
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
-    let mut exec = entry.start(None, program, derive, &mut b, lease(gravity_driver::Grant::of(8 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            None,
+            program,
+            derive,
+            &mut b,
+            lease(gravity_driver::Grant::of(8 << 20)),
+        )
+        .unwrap();
     exec.set_slot_salt(Some(SALT));
     let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();
     }
-    entry.close_section(open, &mut b, &CountMerge, true).unwrap();
-    assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(4)).unwrap(), Step::Done);
+    entry
+        .close_section(open, &mut b, &CountMerge, true)
+        .unwrap();
+    assert_eq!(
+        entry
+            .run(&mut exec, &mut b, gravity_driver::Call::batch(4))
+            .unwrap(),
+        Step::Done
+    );
     let before = arena(acct);
     entry.end(exec, true);
     before - arena(acct)

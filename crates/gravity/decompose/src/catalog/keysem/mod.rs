@@ -25,7 +25,10 @@ pub fn one_image(f: &dyn Facts, ty: u32, coll: u32) -> bool {
     use crate::catalog::typefacts::{row_of, WordImage};
     match row_of(ty).map(|t| t.image) {
         Some(WordImage::Raw { .. } | WordImage::Enum) => true,
-        Some(WordImage::Bytes { text, bpchar_trim: false }) => !text || f.coll(coll).bytes_eq,
+        Some(WordImage::Bytes {
+            text,
+            bpchar_trim: false,
+        }) => !text || f.coll(coll).bytes_eq,
         _ => false,
     }
 }
@@ -34,13 +37,24 @@ pub fn one_image(f: &dyn Facts, ty: u32, coll: u32) -> bool {
 /// equivalence under one collation: two values equal to a third are equal to each other and to the same values, whatever
 /// their images (numeric 1.0 = 1.00; a nondeterministic collation's case-equal strings). A user operator or type never.
 pub fn own_equivalence(f: &dyn Facts, op: u32, ty: u32) -> bool {
-    f.key_eq(op, ty) == KeyEq::Own && !crate::effects::user_code(op) && !crate::effects::user_code(ty)
+    f.key_eq(op, ty) == KeyEq::Own
+        && !crate::effects::user_code(op)
+        && !crate::effects::user_code(ty)
 }
 
 /// `facts::pinned::pinned_bytes`' equality: operator `op` is type `ty`'s own `=` and the type's image is its untrimmed
 /// bytes.
 pub fn own_bytes_eq(f: &dyn Facts, op: u32, ty: u32) -> bool {
-    f.key_eq(op, ty) == KeyEq::Own && crate::catalog::typefacts::facts_of(f, ty).is_some_and(|t| matches!(t.image, crate::catalog::typefacts::WordImage::Bytes { bpchar_trim: false, .. }))
+    f.key_eq(op, ty) == KeyEq::Own
+        && crate::catalog::typefacts::facts_of(f, ty).is_some_and(|t| {
+            matches!(
+                t.image,
+                crate::catalog::typefacts::WordImage::Bytes {
+                    bpchar_trim: false,
+                    ..
+                }
+            )
+        })
 }
 
 /// D2719 / D2640: whether a key of type `typid` under equality operator `op` compares by no image of its type: by user
@@ -64,7 +78,14 @@ pub fn eq_opaque(f: &dyn Facts, op: u32, typid: u32) -> bool {
 /// streams or runs its keys through the operator (`streams_or_runs`); a user operator refuses unless the group streams or
 /// runs, or a hashed Agg hashes the key through the operator class (`hashes`, asked only then), and always over a type
 /// holding a multirange.
-pub fn group_key_refused(f: &dyn Facts, op: u32, ty: u32, agg: bool, streams_or_runs: bool, hashes: &dyn Fn() -> bool) -> bool {
+pub fn group_key_refused(
+    f: &dyn Facts,
+    op: u32,
+    ty: u32,
+    agg: bool,
+    streams_or_runs: bool,
+    hashes: &dyn Fn() -> bool,
+) -> bool {
     match f.key_eq(op, ty) {
         KeyEq::Own => false,
         KeyEq::Bytes => !(agg && f.key_holds_multirange(ty)),
@@ -82,14 +103,16 @@ pub fn key_holds_multirange(f: &dyn Facts, ty: u32) -> bool {
 /// A by-reference group key of type `ty` holding a multirange: whether operator `op` compares it by its bytes (`Some`);
 /// `None` for a type holding none (decompose agg `eq_op`).
 pub fn multirange_bytes_eq(f: &dyn Facts, op: u32, ty: u32) -> Option<bool> {
-    f.key_holds_multirange(ty).then(|| f.key_eq(op, ty) == KeyEq::Bytes)
+    f.key_holds_multirange(ty)
+        .then(|| f.key_eq(op, ty) == KeyEq::Bytes)
 }
 
 /// K4 (decision 24, the hash join's keys; D2036): the hash functions PostgreSQL's hash join calls on each input of clause
 /// operator `op` under input collation `coll` (`Facts::op_hash_functions`, which the host answers from KeySem's
 /// `hash_procs`), both set; none = unknown, no hash support or an indeterminate collation (join.rs `user_keys` refuses).
 pub fn hash_join_procs(f: &dyn Facts, op: u32, coll: u32) -> Option<(u32, u32)> {
-    f.op_hash_functions(op, coll).filter(|&(l, r)| l != 0 && r != 0)
+    f.op_hash_functions(op, coll)
+        .filter(|&(l, r)| l != 0 && r != 0)
 }
 
 /// K4 (D1901, V4R-508's in-row refusal at a hash join): whether a key whose sides have types `types` (outer, inner, where
@@ -97,5 +120,9 @@ pub fn hash_join_procs(f: &dyn Facts, op: u32, coll: u32) -> Option<(u32, u32)> 
 /// equality (`hash_eq::builtin_hash_eq`): such a key would key by multirange_eq's canonical form, PostgreSQL by the
 /// clause's operator (join.rs `key_decls` refuses it by `join::USER_HASH_OP`).
 pub fn hash_join_multirange(f: &dyn Facts, op: u32, types: [Option<u32>; 2]) -> bool {
-    !super::hash_eq::builtin_hash_eq(f, op) && types.into_iter().flatten().any(|t| f.key_holds_multirange(t))
+    !super::hash_eq::builtin_hash_eq(f, op)
+        && types
+            .into_iter()
+            .flatten()
+            .any(|t| f.key_holds_multirange(t))
 }

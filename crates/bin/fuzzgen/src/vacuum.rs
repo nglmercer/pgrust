@@ -282,12 +282,18 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("vac:create");
     let name = format!("fz_vac_{}", g.vac.next_table);
     g.vac.next_table += 1;
-    let ff = match g.weights.pick(g.rng, &["vac:ff:30", "vac:ff:70", "vac:ff:100"]) {
+    let ff = match g
+        .weights
+        .pick(g.rng, &["vac:ff:30", "vac:ff:70", "vac:ff:100"])
+    {
         "vac:ff:30" => 30,
         "vac:ff:70" => 70,
         _ => 100,
     };
-    let rows = match g.weights.pick(g.rng, &["vac:rows:1000", "vac:rows:3000", "vac:rows:6000"]) {
+    let rows = match g
+        .weights
+        .pick(g.rng, &["vac:rows:1000", "vac:rows:3000", "vac:rows:6000"])
+    {
         "vac:rows:1000" => 1000,
         "vac:rows:3000" => 3000,
         _ => 6000,
@@ -303,11 +309,15 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         StmtKind::Raw(format!("INSERT INTO {name} {};", reg_rows(1, rows as i64))),
         StmtKind::Raw(format!("CREATE INDEX {idx} ON {name} (a);")),
     ];
-    let clustered = g.weights.pick(g.rng, &["vac:clusteron:yes", "vac:clusteron:no"])
+    let clustered = g
+        .weights
+        .pick(g.rng, &["vac:clusteron:yes", "vac:clusteron:no"])
         == "vac:clusteron:yes";
     if clustered {
         g.fire("vac:clusteron:yes");
-        stmts.push(StmtKind::Raw(format!("ALTER TABLE {name} CLUSTER ON {idx};")));
+        stmts.push(StmtKind::Raw(format!(
+            "ALTER TABLE {name} CLUSTER ON {idx};"
+        )));
     }
     stmts.push(StmtKind::Raw(format!("ANALYZE {name};")));
     g.vac.tables.push(VacTable {
@@ -318,9 +328,11 @@ fn gen_create(g: &mut Gen) -> Vec<StmtKind> {
         clustered,
         partitioned: false,
     });
-    g.vac
-        .events
-        .push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.vac.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -334,7 +346,11 @@ fn gen_create_part(g: &mut Gen) -> Vec<StmtKind> {
     g.vac.next_table += 1;
     let idx = format!("fz_vacpi_{}", g.vac.next_index);
     g.vac.next_index += 1;
-    let nparts = if g.weights.pick(g.rng, &["vac:pp:2", "vac:pp:3"]) == "vac:pp:3" { 3 } else { 2 };
+    let nparts = if g.weights.pick(g.rng, &["vac:pp:2", "vac:pp:3"]) == "vac:pp:3" {
+        3
+    } else {
+        2
+    };
     let rows: u32 = 6000;
     let mut stmts = vec![StmtKind::Raw(format!(
         "CREATE TABLE {name} (pk int4, a int4, c text, PRIMARY KEY (pk)) PARTITION BY RANGE (pk);"
@@ -342,16 +358,26 @@ fn gen_create_part(g: &mut Gen) -> Vec<StmtKind> {
     // Range bounds: even chunks with MINVALUE/MAXVALUE ends. chunk avoids 0.
     let chunk = rows / nparts + 1;
     for p in 0..nparts {
-        let lo = if p == 0 { "MINVALUE".to_string() } else { (p * chunk + 1).to_string() };
-        let hi =
-            if p == nparts - 1 { "MAXVALUE".to_string() } else { ((p + 1) * chunk + 1).to_string() };
+        let lo = if p == 0 {
+            "MINVALUE".to_string()
+        } else {
+            (p * chunk + 1).to_string()
+        };
+        let hi = if p == nparts - 1 {
+            "MAXVALUE".to_string()
+        } else {
+            ((p + 1) * chunk + 1).to_string()
+        };
         stmts.push(StmtKind::Raw(format!(
             "CREATE TABLE {name}_p{p} PARTITION OF {name} FOR VALUES FROM ({lo}) TO ({hi}) \
              WITH (autovacuum_enabled = off);"
         )));
     }
     stmts.push(StmtKind::Raw(format!("CREATE INDEX {idx} ON {name} (a);")));
-    stmts.push(StmtKind::Raw(format!("INSERT INTO {name} {};", part_rows(1, rows as i64))));
+    stmts.push(StmtKind::Raw(format!(
+        "INSERT INTO {name} {};",
+        part_rows(1, rows as i64)
+    )));
     stmts.push(StmtKind::Raw(format!("ANALYZE {name};")));
     g.vac.tables.push(VacTable {
         name: name.clone(),
@@ -361,9 +387,11 @@ fn gen_create_part(g: &mut Gen) -> Vec<StmtKind> {
         clustered: false,
         partitioned: true,
     });
-    g.vac
-        .events
-        .push(DdlEvent { table: name, pk: "pk".to_string(), kind: DdlEventKind::Created });
+    g.vac.events.push(DdlEvent {
+        table: name,
+        pk: "pk".to_string(),
+        kind: DdlEventKind::Created,
+    });
     stmts
 }
 
@@ -419,7 +447,10 @@ fn build_paren_opts(g: &mut Gen) -> Vec<String> {
         opts.push("DISABLE_PAGE_SKIPPING".to_string());
     }
     if g.rng.chance(1, 2) {
-        let v = match g.weights.pick(g.rng, &["vac:ic:on", "vac:ic:off", "vac:ic:auto"]) {
+        let v = match g
+            .weights
+            .pick(g.rng, &["vac:ic:on", "vac:ic:off", "vac:ic:auto"])
+        {
             "vac:ic:on" => "ON",
             "vac:ic:off" => "OFF",
             _ => "AUTO",
@@ -463,7 +494,10 @@ fn build_paren_opts(g: &mut Gen) -> Vec<String> {
         opts.push("SKIP_DATABASE_STATS".to_string());
     }
     if !full && g.rng.chance(1, 3) {
-        let n = match g.weights.pick(g.rng, &["vac:par:0", "vac:par:1", "vac:par:2", "vac:par:4"]) {
+        let n = match g
+            .weights
+            .pick(g.rng, &["vac:par:0", "vac:par:1", "vac:par:2", "vac:par:4"])
+        {
             "vac:par:0" => 0,
             "vac:par:1" => 1,
             "vac:par:2" => 2,
@@ -472,7 +506,10 @@ fn build_paren_opts(g: &mut Gen) -> Vec<String> {
         opts.push(format!("PARALLEL {n}"));
     }
     if !full && g.rng.chance(1, 4) {
-        let v = match g.weights.pick(g.rng, &["vac:bul:small", "vac:bul:med", "vac:bul:big"]) {
+        let v = match g
+            .weights
+            .pick(g.rng, &["vac:bul:small", "vac:bul:med", "vac:bul:big"])
+        {
             "vac:bul:small" => "128 kB",
             "vac:bul:med" => "2 MB",
             _ => "16 MB",
@@ -527,8 +564,15 @@ fn gen_vacuum(g: &mut Gen) -> Vec<StmtKind> {
                 opts.push("VERBOSE".to_string());
             }
             let has_analyze = opts.iter().any(|o| o == "ANALYZE");
-            let cols = if has_analyze && g.rng.chance(1, 2) { " (a, b)" } else { "" };
-            stmts.push(StmtKind::Raw(format!("VACUUM ({}) {t}{cols};", opts.join(", "))));
+            let cols = if has_analyze && g.rng.chance(1, 2) {
+                " (a, b)"
+            } else {
+                ""
+            };
+            stmts.push(StmtKind::Raw(format!(
+                "VACUUM ({}) {t}{cols};",
+                opts.join(", ")
+            )));
         }
     }
     stmts.push(reg_probe(&t));
@@ -634,7 +678,11 @@ fn gen_reindex(g: &mut Gen) -> Vec<StmtKind> {
         "vac:ri:indexconc" => format!("REINDEX INDEX CONCURRENTLY {idx};"),
         _ => format!("REINDEX TABLE CONCURRENTLY {t};"),
     };
-    vec![StmtKind::Raw(reindex), reg_probe(&t), reg_index_probe(g, &t)]
+    vec![
+        StmtKind::Raw(reindex),
+        reg_probe(&t),
+        reg_index_probe(g, &t),
+    ]
 }
 
 // ------------------------------------------------------------- vacpart ----
@@ -650,8 +698,12 @@ fn gen_vacpart(g: &mut Gen) -> Vec<StmtKind> {
     let (lo, hi) = band(g, rows);
     // Churn (net-neutral) so the vacuum has work in the leaves.
     let mut stmts = vec![
-        StmtKind::Raw(format!("UPDATE {t} SET a = a + 1 WHERE pk BETWEEN {lo} AND {hi};")),
-        StmtKind::Raw(format!("UPDATE {t} SET a = a - 1 WHERE pk BETWEEN {lo} AND {hi};")),
+        StmtKind::Raw(format!(
+            "UPDATE {t} SET a = a + 1 WHERE pk BETWEEN {lo} AND {hi};"
+        )),
+        StmtKind::Raw(format!(
+            "UPDATE {t} SET a = a - 1 WHERE pk BETWEEN {lo} AND {hi};"
+        )),
     ];
     let shape = g.weights.pick(
         g.rng,
@@ -668,7 +720,9 @@ fn gen_vacpart(g: &mut Gen) -> Vec<StmtKind> {
         "vac:vp:vacuum" => stmts.push(StmtKind::Raw(format!("VACUUM {t};"))),
         "vac:vp:analyze" => stmts.push(StmtKind::Raw(format!("ANALYZE {t};"))),
         "vac:vp:vacanalyze" => stmts.push(StmtKind::Raw(format!("VACUUM (ANALYZE) {t};"))),
-        "vac:vp:freeze" => stmts.push(StmtKind::Raw(format!("VACUUM (FREEZE, PROCESS_TOAST ON) {t};"))),
+        "vac:vp:freeze" => stmts.push(StmtKind::Raw(format!(
+            "VACUUM (FREEZE, PROCESS_TOAST ON) {t};"
+        ))),
         _ => {
             // Directly maintain a single leaf partition.
             let p = g.rng.below(2);
@@ -758,7 +812,9 @@ fn gen_reindex_tablespace(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_dbstats(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("vac:dbstats");
     if g.weights.pick(g.rng, &["vac:ds:plain", "vac:ds:verbose"]) == "vac:ds:verbose" {
-        vec![StmtKind::Raw("VACUUM (ONLY_DATABASE_STATS, VERBOSE);".to_string())]
+        vec![StmtKind::Raw(
+            "VACUUM (ONLY_DATABASE_STATS, VERBOSE);".to_string(),
+        )]
     } else {
         vec![StmtKind::Raw("VACUUM (ONLY_DATABASE_STATS);".to_string())]
     }
@@ -820,7 +876,11 @@ mod tests {
     }
 
     fn flat(seed: u64, n: usize) -> Vec<String> {
-        gen_actions(seed, n).into_iter().flatten().map(|k| k.to_sql()).collect()
+        gen_actions(seed, n)
+            .into_iter()
+            .flatten()
+            .map(|k| k.to_sql())
+            .collect()
     }
 
     #[test]
@@ -877,8 +937,14 @@ mod tests {
                     !sql.contains("BUFFER_USAGE_LIMIT"),
                     "FULL + BUFFER_USAGE_LIMIT: {sql}"
                 );
-                assert!(!sql.contains("PROCESS_TOAST OFF"), "FULL + PROCESS_TOAST OFF: {sql}");
-                assert!(!sql.contains("PROCESS_MAIN OFF"), "FULL + PROCESS_MAIN OFF: {sql}");
+                assert!(
+                    !sql.contains("PROCESS_TOAST OFF"),
+                    "FULL + PROCESS_TOAST OFF: {sql}"
+                );
+                assert!(
+                    !sql.contains("PROCESS_MAIN OFF"),
+                    "FULL + PROCESS_MAIN OFF: {sql}"
+                );
             }
         }
     }
@@ -928,10 +994,16 @@ mod tests {
             let sqls: Vec<String> = group.iter().map(|k| k.to_sql()).collect();
             let joined = sqls.join("\n");
             if joined.contains("CREATE SCHEMA fz_vac_s") {
-                assert!(joined.contains("DROP SCHEMA fz_vac_s"), "schema not dropped: {sqls:?}");
+                assert!(
+                    joined.contains("DROP SCHEMA fz_vac_s"),
+                    "schema not dropped: {sqls:?}"
+                );
             }
             if joined.contains("CREATE TABLESPACE fz_vac_ts") {
-                assert!(joined.contains("DROP TABLESPACE fz_vac_ts"), "tablespace leaked: {sqls:?}");
+                assert!(
+                    joined.contains("DROP TABLESPACE fz_vac_ts"),
+                    "tablespace leaked: {sqls:?}"
+                );
                 assert!(
                     joined.contains("SET allow_in_place_tablespaces = on;")
                         && joined.contains("RESET allow_in_place_tablespaces;"),
@@ -1003,7 +1075,10 @@ mod tests {
             "md5(string_agg(",
             "DROP TABLE fz_vac_",
         ] {
-            assert!(stmts.contains(needle), "family never fired in 4000 groups: {needle}");
+            assert!(
+                stmts.contains(needle),
+                "family never fired in 4000 groups: {needle}"
+            );
         }
     }
 }

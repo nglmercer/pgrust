@@ -26,7 +26,10 @@ pub struct BorrowedBatch<'a> {
 impl<'a> BorrowedBatch<'a> {
     pub fn row(&self, i: usize) -> (&'a [Datum], &'a [u8]) {
         let n = self.natts;
-        (&self.values[i * n..(i + 1) * n], &self.isnull[i * n..(i + 1) * n])
+        (
+            &self.values[i * n..(i + 1) * n],
+            &self.isnull[i * n..(i + 1) * n],
+        )
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&'a [Datum], &'a [u8])> + '_ {
@@ -44,7 +47,9 @@ pub trait Sink {
     }
     /// `rows` complete DataRow messages framed per `wire_format`, appended to the wire in one pass.
     fn push_wire(&mut self, _bytes: &[u8], _rows: u64) -> Result<Flow> {
-        Err(crate::Error::host("gravity: a wire push on a sink without a wire format"))
+        Err(crate::Error::host(
+            "gravity: a wire push on a sink without a wire format",
+        ))
     }
     fn leg(&self, _ordinal: u16) -> Option<LegRef<'_>> {
         None
@@ -89,11 +94,23 @@ pub struct State<'a> {
 impl<'a> State<'a> {
     /// A fixed view: `grow` refuses by name.
     pub fn new(bytes: &'a mut [u8], sink: SinkRef<'a>) -> State<'a> {
-        State { bytes, sink, home: None }
+        State {
+            bytes,
+            sink,
+            home: None,
+        }
     }
 
-    pub(crate) fn growable(bytes: &'a mut [u8], sink: SinkRef<'a>, home: crate::mem::grow::Leader) -> State<'a> {
-        State { bytes, sink, home: Some(home) }
+    pub(crate) fn growable(
+        bytes: &'a mut [u8],
+        sink: SinkRef<'a>,
+        home: crate::mem::grow::Leader,
+    ) -> State<'a> {
+        State {
+            bytes,
+            sink,
+            home: Some(home),
+        }
     }
 
     /// D254: the leader's slot reopened at max(2 x len, `bytes`) when shorter than `bytes` (W, then G, then past both; only a real
@@ -104,7 +121,12 @@ impl<'a> State<'a> {
 
     /// C10: `grow` (`grow_exact`'s when `counted`) on a spilling breaker's road that still grows past its grant, the debt
     /// named by the SPILL-DEBT row `why` (counted as that row's, never as an unnamed road's).
-    pub fn grow_debt(&mut self, bytes: usize, counted: Option<u64>, why: gravity_program::spill::NoSpill) -> Result<()> {
+    pub fn grow_debt(
+        &mut self,
+        bytes: usize,
+        counted: Option<u64>,
+        why: gravity_program::spill::NoSpill,
+    ) -> Result<()> {
         crate::mem::grow::grow_state_debt(self, bytes, counted, why)
     }
 
@@ -183,7 +205,8 @@ const _: () = assert!(CACHE_PARTITION_BYTES == crate::machine::REFERENCE_L2);
 pub fn partition_bytes() -> u64 {
     static ONCE: pgsync::OnceLock<u64> = pgsync::OnceLock::new();
     *ONCE.get_or_init(|| {
-        let v = crate::env::num("PGRUST_GRAVITY_PARTITION_BYTES").unwrap_or_else(|| crate::machine::profile().partition_bytes);
+        let v = crate::env::num("PGRUST_GRAVITY_PARTITION_BYTES")
+            .unwrap_or_else(|| crate::machine::profile().partition_bytes);
         // DR-6: the kernels' fold opens re-cut their bits to the slice the runner's bind reads (a quarter; 0: the reference's)
         gravity_abi::breaker::set_machine_slice(v / 4);
         v
@@ -199,8 +222,15 @@ pub fn partition_plan(groups: u64, record: u32) -> Option<PartitionPlan> {
     if slice == 0 || bytes <= slice / 2 {
         return None;
     }
-    let p = (bytes.saturating_mul(2) / slice).next_power_of_two().min(gravity_abi::breaker::T1_MAX_PARTS as u64).max(2);
-    Some(PartitionPlan { pbits: p.trailing_zeros() as u8, groups, record })
+    let p = (bytes.saturating_mul(2) / slice)
+        .next_power_of_two()
+        .min(gravity_abi::breaker::T1_MAX_PARTS as u64)
+        .max(2);
+    Some(PartitionPlan {
+        pbits: p.trailing_zeros() as u8,
+        groups,
+        record,
+    })
 }
 
 pub type Flush<'a> = &'a mut dyn FnMut() -> Result<()>;
@@ -208,7 +238,9 @@ pub type Flush<'a> = &'a mut dyn FnMut() -> Result<()>;
 pub trait Merge: Sync {
     /// The leader's serial fold of one partial (the plain aggregate, the top-k run, the ordered rows, the join's build); a record table has none: its partials are the owners'.
     fn merge_into(&self, _leader: &mut State<'_>, _partial: Partial<'_>) -> Result<()> {
-        Err(crate::Error::Unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH))
+        Err(crate::Error::Unsupported(
+            gravity_abi::status::UNSUPPORTED_SCRATCH,
+        ))
     }
 
     /// The phase-1 tables' partition count (the owner phase's units; the width-1 arm folds through one owner, `Entry::own_single`).
@@ -251,13 +283,23 @@ pub trait Merge: Sync {
         self.partition_plan(partials)
     }
 
-    fn prepare_partitions(&self, _leader: &mut [u8], _plan: PartitionPlan, _partials: &[Partial<'_>]) -> Result<()> {
+    fn prepare_partitions(
+        &self,
+        _leader: &mut [u8],
+        _plan: PartitionPlan,
+        _partials: &[Partial<'_>],
+    ) -> Result<()> {
         Ok(())
     }
 
     /// Phase 2's layout over a leader that may grow first (D254: `leader.grow`, before the jobs; its sink refuses a push); the
     /// default lays out in place.
-    fn prepare_partitions_in(&self, leader: &mut State<'_>, plan: PartitionPlan, partials: &[Partial<'_>]) -> Result<()> {
+    fn prepare_partitions_in(
+        &self,
+        leader: &mut State<'_>,
+        plan: PartitionPlan,
+        partials: &[Partial<'_>],
+    ) -> Result<()> {
         self.prepare_partitions(leader.bytes, plan, partials)
     }
 
@@ -275,8 +317,16 @@ pub trait Merge: Sync {
     }
 
     /// One partition of every partial into the shared destination; W threads, disjoint partitions.
-    fn merge_partition(&self, _leader: Region, _part: u32, _plan: PartitionPlan, _partials: &[Partial<'_>]) -> Result<()> {
-        Err(crate::Error::Unsupported(gravity_abi::status::UNSUPPORTED_SCRATCH))
+    fn merge_partition(
+        &self,
+        _leader: Region,
+        _part: u32,
+        _plan: PartitionPlan,
+        _partials: &[Partial<'_>],
+    ) -> Result<()> {
+        Err(crate::Error::Unsupported(
+            gravity_abi::status::UNSUPPORTED_SCRATCH,
+        ))
     }
 
     /// The bound a worker's partial proves after a claim (the zone walk, §1.10 increment 3 step 5): no row or group with a key past it can still be among the statement's answer. `None` for breakers without one.
@@ -309,14 +359,26 @@ pub trait Merge: Sync {
     /// D3111: every partition's record bytes over the one-round owner's sources (`own_partition`'s: the partials' chains
     /// and tables, the files), `parts[p]` for partition `p < 1 << pbits`, when the merge can count them; `false`: unknown
     /// (the owner sizes its table from the partitions' average).
-    fn part_record_bytes(&self, _partials: &[Partial<'_>], _files: &[&dyn crate::SpillFile], _pbits: u8, _parts: &mut [u64]) -> bool {
+    fn part_record_bytes(
+        &self,
+        _partials: &[Partial<'_>],
+        _files: &[&dyn crate::SpillFile],
+        _pbits: u8,
+        _parts: &mut [u64],
+    ) -> bool {
         false
     }
 
     /// D2988 (C): the partitions some source holds a record of, bit `p % 64` of `mask[p / 64]`, when the merge can say so
     /// from memory alone (no file, nothing it cannot read): the one-round owner phase then folds only those, the others
     /// being the empty folds `own_partition` makes of a partition without records. `false` = fold every partition.
-    fn held_parts(&self, _partials: &[Partial<'_>], _files: &[&dyn crate::SpillFile], _pbits: u8, _mask: &mut [u64]) -> bool {
+    fn held_parts(
+        &self,
+        _partials: &[Partial<'_>],
+        _files: &[&dyn crate::SpillFile],
+        _pbits: u8,
+        _mask: &mut [u64],
+    ) -> bool {
         false
     }
 
@@ -343,7 +405,18 @@ pub trait Merge: Sync {
     /// pending cancel or timeout ends the fold with `Error::Cancelled` (D283). D4170: a merge with no owner phase (this
     /// default) refuses by name (`no_owner_phase`); kind 2 means a region too small, which the owner fold grows.
     #[allow(clippy::too_many_arguments)]
-    fn own_partition(&self, _owner: Region, _part: u32, _pbits: u8, _partials: &[Partial<'_>], _files: &[&dyn crate::SpillFile], _site: *mut gravity_abi::Site, _cancel: *const u8, _round: u8, _flush: Flush<'_>) -> Result<()> {
+    fn own_partition(
+        &self,
+        _owner: Region,
+        _part: u32,
+        _pbits: u8,
+        _partials: &[Partial<'_>],
+        _files: &[&dyn crate::SpillFile],
+        _site: *mut gravity_abi::Site,
+        _cancel: *const u8,
+        _round: u8,
+        _flush: Flush<'_>,
+    ) -> Result<()> {
         Err(crate::section::no_owner_phase())
     }
 
@@ -394,7 +467,15 @@ pub trait BatchFold: Send {
     /// Partition `part` at `pbits` of every file folded into the opened `owner` and reduced; `cancel` as `own_partition`'s.
     /// `Unsupported(UNSUPPORTED_SCRATCH)`: the region is too small, or a dense form missed its domain (D597: the plain
     /// form takes over), and the caller folds the batch again.
-    fn fold(&self, owner: Region, part: u32, pbits: u8, files: &[&dyn crate::SpillFile], site: *mut gravity_abi::Site, cancel: *const u8) -> Result<()>;
+    fn fold(
+        &self,
+        owner: Region,
+        part: u32,
+        pbits: u8,
+        files: &[&dyn crate::SpillFile],
+        site: *mut gravity_abi::Site,
+        cancel: *const u8,
+    ) -> Result<()>;
 
     /// After the batch's last partition: the owner's round closed (a one-round form orders its run here).
     fn end(&self, owner: Region) -> Result<()>;
@@ -408,4 +489,5 @@ pub fn scribble() -> bool {
     *ON.get_or_init(|| crate::env::text("PGRUST_GRAVITY_SCRIBBLE").is_some_and(|v| v == "1"))
 }
 
-pub static P2_DIAG: [core::sync::atomic::AtomicU32; 8] = [const { core::sync::atomic::AtomicU32::new(0) }; 8];
+pub static P2_DIAG: [core::sync::atomic::AtomicU32; 8] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; 8];

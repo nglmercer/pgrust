@@ -22,7 +22,11 @@ pub struct WasmCode {
 impl WasmCode {
     pub fn new(embedder: Arc<dyn Embedder>, bytes: Vec<u8>) -> Result<WasmCode, String> {
         let handle = embedder.instantiate(&bytes)?;
-        Ok(WasmCode { bytes, handle, embedder })
+        Ok(WasmCode {
+            bytes,
+            handle,
+            embedder,
+        })
     }
 
     pub fn bytes(&self) -> &[u8] {

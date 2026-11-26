@@ -97,12 +97,23 @@ fn ir_kind(t: &str) -> char {
 
 /// The text with `//` comments blanked to spaces (offsets kept, so line numbers stay true).
 fn strip_comments(s: &str) -> String {
-    s.lines().map(|l| match l.find("//") { Some(i) => format!("{}{}", &l[..i], " ".repeat(l.len() - i)), None => l.to_string() }).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| match l.find("//") {
+            Some(i) => format!("{}{}", &l[..i], " ".repeat(l.len() - i)),
+            None => l.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The index just past the bracket that closes the one at `open` (`(`/`[`/`{`/`<`), counting that kind only.
 fn close(b: &[u8], open: usize) -> usize {
-    let (o, c) = match b[open] { b'(' => (b'(', b')'), b'[' => (b'[', b']'), b'{' => (b'{', b'}'), _ => (b'<', b'>') };
+    let (o, c) = match b[open] {
+        b'(' => (b'(', b')'),
+        b'[' => (b'[', b']'),
+        b'{' => (b'{', b'}'),
+        _ => (b'<', b'>'),
+    };
     let (mut d, mut i) = (0i32, open);
     while i < b.len() {
         if b[i] == o {
@@ -171,7 +182,10 @@ fn host_defs(text: &str, out: &mut BTreeMap<String, Vec<Shape>>) {
         if !in_host && !before.contains("extern \"C") {
             continue;
         }
-        let name: String = text[s + 3..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
+        let name: String = text[s + 3..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
         let mut i = s + 3 + name.len();
         while i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
@@ -186,11 +200,18 @@ fn host_defs(text: &str, out: &mut BTreeMap<String, Vec<Shape>>) {
             continue;
         }
         let pe = close(b, i);
-        let params: Vec<char> = split_top(&text[i + 1..pe - 1]).iter().filter_map(|p| p.split_once(':').map(|(_, t)| rust_kind(t))).collect();
+        let params: Vec<char> = split_top(&text[i + 1..pe - 1])
+            .iter()
+            .filter_map(|p| p.split_once(':').map(|(_, t)| rust_kind(t)))
+            .collect();
         let tail = &text[pe..];
         let end = tail.find(['{', ';']).unwrap_or(tail.len());
         let sig = tail[..end].split(" where ").next().unwrap().trim();
-        let ret = sig.strip_prefix("->").map(|r| r.trim()).filter(|r| *r != "()").map(rust_kind);
+        let ret = sig
+            .strip_prefix("->")
+            .map(|r| r.trim())
+            .filter(|r| *r != "()")
+            .map(rust_kind);
         out.entry(name).or_default().push((params, ret));
     }
 }
@@ -213,23 +234,30 @@ const WORDS: &str = "words:";
 
 /// A literal `&[Type::..]` (or `&[Type::X; n]`) as kinds; `None` when not literal.
 fn ir_params(a: &str) -> Option<Vec<char>> {
-    a.strip_prefix("&[").and_then(|p| p.strip_suffix(']')).and_then(|p| {
-        let p = p.trim();
-        if let Some((t, n)) = p.split_once(';') {
-            let n: usize = n.trim().parse().ok()?;
-            let k = ir_kind(t);
-            return (k != '?').then(|| vec![k; n]);
-        }
-        let ks: Vec<char> = split_top(p).iter().map(|t| ir_kind(t)).collect();
-        (!ks.contains(&'?')).then_some(ks)
-    })
+    a.strip_prefix("&[")
+        .and_then(|p| p.strip_suffix(']'))
+        .and_then(|p| {
+            let p = p.trim();
+            if let Some((t, n)) = p.split_once(';') {
+                let n: usize = n.trim().parse().ok()?;
+                let k = ir_kind(t);
+                return (k != '?').then(|| vec![k; n]);
+            }
+            let ks: Vec<char> = split_top(p).iter().map(|t| ir_kind(t)).collect();
+            (!ks.contains(&'?')).then_some(ks)
+        })
 }
 
 /// A literal `None` / `Some(Type::..)` as a kind.
 fn ir_ret(a: &str) -> Option<Option<char>> {
     match a.trim() {
         "None" => Some(None),
-        r => r.strip_prefix("Some(").and_then(|r| r.strip_suffix(')')).map(ir_kind).filter(|k| *k != '?').map(Some),
+        r => r
+            .strip_prefix("Some(")
+            .and_then(|r| r.strip_suffix(')'))
+            .map(ir_kind)
+            .filter(|k| *k != '?')
+            .map(Some),
     }
 }
 
@@ -254,19 +282,55 @@ fn decl_sites(rel: &str, text: &str, out: &mut Vec<Site>) {
         let addr_text = args[3].split_whitespace().collect::<Vec<_>>().join(" ");
         if let Some(w) = addr_text.strip_prefix("gravity_abi::host_words!(") {
             // the word-typed wrapper (`gravity_abi::host_words!`): every parameter and the answer a 64-bit word
-            let name = w.split('(').next().unwrap_or("").rsplit("::").next().unwrap_or("").to_string();
-            out.push(Site { at: format!("{rel}:{line}"), key: format!("{rel}:{name}"), off: s, raw: addr_text.clone(), addr: Some(format!("{WORDS}{name}")), params: ir_params(&args[1]), ret: ir_ret(&args[2]) });
+            let name = w
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .rsplit("::")
+                .next()
+                .unwrap_or("")
+                .to_string();
+            out.push(Site {
+                at: format!("{rel}:{line}"),
+                key: format!("{rel}:{name}"),
+                off: s,
+                raw: addr_text.clone(),
+                addr: Some(format!("{WORDS}{name}")),
+                params: ir_params(&args[1]),
+                ret: ir_ret(&args[2]),
+            });
             continue;
         }
-        let addr = addr_text.strip_suffix(" as usize").map(|a| a.strip_suffix(" as *const ()").unwrap_or(a)).and_then(|a| {
-            let path = a.split("::<").next().unwrap();
-            let ok = !path.is_empty() && path.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') && !path.chars().next().unwrap().is_ascii_digit();
-            ok.then(|| path.rsplit("::").next().unwrap().to_string())
+        let addr = addr_text
+            .strip_suffix(" as usize")
+            .map(|a| a.strip_suffix(" as *const ()").unwrap_or(a))
+            .and_then(|a| {
+                let path = a.split("::<").next().unwrap();
+                let ok = !path.is_empty()
+                    && path
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':')
+                    && !path.chars().next().unwrap().is_ascii_digit();
+                ok.then(|| path.rsplit("::").next().unwrap().to_string())
+            });
+        let key = addr.clone().unwrap_or_else(|| {
+            addr_text
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string()
         });
-        let key = addr.clone().unwrap_or_else(|| addr_text.split_whitespace().next().unwrap_or("").to_string());
         let params = ir_params(&args[1]);
         let ret = ir_ret(&args[2]);
-        out.push(Site { at: format!("{rel}:{line}"), key: format!("{rel}:{key}"), off: s, raw: addr_text, addr, params, ret });
+        out.push(Site {
+            at: format!("{rel}:{line}"),
+            key: format!("{rel}:{key}"),
+            off: s,
+            raw: addr_text,
+            addr,
+            params,
+            ret,
+        });
     }
 }
 
@@ -278,14 +342,30 @@ fn byval_entries(files: &[(String, String)]) -> Vec<Shape> {
         if !rel.ends_with("fn/src/shims/catalog.rs") {
             continue;
         }
-        for row in text.lines().filter(|l| l.contains("family: Family::ByVal,")) {
-            let Some(k) = row.find("transmute::<extern \"C") else { continue };
+        for row in text
+            .lines()
+            .filter(|l| l.contains("family: Family::ByVal,"))
+        {
+            let Some(k) = row.find("transmute::<extern \"C") else {
+                continue;
+            };
             let t = &row[k..];
             let Some(o) = t.find("fn(") else { continue };
             let b = t.as_bytes();
             let pe = close(b, o + 2);
-            let params = split_top(&t[o + 3..pe - 1]).iter().map(|p| rust_kind(p)).collect();
-            let ret = t[pe..].split(", RawFn>").next().unwrap_or("").trim().strip_prefix("->").map(|r| r.trim()).filter(|r| *r != "()").map(rust_kind);
+            let params = split_top(&t[o + 3..pe - 1])
+                .iter()
+                .map(|p| rust_kind(p))
+                .collect();
+            let ret = t[pe..]
+                .split(", RawFn>")
+                .next()
+                .unwrap_or("")
+                .trim()
+                .strip_prefix("->")
+                .map(|r| r.trim())
+                .filter(|r| *r != "()")
+                .map(rust_kind);
             out.push((params, ret));
         }
     }
@@ -306,7 +386,9 @@ fn native_only(text: &str, off: usize) -> bool {
         if s > off || (s > 0 && (b[s - 1].is_ascii_alphanumeric() || b[s - 1] == b'_')) {
             continue;
         }
-        let Some(open) = text[s..].find(['{', ';']).map(|i| s + i) else { continue };
+        let Some(open) = text[s..].find(['{', ';']).map(|i| s + i) else {
+            continue;
+        };
         if b[open] != b'{' {
             continue;
         }
@@ -336,26 +418,40 @@ fn native_only(text: &str, off: usize) -> bool {
 /// 64-bit word (`W`): the same call under a 64-bit ABI.
 fn wide_only(ir: &Shape, rust: &Shape) -> bool {
     let same = |a: char, b: char| a == b || (a == 'W' && b == 'X');
-    ir.0.len() == rust.0.len() && ir.0.iter().zip(&rust.0).all(|(&a, &b)| same(a, b)) && match (ir.1, rust.1) {
-        (Some(a), Some(b)) => same(a, b),
-        (a, b) => a == b,
-    }
+    ir.0.len() == rust.0.len()
+        && ir.0.iter().zip(&rust.0).all(|(&a, &b)| same(a, b))
+        && match (ir.1, rust.1) {
+            (Some(a), Some(b)) => same(a, b),
+            (a, b) => a == b,
+        }
 }
 
 fn sources(root: &Path) -> Vec<(String, String)> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) {
-        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
         entries.sort();
         for p in entries {
             let name = p.file_name().unwrap().to_string_lossy().to_string();
             if p.is_dir() {
-                if !["target", "tests", "examples", "benches"].contains(&name.as_str()) && !name.starts_with('.') {
+                if !["target", "tests", "examples", "benches"].contains(&name.as_str())
+                    && !name.starts_with('.')
+                {
                     walk(root, &p, out);
                 }
             } else if name.ends_with(".rs") {
-                let rel = p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+                let rel = p
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/");
                 if rel.contains("/src/") || rel.starts_with("src/") {
-                    out.push((rel, strip_comments(&std::fs::read_to_string(&p).unwrap_or_default())));
+                    out.push((
+                        rel,
+                        strip_comments(&std::fs::read_to_string(&p).unwrap_or_default()),
+                    ));
                 }
             }
         }
@@ -375,14 +471,29 @@ fn audit(root: &Path) -> (Vec<String>, Vec<String>, usize) {
         decl_sites(rel, text, &mut sites);
     }
     let byval = byval_entries(&files);
-    let text_of = |at: &str| files.iter().find(|(rel, _)| at.starts_with(&format!("{rel}:"))).map(|(_, t)| t.as_str()).unwrap_or("");
+    let text_of = |at: &str| {
+        files
+            .iter()
+            .find(|(rel, _)| at.starts_with(&format!("{rel}:")))
+            .map(|(_, t)| t.as_str())
+            .unwrap_or("")
+    };
     let (mut bad, mut unpaired, mut paired) = (Vec::new(), Vec::new(), 0);
-    let show = |s: &Shape| format!("({}) -> {}", s.0.iter().collect::<String>(), s.1.map_or("()".into(), |c| c.to_string()));
+    let show = |s: &Shape| {
+        format!(
+            "({}) -> {}",
+            s.0.iter().collect::<String>(),
+            s.1.map_or("()".into(), |c| c.to_string())
+        )
+    };
     for s in &sites {
         if s.raw.ends_with(".addr()") {
             // a gravity_fn shim's typed entry (the direct road): `(*mut ErrSlot, i64..) -> Ret`, never the IR's words
             paired += 1;
-            let typed = byval.iter().filter(|e| e.0.contains(&'X') || e.1 == Some('X')).count();
+            let typed = byval
+                .iter()
+                .filter(|e| e.0.contains(&'X') || e.1 == Some('X'))
+                .count();
             if typed > 0 && !native_only(text_of(&s.at), s.off) {
                 bad.push(format!("crates/gravity/{}: {}: a gravity_fn shim's typed entry ({typed} Family::ByVal shapes, e.g. Rust {}) declared for the IR outside a fn under #[cfg(target_pointer_width = \"64\")]: wasm32 traps (D3129)", s.at, s.raw, show(&byval[0])));
             }
@@ -400,7 +511,10 @@ fn audit(root: &Path) -> (Vec<String>, Vec<String>, usize) {
             }
             continue;
         }
-        let mut shapes: Vec<&Shape> = defs.get(name).map(|v| v.iter().collect()).unwrap_or_default();
+        let mut shapes: Vec<&Shape> = defs
+            .get(name)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
         shapes.dedup();
         shapes.sort();
         shapes.dedup();
@@ -410,8 +524,15 @@ fn audit(root: &Path) -> (Vec<String>, Vec<String>, usize) {
         }
         paired += 1;
         let want: Shape = (params.clone(), ret);
-        if *shapes[0] != want && !(wide_only(&want, shapes[0]) && native_only(text_of(&s.at), s.off)) {
-            bad.push(format!("crates/gravity/{}: {name}: IR {} vs Rust {}", s.at, show(&want), show(shapes[0])));
+        if *shapes[0] != want
+            && !(wide_only(&want, shapes[0]) && native_only(text_of(&s.at), s.off))
+        {
+            bad.push(format!(
+                "crates/gravity/{}: {name}: IR {} vs Rust {}",
+                s.at,
+                show(&want),
+                show(shapes[0])
+            ));
         }
     }
     unpaired.sort();
@@ -438,8 +559,17 @@ fn ir_calls_no_block_fn_field() {
     let ir = std::fs::read_to_string(gravity_root().join("ir/src/lib.rs")).unwrap();
     let at = ir.find("pub enum Op {").expect("gravity_ir's Op enum");
     let body = &ir[at..close(ir.as_bytes(), at + ir[at..].find('{').unwrap())];
-    let calls: Vec<&str> = body.lines().map(str::trim).filter(|l| l.starts_with("Call")).map(|l| l.split([' ', '{', '(']).next().unwrap()).collect();
-    assert_eq!(calls, ["Call", "CallHost"], "gravity_ir's call ops changed: audit the new one's host types (host_decls.rs)");
+    let calls: Vec<&str> = body
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.starts_with("Call"))
+        .map(|l| l.split([' ', '{', '(']).next().unwrap())
+        .collect();
+    assert_eq!(
+        calls,
+        ["Call", "CallHost"],
+        "gravity_ir's call ops changed: audit the new one's host types (host_decls.rs)"
+    );
 }
 
 #[test]
@@ -462,8 +592,14 @@ fn the_audit_finds_a_typed_pointer_host() {
     let (bad, unpaired, paired) = audit(&d);
     let _ = std::fs::remove_dir_all(&d);
     assert_eq!((bad.len(), paired), (2, 4), "{bad:?}");
-    assert!(bad[0].contains("x/src/a.rs:8: bad: IR (WW) -> W vs Rust (XW) -> W"), "{bad:?}");
-    assert!(bad[1].contains("x/src/a.rs:10: narrow: IR (WW) -> () vs Rust (WN) -> ()"), "{bad:?}");
+    assert!(
+        bad[0].contains("x/src/a.rs:8: bad: IR (WW) -> W vs Rust (XW) -> W"),
+        "{bad:?}"
+    );
+    assert!(
+        bad[1].contains("x/src/a.rs:10: narrow: IR (WW) -> () vs Rust (WN) -> ()"),
+        "{bad:?}"
+    );
     assert_eq!(unpaired, vec!["x/src/a.rs:addr".to_string()]);
 }
 
@@ -503,10 +639,20 @@ fn the_audit_holds_typed_entries_to_64_bit_only_functions() {
     .unwrap();
     let (bad, unpaired, paired) = audit(&d);
     let _ = std::fs::remove_dir_all(&d);
-    assert_eq!((bad.len(), paired, unpaired.len()), (3, 5, 0), "{bad:?} {unpaired:?}");
+    assert_eq!(
+        (bad.len(), paired, unpaired.len()),
+        (3, 5, 0),
+        "{bad:?} {unpaired:?}"
+    );
     assert!(bad[0].starts_with("crates/gravity/x/src/a.rs:4: shim.addr(): a gravity_fn shim's typed entry (1 Family::ByVal shapes, e.g. Rust (XWW) -> X)"), "{bad:?}");
-    assert!(bad[1].contains("x/src/a.rs:15: typed: IR (WN) -> W vs Rust (XW) -> W"), "{bad:?}");
-    assert!(bad[2].contains("x/src/a.rs:18: typed: IR (WW) -> W vs Rust (XW) -> W"), "{bad:?}");
+    assert!(
+        bad[1].contains("x/src/a.rs:15: typed: IR (WN) -> W vs Rust (XW) -> W"),
+        "{bad:?}"
+    );
+    assert!(
+        bad[2].contains("x/src/a.rs:18: typed: IR (WW) -> W vs Rust (XW) -> W"),
+        "{bad:?}"
+    );
 }
 
 /// Every place a host whose Rust signature takes or answers a typed pointer / `usize` (`X`) has its address taken for the
@@ -520,7 +666,11 @@ fn unwrapped_typed(root: &Path) -> Vec<String> {
     for (_, text) in &files {
         host_defs(text, &mut defs);
     }
-    let typed: Vec<&String> = defs.iter().filter(|(_, v)| v.iter().all(|s| s.0.contains(&'X') || s.1 == Some('X'))).map(|(n, _)| n).collect();
+    let typed: Vec<&String> = defs
+        .iter()
+        .filter(|(_, v)| v.iter().all(|s| s.0.contains(&'X') || s.1 == Some('X')))
+        .map(|(n, _)| n)
+        .collect();
     let mut out = Vec::new();
     for (rel, text) in &files {
         if rel == "abi/src/host.rs" {
@@ -537,14 +687,23 @@ fn unwrapped_typed(root: &Path) -> Vec<String> {
             for name in &typed {
                 // `f as *const () as usize` is a function's address wherever it stands (`let addr = ..` a line above its
                 // declaration); a bare `f as usize` only on a line that names a host
-                let pats = if named { vec![format!("{name} as *const () as usize"), format!("{name} as usize")] } else { vec![format!("{name} as *const () as usize")] };
+                let pats = if named {
+                    vec![
+                        format!("{name} as *const () as usize"),
+                        format!("{name} as usize"),
+                    ]
+                } else {
+                    vec![format!("{name} as *const () as usize")]
+                };
                 for pat in pats {
                     let mut at = 0;
                     while let Some(k) = line[at..].find(&pat) {
                         let s = at + k;
                         at = s + pat.len();
                         let prev = line[..s].chars().next_back();
-                        if prev.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '!') {
+                        if prev.is_some_and(|c| {
+                            c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '!'
+                        }) {
                             continue;
                         }
                         out.push(format!("crates/gravity/{rel}:{}: {name}", n + 1));
@@ -582,5 +741,12 @@ fn the_wide_audit_finds_an_unwrapped_typed_host() {
     .unwrap();
     let bad = unwrapped_typed(&d);
     let _ = std::fs::remove_dir_all(&d);
-    assert_eq!(bad, vec!["crates/gravity/x/src/a.rs:11: open".to_string(), "crates/gravity/x/src/a.rs:6: open".to_string(), "crates/gravity/x/src/a.rs:7: open".to_string()]);
+    assert_eq!(
+        bad,
+        vec![
+            "crates/gravity/x/src/a.rs:11: open".to_string(),
+            "crates/gravity/x/src/a.rs:6: open".to_string(),
+            "crates/gravity/x/src/a.rs:7: open".to_string()
+        ]
+    );
 }

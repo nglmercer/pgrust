@@ -8,42 +8,74 @@ use types_nodes::plannodes::{Plan, RecursiveUnion, SetOp, WorkTableScan};
 use types_nodes::primnodes::{ParamKind, SubLinkType, SubPlan};
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::Refusal;
+use crate::effects::setop::quiet;
 use crate::graph::{Bound, Op, Source};
 use crate::ledger::Kind;
 use crate::ops;
-use crate::admit::Refusal;
-use crate::effects::setop::quiet;
+use crate::ops::shared::setop::{
+    IterDesc, IterUntil, SetCmd, SetDesc, SetForm, NO_LEFT, RECURSIVE_SEED_SET, RECURSIVE_SET,
+};
 use crate::ops::shared::sort::{column_kind, dump_eq_keys};
 use crate::ops::shared::sort::{EqKey, ROW_LAYOUT};
 use crate::walk::{Builder, Open, STMT_NODE};
-use crate::ops::shared::setop::{IterDesc, IterUntil, SetCmd, SetDesc, SetForm, NO_LEFT, RECURSIVE_SEED_SET, RECURSIVE_SET};
 
 mod gen_stream;
 mod stream;
 
 pub use stream::hosted_key;
 
-fn eq_keys<'p>(b: &Builder<'p, '_>, tlist: &NodeList<'p>, cols: &[i16], ops: &[u32], n: i32, k: Kind, id: i32) -> Result<ArenaVec<EqKey>, Refusal> {
+fn eq_keys<'p>(
+    b: &Builder<'p, '_>,
+    tlist: &NodeList<'p>,
+    cols: &[i16],
+    ops: &[u32],
+    n: i32,
+    k: Kind,
+    id: i32,
+) -> Result<ArenaVec<EqKey>, Refusal> {
     let n = n.max(0) as usize;
     if cols.len() < n || ops.len() < n {
         return Err(Refusal::shape(k, id, "key arrays shorter than their count"));
     }
     let mut keys = ArenaVec::with_capacity_in(n, b.arena);
     for i in 0..n {
-        keys.push(EqKey { resno: cols[i], opno: ops[i], kind: column_kind(b.facts, tlist, cols[i], k, id)?, typid: crate::ops::shared::sort::column_type(tlist, cols[i], k, id)? });
+        keys.push(EqKey {
+            resno: cols[i],
+            opno: ops[i],
+            kind: column_kind(b.facts, tlist, cols[i], k, id)?,
+            typid: crate::ops::shared::sort::column_type(tlist, cols[i], k, id)?,
+        });
     }
     Ok(keys)
 }
 
 fn child_tlist<'p>(n: Option<Node<'p>>, k: Kind, id: i32) -> Result<&'p Plan<'p>, Refusal> {
-    n.and_then(|n| n.as_plan()).ok_or(Refusal::shape(k, id, "a set operation without two inputs"))
+    n.and_then(|n| n.as_plan())
+        .ok_or(Refusal::shape(k, id, "a set operation without two inputs"))
 }
 
 /// D1292: a set compare under no collation over a collatable column raises in PG (texteq / hashtext's check).
-fn loose_keys(b: &Builder<'_, '_>, tlist: &NodeList<'_>, cols: &[i16], colls: &[u32], n: i32, k: Kind, id: i32) -> Result<(), Refusal> {
+fn loose_keys(
+    b: &Builder<'_, '_>,
+    tlist: &NodeList<'_>,
+    cols: &[i16],
+    colls: &[u32],
+    n: i32,
+    k: Kind,
+    id: i32,
+) -> Result<(), Refusal> {
     for (i, &c) in cols.iter().take(n.max(0) as usize).enumerate() {
-        if crate::ops::shared::sort::indeterminate(b.facts, crate::ops::shared::sort::column_type(tlist, c, k, id)?, colls.get(i).copied().unwrap_or(0)) {
-            return Err(Refusal::shape(k, id, crate::ops::shared::sort::INDETERMINATE_COLL));
+        if crate::ops::shared::sort::indeterminate(
+            b.facts,
+            crate::ops::shared::sort::column_type(tlist, c, k, id)?,
+            colls.get(i).copied().unwrap_or(0),
+        ) {
+            return Err(Refusal::shape(
+                k,
+                id,
+                crate::ops::shared::sort::INDETERMINATE_COLL,
+            ));
         }
     }
     Ok(())
@@ -113,8 +145,24 @@ fn set_op_shape<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>) -> Result<SetSha
     let hashed = so.strategy == 1;
     let lp = child_tlist(plan.lefttree, k, id)?;
     let rp = child_tlist(plan.righttree, k, id)?;
-    let keys = eq_keys(b, &lp.targetlist, so.cmpColIdx, so.cmpOperators, so.numCols, k, id)?;
-    loose_keys(b, &lp.targetlist, so.cmpColIdx, so.cmpCollations, so.numCols, k, id)?;
+    let keys = eq_keys(
+        b,
+        &lp.targetlist,
+        so.cmpColIdx,
+        so.cmpOperators,
+        so.numCols,
+        k,
+        id,
+    )?;
+    loose_keys(
+        b,
+        &lp.targetlist,
+        so.cmpColIdx,
+        so.cmpCollations,
+        so.numCols,
+        k,
+        id,
+    )?;
     let n = (so.numCols.max(0) as usize).min(so.cmpColIdx.len());
     // a sorted SetOp reads its right input only while the left has rows: over a Sort, or with no column (every row one
     // group: PG reads the right side whole once the left has a row), that is all of it or (an empty left) none, which the
@@ -131,20 +179,42 @@ fn set_op_shape<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>) -> Result<SetSha
     // read of both inputs is exact there but costs every row PG never reads (past a LIMIT, or the right's rows past the
     // left's last group). No refusal and no counted-pull mark below depends on the choice then (a quiet left, no reader
     // that stops early)
-    let x1 = grouped && !hashed && n > 0 && rn.as_sort().is_none() && root_once(b, id) && !stopped_early(b, id) && !crate::effects::setop::streamed_left_raises(b, ln);
+    let x1 = grouped
+        && !hashed
+        && n > 0
+        && rn.as_sort().is_none()
+        && root_once(b, id)
+        && !stopped_early(b, id)
+        && !crate::effects::setop::streamed_left_raises(b, ln);
     // D2805 (D3377): a left that may raise on the statement's root path, read by a partial reader (a named cursor's FETCH,
     // a counted portal: `PipelineGraph::partial`) whose count may stop the pull where PG has read only the left rows it
     // handed on: the grouped form reads the left whole at the first pull, so the streamed form (setop/stream.rs, where it
     // serves the shape) reads it as PG does, and no counted-pull mark is set below. A whole reader keeps the grouped form
     // (a quiet Sort over a relation scan as the right input too: `stream::sorted_scan`, pulled with its fill at the first pull)
-    let x2 = grouped && b.graph.partial && !hashed && n > 0 && (rn.as_sort().is_none() || stream::sorted_scan(b, rn).is_some()) && !stopped_early(b, id) && on_root_path(b, id) && crate::effects::setop::streamed_left_raises(b, ln);
+    let x2 = grouped
+        && b.graph.partial
+        && !hashed
+        && n > 0
+        && (rn.as_sort().is_none() || stream::sorted_scan(b, rn).is_some())
+        && !stopped_early(b, id)
+        && on_root_path(b, id)
+        && crate::effects::setop::streamed_left_raises(b, ln);
     // D2800 (D3376): a left that may raise under a sub-plan PG may stop reading early (`stopped_early`: an EXISTS, scalar,
     // ANY or ALL sublink, or a CTE's plan a LIMIT reads part of): the grouped form reads the left whole at the first pull,
     // so the streamed form reads it as PG does: the step hands each left group on as it reads it, and an EXISTS InitPlan
     // ends its pipeline at the first row handed on (lowerv4 ops/subplan/initplan `Init`, the count-reached exit), past
     // which no left row is read. Where the streamed form does not serve the shape, the refusal below stays
-    let x3 = grouped && !hashed && n > 0 && (rn.as_sort().is_none() || stream::sorted_scan(b, rn).is_some()) && stopped_early(b, id) && crate::effects::setop::streamed_left_raises(b, ln);
-    let stream = if grouped && !(x1 || x2 || x3) { None } else { stream::form(b, so, lp, &keys, rn, n) };
+    let x3 = grouped
+        && !hashed
+        && n > 0
+        && (rn.as_sort().is_none() || stream::sorted_scan(b, rn).is_some())
+        && stopped_early(b, id)
+        && crate::effects::setop::streamed_left_raises(b, ln);
+    let stream = if grouped && !(x1 || x2 || x3) {
+        None
+    } else {
+        stream::form(b, so, lp, &keys, rn, n)
+    };
     // else one that may raise but acts nowhere and returns the same rows run to run is read whole too, ahead of PG's early
     // stop: the lowering asks a recheck licence for it, which a user function feeding it denies (`SetForm::Ahead`)
     let e = crate::effects::of_plan(&crate::effects::Cx::new(b.stmt, b.facts, b.arena), rn);
@@ -153,7 +223,8 @@ fn set_op_shape<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>) -> Result<SetSha
     // setop_retrieve_sorted), so a sublink that stops at its first or second row leaves the rest of the left unread; the
     // grouped and licence forms below read the left whole first (the streamed form reads it as PG does), so a left that
     // may raise past those rows errors where PG answers
-    let loud_left = stream.is_none() && !hashed && n > 0 && crate::effects::setop::streamed_left_raises(b, ln);
+    let loud_left =
+        stream.is_none() && !hashed && n > 0 && crate::effects::setop::streamed_left_raises(b, ln);
     if loud_left && stopped_early(b, id) {
         return Err(Refusal::shape(k, id, STOPPED_LEFT));
     }
@@ -161,23 +232,53 @@ fn set_op_shape<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>) -> Result<SetSha
     let whole = stream.is_none() && (grouped || ahead);
     // construct C2: a quiet right input (`stop_unseen`) the grouped form reads whole where PG's sorted walk may stop holds
     // the Ahead licence of code that neither acts nor raises (its rows may differ run to run: the read re-runs nothing)
-    let quiet_right = (grouped && !hashed && n > 0 && rn.as_sort().is_none()).then(|| crate::effects::quiet_ahead(e)).flatten();
-    let form = stream.unwrap_or(if ahead { SetForm::Ahead } else { SetForm::Grouped(quiet_right) });
-    let right_first = (whole && held(rn) >= LEFT_FIRST_HELD && nodes(rn) > nodes(ln)).then(|| quiet_ahead(b, rn)).flatten();
-    Ok(SetShape { cmd, hashed, keys, n, lp, rp, ln, rn, stream: stream.is_some(), whole, form, pull_loud, right_first })
+    let quiet_right = (grouped && !hashed && n > 0 && rn.as_sort().is_none())
+        .then(|| crate::effects::quiet_ahead(e))
+        .flatten();
+    let form = stream.unwrap_or(if ahead {
+        SetForm::Ahead
+    } else {
+        SetForm::Grouped(quiet_right)
+    });
+    let right_first = (whole && held(rn) >= LEFT_FIRST_HELD && nodes(rn) > nodes(ln))
+        .then(|| quiet_ahead(b, rn))
+        .flatten();
+    Ok(SetShape {
+        cmd,
+        hashed,
+        keys,
+        n,
+        lp,
+        rp,
+        ln,
+        rn,
+        stream: stream.is_some(),
+        whole,
+        form,
+        pull_loud,
+        right_first,
+    })
 }
 
 /// The licence of subtree `n`'s run ahead of PostgreSQL's order (the right side mapped first, a Sort's fill at the
 /// first pull): it shows nothing run ahead (`effects::quiet_ahead`: no act, no raise; the run re-runs nothing, so rows
 /// that differ run to run are no difference) and calls no user function (`effects::setop::quiet`). `None` otherwise.
 pub(super) fn quiet_ahead<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> Option<crate::effects::Licence> {
-    let licence = crate::effects::quiet_ahead(crate::effects::of_plan(&crate::effects::Cx::new(b.stmt, b.facts, b.arena), n))?;
+    let licence = crate::effects::quiet_ahead(crate::effects::of_plan(
+        &crate::effects::Cx::new(b.stmt, b.facts, b.arena),
+        n,
+    ))?;
     quiet(b, n).then_some(licence)
 }
 
 /// D3748: `map_set_op`'s streamed form's inputs, in a frame of their own: the left input's open is its return value.
 #[inline(never)]
-fn set_op_stream<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, sides: &mut (u8, u8)) -> Result<Open<'p>, Refusal> {
+fn set_op_stream<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+    sides: &mut (u8, u8),
+) -> Result<Open<'p>, Refusal> {
     // the emit is the left input's pipeline, serial (the step reads its order) and one pipeline (a streamed union's
     // arms settle into their slot); the right input is a spool its step pulls (lowerv4 ops/setop/stream.rs)
     let mut lo = b.plan(s.ln);
@@ -196,24 +297,45 @@ fn set_op_stream<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p
 /// D3748: the streamed form's left open, settled and made serial (`set_op_stream`).
 #[inline(never)]
 fn stream_left<'p>(b: &mut Builder<'p, '_>, r: &mut Result<Open<'p>, Refusal>, id: i32) {
-    let Some(lo) = take_open(r, Kind::SetOp, id) else { return };
+    let Some(lo) = take_open(r, Kind::SetOp, id) else {
+        return;
+    };
     let mut lo = crate::breakers::one_fill(&mut b.graph, lo);
     if lo.desc.is_eligible() {
         let site = lo.desc.driving_site.max(0);
-        lo.desc = Pipeline { parallel: gravity_program::Parallel::Ineligible { site, reason: Reason::SortedSource }, ..lo.desc };
+        lo.desc = Pipeline {
+            parallel: gravity_program::Parallel::Ineligible {
+                site,
+                reason: Reason::SortedSource,
+            },
+            ..lo.desc
+        };
     }
     *r = Ok(lo);
 }
 
 /// D3748: the streamed form's right input, mapped and spooled: its slot (`set_op_stream`).
 #[inline(never)]
-fn stream_right<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>) -> Result<u8, Refusal> {
+fn stream_right<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+) -> Result<u8, Refusal> {
     let (k, id) = (Kind::SetOp, so.plan.plan_node_id);
     let ro = b.plan(s.rn)?;
     // D2805 (D3377): a Sort's bare emit is spooled on its own (never the Sort's slot, which a pull cannot stop inside):
     // its fill is the pulled set's producer, run at the first pull (lowerv4 ops/setop/stream.rs `sorted_emit`)
     match s.rn.as_sort() {
-        Some(_) => crate::ops::shared::breaker::close(b, ro, BreakerKind::Materialize, ROW_LAYOUT, Budget::Share, Spill::Runs, k, id),
+        Some(_) => crate::ops::shared::breaker::close(
+            b,
+            ro,
+            BreakerKind::Materialize,
+            ROW_LAYOUT,
+            Budget::Share,
+            Spill::Runs,
+            k,
+            id,
+        ),
         None => crate::ops::shared::breaker::spool(b, ro, k, id),
     }
 }
@@ -222,7 +344,12 @@ fn stream_right<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>
 /// per key: the emit walks the left groups, a sorted SetOp's in its Sort's order, and the right group is read whole by
 /// the set step, never emitted), in a frame of their own: the left group's emit is its return value.
 #[inline(never)]
-fn set_op_whole<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, sides: &mut (u8, u8)) -> Result<Open<'p>, Refusal> {
+fn set_op_whole<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+    sides: &mut (u8, u8),
+) -> Result<Open<'p>, Refusal> {
     // CAP-36: a side's group stays live while the other side maps, so the larger side maps first and a nest of set
     // operations holds slots in the log of its size, not its depth (PG 18 nests INTERSECT ALL to the right: a
     // 300-arm one held 299 left groups at once). The right side goes first only when a left-first map of it would
@@ -251,7 +378,12 @@ fn set_op_whole<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>
 
 /// D3748: the grouped form's left side, mapped and grouped: its group's emit, `slot` the group's slot.
 #[inline(never)]
-fn whole_left<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, slot: &mut u8) -> Result<Open<'p>, Refusal> {
+fn whole_left<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+    slot: &mut u8,
+) -> Result<Open<'p>, Refusal> {
     let mut r = b.plan(s.ln);
     if r.is_ok() {
         whole_group(b, so, s, true, &mut r, slot);
@@ -261,7 +393,11 @@ fn whole_left<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, 
 
 /// D3748: the grouped form's right side, mapped and grouped: its group's slot (its emit dropped).
 #[inline(never)]
-fn whole_right<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>) -> Result<u8, Refusal> {
+fn whole_right<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+) -> Result<u8, Refusal> {
     let mut r = b.plan(s.rn);
     let mut slot = 0;
     if r.is_ok() {
@@ -272,14 +408,37 @@ fn whole_right<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>)
 
 /// D3748: side `left`'s mapped open (in `r`) closed into its group (`agg::set_side`): `r` becomes the group's emit.
 #[inline(never)]
-fn whole_group<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, left: bool, r: &mut Result<Open<'p>, Refusal>, slot: &mut u8) {
+fn whole_group<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+    left: bool,
+    r: &mut Result<Open<'p>, Refusal>,
+    slot: &mut u8,
+) {
     let (k, id) = (Kind::SetOp, so.plan.plan_node_id);
     let Some(o) = take_open(r, k, id) else { return };
     let (cols, colls) = (&so.cmpColIdx[..s.n], so.cmpCollations);
     let groups = so.numGroups.max(0) as u64;
     let grouped = match left {
-        true => crate::ops::agg::set_side(b, o, cols, colls, true, !s.hashed && s.n > 0, if groups > 0 { groups } else { Builder::rows(s.lp) }, k, id),
-        false => crate::ops::agg::set_side(b, o, cols, colls, false, false, Builder::rows(s.rp), k, id),
+        true => crate::ops::agg::set_side(
+            b,
+            o,
+            cols,
+            colls,
+            true,
+            !s.hashed && s.n > 0,
+            if groups > 0 {
+                groups
+            } else {
+                Builder::rows(s.lp)
+            },
+            k,
+            id,
+        ),
+        false => {
+            crate::ops::agg::set_side(b, o, cols, colls, false, false, Builder::rows(s.rp), k, id)
+        }
     };
     *r = grouped.map(|(out, at)| {
         *slot = at;
@@ -289,7 +448,12 @@ fn whole_group<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>,
 
 /// D3748: `map_set_op`'s spooled inputs, in a frame of their own: the emit over the left spool is its return value.
 #[inline(never)]
-fn set_op_spools<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: &SetShape<'p>, sides: &mut (u8, u8)) -> Result<Open<'p>, Refusal> {
+fn set_op_spools<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: &SetShape<'p>,
+    sides: &mut (u8, u8),
+) -> Result<Open<'p>, Refusal> {
     let id = so.plan.plan_node_id;
     let left = spooled(b, so, s.ln)?;
     let right = spooled(b, so, s.rn)?;
@@ -306,12 +470,37 @@ fn spooled<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, n: Node<'p>) -> Resul
 
 /// D3748: the set operation's node over its mapped inputs (`r` holds the emit), in a frame of its own.
 #[inline(never)]
-fn set_op_close<'p>(b: &mut Builder<'p, '_>, so: &'p SetOp<'p>, s: SetShape<'p>, r: &mut Result<Open<'p>, Refusal>, (left, right): (u8, u8)) {
+fn set_op_close<'p>(
+    b: &mut Builder<'p, '_>,
+    so: &'p SetOp<'p>,
+    s: SetShape<'p>,
+    r: &mut Result<Open<'p>, Refusal>,
+    (left, right): (u8, u8),
+) {
     let (plan, k) = (&so.plan, Kind::SetOp);
-    let Some(mut out) = take_open(r, k, plan.plan_node_id) else { return };
-    let SetShape { cmd, hashed, keys, form, pull_loud, .. } = s;
+    let Some(mut out) = take_open(r, k, plan.plan_node_id) else {
+        return;
+    };
+    let SetShape {
+        cmd,
+        hashed,
+        keys,
+        form,
+        pull_loud,
+        ..
+    } = s;
     crate::ops::shared::breaker::consume(b, &mut out, right);
-    out.push(Op::SetOp(SetDesc::Set { cmd, hashed, left, right, keys, groups: so.numGroups.max(0) as u64, tlist: &plan.targetlist, form, pull_loud }));
+    out.push(Op::SetOp(SetDesc::Set {
+        cmd,
+        hashed,
+        left,
+        right,
+        keys,
+        groups: so.numGroups.max(0) as u64,
+        tlist: &plan.targetlist,
+        form,
+        pull_loud,
+    }));
     ops::filters(&mut out, &plan.qual);
     ops::project(&mut out, &plan.targetlist);
     b.graph.note(k);
@@ -337,13 +526,20 @@ fn stopped_early<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
     if stmt.subplans.is_nil() {
         return false;
     }
-    let (mut cte, mut whole, mut early): (ArenaVec<i32>, ArenaVec<i32>, ArenaVec<i32>) = (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena)); // alloc: Cold
+    let (mut cte, mut whole, mut early): (ArenaVec<i32>, ArenaVec<i32>, ArenaVec<i32>) = (
+        ArenaVec::new_in(b.arena),
+        ArenaVec::new_in(b.arena),
+        ArenaVec::new_in(b.arena),
+    ); // alloc: Cold
     let mut limits: ArenaVec<Node<'p>> = ArenaVec::new_in(b.arena); // alloc: Cold
     crate::rerun::each_plan_node(stmt, &mut |n| {
         if let Some(c) = n.as_cte_scan() {
             cte.push(c.ctePlanId); // alloc: Cold
         }
-        if let Some(l) = n.as_limit().filter(|l| !matches!(crate::ops::limit_bounds(l).0, Bound::All)) {
+        if let Some(l) = n
+            .as_limit()
+            .filter(|l| !matches!(crate::ops::limit_bounds(l).0, Bound::All))
+        {
             if let Some(c) = l.plan.lefttree {
                 limits.push(c); // alloc: Cold
             }
@@ -352,8 +548,8 @@ fn stopped_early<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
         let mut see = |s: &'p SubPlan<'p>| match s.subLinkType {
             SubLinkType::CTE_SUBLINK => cte.push(s.plan_id), // alloc: Cold
             SubLinkType::ARRAY_SUBLINK => whole.push(s.plan_id), // alloc: Cold
-            _ if s.useHashTable => whole.push(s.plan_id), // alloc: Cold
-            _ => early.push(s.plan_id), // alloc: Cold
+            _ if s.useHashTable => whole.push(s.plan_id),    // alloc: Cold
+            _ => early.push(s.plan_id),                      // alloc: Cold
         };
         for s in p.initPlan.iter().filter_map(|i| i.as_sub_plan()) {
             see(s);
@@ -368,10 +564,12 @@ fn stopped_early<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
     let cte_stops = |pid: i32| {
         cte.contains(&pid)
             && (limits.iter().any(|&l| streams_to(l, &scans(pid)))
-                || (1..=stmt.subplans.len() as i32).any(|q| stops(q) && root(q).is_some_and(|r| streams_to(r, &scans(pid)))))
+                || (1..=stmt.subplans.len() as i32)
+                    .any(|q| stops(q) && root(q).is_some_and(|r| streams_to(r, &scans(pid)))))
     };
     let at = |n: Node<'_>| n.as_plan().is_some_and(|p| p.plan_node_id == id);
-    (1..=stmt.subplans.len() as i32).any(|pid| (stops(pid) || cte_stops(pid)) && root(pid).is_some_and(|r| streams_to(r, &at)))
+    (1..=stmt.subplans.len() as i32)
+        .any(|pid| (stops(pid) || cte_stops(pid)) && root(pid).is_some_and(|r| streams_to(r, &at)))
 }
 
 /// SetOp `id` on the statement's root path through nodes of one input PG runs a row at a time (a Limit, a Result, a
@@ -384,7 +582,13 @@ fn root_once<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
             return true;
         }
         let sorted_agg = n.as_agg().is_none_or(|a| a.aggstrategy == AGG_SORTED);
-        if p.righttree.is_some() || n.as_sort().is_some() || !sorted_agg || n.as_set_op().is_some() || n.as_append().is_some() || n.as_merge_append().is_some() {
+        if p.righttree.is_some()
+            || n.as_sort().is_some()
+            || !sorted_agg
+            || n.as_set_op().is_some()
+            || n.as_append().is_some()
+            || n.as_merge_append().is_some()
+        {
             return false;
         }
         at = n.as_subquery_scan().and_then(|s| s.subplan).or(p.lefttree);
@@ -401,11 +605,24 @@ fn streams_to<'p>(n: Node<'p>, hit: &dyn Fn(Node<'p>) -> bool) -> bool {
     if hit(n) {
         return true;
     }
-    if n.as_sort().is_some() || n.as_agg().is_some_and(|a| a.aggstrategy != AGG_SORTED) || n.as_set_op().is_some_and(|s| s.strategy == SETOP_HASHED) {
+    if n.as_sort().is_some()
+        || n.as_agg().is_some_and(|a| a.aggstrategy != AGG_SORTED)
+        || n.as_set_op().is_some_and(|s| s.strategy == SETOP_HASHED)
+    {
         return false;
     }
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)].into_iter().flatten().any(|c| streams_to(c, hit))
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    [
+        p.lefttree,
+        p.righttree,
+        n.as_subquery_scan().and_then(|s| s.subplan),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|c| streams_to(c, hit))
         || arms.is_some_and(|l| l.iter().any(|c| streams_to(c, hit)))
 }
 
@@ -414,7 +631,9 @@ fn cte_below(n: Option<Node<'_>>) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(n) = n else { return false };
     match n.node_tag() {
-        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => cte_below(n.as_plan().and_then(|p| p.lefttree)),
+        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
+            cte_below(n.as_plan().and_then(|p| p.lefttree))
+        }
         NodeTag::T_SubqueryScan => cte_below(n.as_subquery_scan().and_then(|s| s.subplan)),
         k => k == NodeTag::T_CteScan,
     }
@@ -425,7 +644,9 @@ fn whole_below(n: Option<Node<'_>>) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(n) = n else { return false };
     match n.node_tag() {
-        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => whole_below(n.as_plan().and_then(|p| p.lefttree)),
+        NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
+            whole_below(n.as_plan().and_then(|p| p.lefttree))
+        }
         NodeTag::T_SubqueryScan => whole_below(n.as_subquery_scan().and_then(|s| s.subplan)),
         k => matches!(k, NodeTag::T_Sort | NodeTag::T_Agg),
     }
@@ -436,9 +657,12 @@ fn whole_below(n: Option<Node<'_>>) -> bool {
 /// as its readers pull), so a pull that may count its rows stops reading it where the client stops.
 fn on_root_path<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
     let stmt = b.stmt;
-    let Some(top) = stmt.planTree else { return false };
+    let Some(top) = stmt.planTree else {
+        return false;
+    };
     let at = |n: Node<'_>| n.as_plan().is_some_and(|p| p.plan_node_id == id);
-    let (mut roots, mut entered): (ArenaVec<Node<'p>>, ArenaVec<i32>) = (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena)); // alloc: Cold
+    let (mut roots, mut entered): (ArenaVec<Node<'p>>, ArenaVec<i32>) =
+        (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena)); // alloc: Cold
     roots.push(top); // alloc: Cold
     let mut i = 0;
     while let Some(&r) = roots.get(i) {
@@ -447,7 +671,11 @@ fn on_root_path<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
             return true;
         }
         for pid in 1..=stmt.subplans.len() as i32 {
-            if entered.contains(&pid) || !streams_to(r, &|n: Node<'p>| n.as_cte_scan().is_some_and(|c| c.ctePlanId == pid)) {
+            if entered.contains(&pid)
+                || !streams_to(r, &|n: Node<'p>| {
+                    n.as_cte_scan().is_some_and(|c| c.ctePlanId == pid)
+                })
+            {
                 continue;
             }
             entered.push(pid); // alloc: Cold
@@ -464,8 +692,19 @@ fn on_root_path<'p>(b: &Builder<'p, '_>, id: i32) -> bool {
 fn nodes(n: Node<'_>) -> usize {
     crate::walk::stack_check();
     let Some(p) = n.as_plan() else { return 1 };
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    1 + [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)].into_iter().flatten().map(nodes).sum::<usize>()
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    1 + [
+        p.lefttree,
+        p.righttree,
+        n.as_subquery_scan().and_then(|s| s.subplan),
+    ]
+    .into_iter()
+    .flatten()
+    .map(nodes)
+    .sum::<usize>()
         + arms.map_or(0, |l| l.iter().map(nodes).sum())
 }
 
@@ -480,10 +719,25 @@ fn held(n: Node<'_>) -> usize {
     crate::walk::stack_check();
     let Some(p) = n.as_plan() else { return 0 };
     if n.as_set_op().is_some() {
-        return p.lefttree.map_or(0, held).max(1 + p.righttree.map_or(0, held));
+        return p
+            .lefttree
+            .map_or(0, held)
+            .max(1 + p.righttree.map_or(0, held));
     }
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    let kids = [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)].into_iter().flatten().map(held).max().unwrap_or(0);
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    let kids = [
+        p.lefttree,
+        p.righttree,
+        n.as_subquery_scan().and_then(|s| s.subplan),
+    ]
+    .into_iter()
+    .flatten()
+    .map(held)
+    .max()
+    .unwrap_or(0);
     kids.max(arms.map_or(0, |l| l.iter().map(held).max().unwrap_or(0)))
 }
 
@@ -492,12 +746,25 @@ fn held(n: Node<'_>) -> usize {
 fn hashes(n: Node<'_>) -> bool {
     crate::walk::stack_check();
     let Some(p) = n.as_plan() else { return true };
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    let hashed = n.as_agg().is_some_and(|a| a.aggstrategy == crate::ops::shared::agg::AGG_HASHED || a.aggstrategy == crate::ops::shared::agg::AGG_MIXED);
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    let hashed = n.as_agg().is_some_and(|a| {
+        a.aggstrategy == crate::ops::shared::agg::AGG_HASHED
+            || a.aggstrategy == crate::ops::shared::agg::AGG_MIXED
+    });
     n.node_tag() == types_nodes::NodeTag::T_HashJoin
         || hashed
         || n.as_set_op().is_some_and(|s| s.strategy == 1)
-        || [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)].into_iter().flatten().any(hashes)
+        || [
+            p.lefttree,
+            p.righttree,
+            n.as_subquery_scan().and_then(|s| s.subplan),
+        ]
+        .into_iter()
+        .flatten()
+        .any(hashes)
         || arms.is_some_and(|l| l.iter().any(hashes))
 }
 
@@ -536,31 +803,90 @@ fn hashes(n: Node<'_>) -> bool {
 /// (`IterDesc::window`, D3373); an Append under a stop reads it (`IterDesc::arms`, D3373); `raised`, every reader that
 /// may stop before the union's end stops only by raising (an EXPR, ROWCOMPARE or MULTIEXPR InitPlan reading it whole
 /// otherwise: D2732's seed wall then holds for calls, not for raises); `Err`: the wall.
-fn readers<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<(bool, bool, Option<i32>, bool, bool, u64, Option<i32>, bool, bool, bool, bool), &'static str> {
+fn readers<'p>(
+    b: &Builder<'p, '_>,
+    ru: &'p RecursiveUnion<'p>,
+) -> Result<
+    (
+        bool,
+        bool,
+        Option<i32>,
+        bool,
+        bool,
+        u64,
+        Option<i32>,
+        bool,
+        bool,
+        bool,
+        bool,
+    ),
+    &'static str,
+> {
     let stmt = b.stmt;
     let other = "a recursive union read other than by CteScans under a LIMIT, a projection, a Unique, a Sort, an Agg, a ModifyTable, a hash or merge join PG runs as far or a CTE PG runs to its end (a nested loop's inner, a build or a merge PG may skip, a window not over a sort, a Material, an Append PG may stop, a gate, a SubPlan's tree but an InitPlan the root's one row reads, a CTE read under a LIMIT): not built yet (D2223)";
-    let at = stmt.subplans.iter().position(|r| r.and_then(|r| r.as_plan()).is_some_and(|p| p.plan_node_id == ru.plan.plan_node_id));
-    let Some(plan_id) = at.map(|i| i as i32 + 1) else { return Err(other) };
+    let at = stmt.subplans.iter().position(|r| {
+        r.and_then(|r| r.as_plan())
+            .is_some_and(|p| p.plan_node_id == ru.plan.plan_node_id)
+    });
+    let Some(plan_id) = at.map(|i| i as i32 + 1) else {
+        return Err(other);
+    };
     let mut scans = 0;
     crate::rerun::each_plan_node(stmt, &mut |n| {
-        if n.node_tag() == NodeTag::T_CteScan && n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id) {
+        if n.node_tag() == NodeTag::T_CteScan
+            && n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id)
+        {
             scans += 1;
         }
     });
     // a CteScan in a SubPlan's tree is never reached from the root (but in an InitPlan `root_reads` names), so a count short
     // of `scans` refuses
-    let mut r = Reach { stmt, facts: b.facts, arena: b.arena, partial: b.graph.partial, plan_id, found: 0, thin: false, through: false, entered: 0, stopped: false, zero: None, early: false, top: false, root: false, seed_pulls: 0, window: None, lazy_inner: false, arms: false, arms_later: false };
+    let mut r = Reach {
+        stmt,
+        facts: b.facts,
+        arena: b.arena,
+        partial: b.graph.partial,
+        plan_id,
+        found: 0,
+        thin: false,
+        through: false,
+        entered: 0,
+        stopped: false,
+        zero: None,
+        early: false,
+        top: false,
+        root: false,
+        seed_pulls: 0,
+        window: None,
+        lazy_inner: false,
+        arms: false,
+        arms_later: false,
+    };
     // D2212: PG runs a data-modifying CTE to its end whether a reader reads it or not (ExecPostprocessPlan), so its plan is
     // walked first, and the statement's tree then passes over its CteScans
     let mut walked = Ok(());
     for (i, n) in stmt.subplans.iter().enumerate() {
-        let Some(n) = n.filter(|n| n.node_tag() == NodeTag::T_ModifyTable) else { continue };
+        let Some(n) = n.filter(|n| n.node_tag() == NodeTag::T_ModifyTable) else {
+            continue;
+        };
         if walked.is_ok() && r.holds(Some(n)) {
-            walked = r.enter(i as i32 + 1, At { whole: true, ..At::default() });
+            walked = r.enter(
+                i as i32 + 1,
+                At {
+                    whole: true,
+                    ..At::default()
+                },
+            );
         }
     }
     if walked.is_ok() && r.holds(stmt.planTree) {
-        walked = r.walk(stmt.planTree, At { top: true, ..At::default() });
+        walked = r.walk(
+            stmt.planTree,
+            At {
+                top: true,
+                ..At::default()
+            },
+        );
     }
     // D2732 (`raised`): a reader that may stop before the union's end other than an EXPR / ROWCOMPARE / MULTIEXPR
     // InitPlan whose own plan reads the union whole (ExecSetParamPlan reads such a plan to its end or raises 21000 at a
@@ -579,14 +905,23 @@ fn readers<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<(bool,
             if walked.is_err() {
                 return;
             }
-            let Some(sr) = crate::rerun::subplan_root(stmt, s.plan_id).filter(|&n| s.subLinkType != SubLinkType::CTE_SUBLINK && r.holds(Some(n))) else { continue };
+            let Some(sr) = crate::rerun::subplan_root(stmt, s.plan_id)
+                .filter(|&n| s.subLinkType != SubLinkType::CTE_SUBLINK && r.holds(Some(n)))
+            else {
+                continue;
+            };
             let root = stmt.planTree.is_some_and(|root| root_reads(b, root, s));
             if !root && !read_at_first_eval(b, s) {
                 walked = Err(());
                 return;
             }
             r.thin = true;
-            let raising = matches!(s.subLinkType, SubLinkType::EXPR_SUBLINK | SubLinkType::ROWCOMPARE_SUBLINK | SubLinkType::MULTIEXPR_SUBLINK);
+            let raising = matches!(
+                s.subLinkType,
+                SubLinkType::EXPR_SUBLINK
+                    | SubLinkType::ROWCOMPARE_SUBLINK
+                    | SubLinkType::MULTIEXPR_SUBLINK
+            );
             if raising {
                 // its plan walked as an ARRAY sublink's (to its end) on a copy: no CteScan of the union found early there
                 let mut whole = r;
@@ -594,7 +929,13 @@ fn readers<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<(bool,
                 stops |= whole.walk(Some(sr), At::default()).is_err() || whole.early;
             }
             let was = r.early;
-            walked = r.walk(Some(sr), At { early: s.subLinkType != SubLinkType::ARRAY_SUBLINK, ..At::default() });
+            walked = r.walk(
+                Some(sr),
+                At {
+                    early: s.subLinkType != SubLinkType::ARRAY_SUBLINK,
+                    ..At::default()
+                },
+            );
             stops |= !raising && r.early && !was;
         }
     });
@@ -607,9 +948,19 @@ fn readers<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<(bool,
             let Some(p) = n.as_plan() else { return };
             for e in p.targetlist.iter().chain(p.qual.iter()) {
                 each_subplan(e, &mut |s| {
-                    let Some(sr) = crate::rerun::subplan_root(stmt, s.plan_id).filter(|&n| walked.is_ok() && r.holds(Some(n))) else { return };
+                    let Some(sr) = crate::rerun::subplan_root(stmt, s.plan_id)
+                        .filter(|&n| walked.is_ok() && r.holds(Some(n)))
+                    else {
+                        return;
+                    };
                     r.thin = true;
-                    walked = r.walk(Some(sr), At { early: true, ..At::default() });
+                    walked = r.walk(
+                        Some(sr),
+                        At {
+                            early: true,
+                            ..At::default()
+                        },
+                    );
                     stops |= r.early;
                 });
             }
@@ -631,12 +982,17 @@ fn readers<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<(bool,
 /// (ExecSetParamPlan), as the lowering's InitPlan runs at its first read (nest.initplan; a run ahead, D1035, starts with
 /// its one reader, which reads it): the union in `s` is read as far as `s` reads it in both, never skipped by one alone.
 fn root_reads<'p>(b: &Builder<'p, '_>, root: Node<'p>, s: &SubPlan<'p>) -> bool {
-    let Some(res) = root.as_result() else { return false };
+    let Some(res) = root.as_result() else {
+        return false;
+    };
     let p = &res.plan;
     if p.lefttree.is_some() || res.resconstantqual.is_some() || !p.qual.is_nil() {
         return false;
     }
-    let quiet = p.targetlist.iter().all(|te| crate::rerun::of_expr(b.stmt, b.facts, b.arena, te).raise_free);
+    let quiet = p
+        .targetlist
+        .iter()
+        .all(|te| crate::rerun::of_expr(b.stmt, b.facts, b.arena, te).raise_free);
     quiet && p.targetlist.iter().any(|te| reads_param(te, &s.setParam))
 }
 
@@ -649,9 +1005,17 @@ fn read_at_first_eval<'p>(b: &Builder<'p, '_>, s: &SubPlan<'p>) -> bool {
     let (mut found, mut free) = (false, true);
     crate::rerun::each_plan_node(b.stmt, &mut |n| {
         let Some(p) = n.as_plan() else { return };
-        if p.targetlist.iter().chain(p.qual.iter()).any(|e| reads_param(e, &s.setParam)) {
+        if p.targetlist
+            .iter()
+            .chain(p.qual.iter())
+            .any(|e| reads_param(e, &s.setParam))
+        {
             found = true;
-            free &= p.targetlist.iter().chain(p.qual.iter()).all(|e| crate::rerun::of_expr(b.stmt, b.facts, b.arena, e).raise_free);
+            free &= p
+                .targetlist
+                .iter()
+                .chain(p.qual.iter())
+                .all(|e| crate::rerun::of_expr(b.stmt, b.facts, b.arena, e).raise_free);
         }
     });
     found && free
@@ -669,7 +1033,9 @@ fn each_subplan<'p>(n: Node<'p>, f: &mut dyn FnMut(&'p SubPlan<'p>)) {
 /// Expression `n` reads one of exec parameters `ids`.
 fn reads_param(n: Node<'_>, ids: &IntList<'_>) -> bool {
     crate::walk::stack_check(); // D3748
-    if n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && ids.iter().any(|i| i == p.paramid)) {
+    if n.as_param()
+        .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && ids.iter().any(|i| i == p.paramid))
+    {
         return true;
     }
     let mut hit = false;
@@ -742,12 +1108,16 @@ struct Reach<'p, 'f> {
 
 impl<'p> Reach<'p, '_> {
     fn scan(&self, n: Node<'_>) -> bool {
-        n.node_tag() == NodeTag::T_CteScan && n.as_cte_scan().is_some_and(|c| c.ctePlanId == self.plan_id)
+        n.node_tag() == NodeTag::T_CteScan
+            && n.as_cte_scan().is_some_and(|c| c.ctePlanId == self.plan_id)
     }
 
     /// The plan of another CTE `n` reads (a CteScan of a CTE other than the union).
     fn other_cte(&self, n: Node<'p>) -> Option<(i32, Node<'p>)> {
-        let id = n.as_cte_scan().map(|c| c.ctePlanId).filter(|&id| id != self.plan_id)?;
+        let id = n
+            .as_cte_scan()
+            .map(|c| c.ctePlanId)
+            .filter(|&id| id != self.plan_id)?;
         crate::rerun::subplan_root(self.stmt, id).map(|r| (id, r))
     }
 
@@ -758,14 +1128,25 @@ impl<'p> Reach<'p, '_> {
         let Some(n) = n else { return false };
         let Some(p) = n.as_plan() else { return false };
         self.scan(n)
-            || self.other_cte(n).is_some_and(|(id, r)| !self.entered(id) && self.holds(Some(r)))
-            || [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)].into_iter().any(|c| self.holds(c))
-            || n.as_append().is_some_and(|a| a.appendplans.iter().any(|c| self.holds(Some(c))))
+            || self
+                .other_cte(n)
+                .is_some_and(|(id, r)| !self.entered(id) && self.holds(Some(r)))
+            || [
+                p.lefttree,
+                p.righttree,
+                n.as_subquery_scan().and_then(|s| s.subplan),
+            ]
+            .into_iter()
+            .any(|c| self.holds(c))
+            || n.as_append()
+                .is_some_and(|a| a.appendplans.iter().any(|c| self.holds(Some(c))))
     }
 
     /// `n` sorts the union's stream: its first row comes only once the union ended.
     fn sorts(&self, n: Option<Node<'_>>) -> bool {
-        n.is_some_and(|n| n.node_tag() == NodeTag::T_Sort && self.streams(n.as_plan().and_then(|p| p.lefttree)))
+        n.is_some_and(|n| {
+            n.node_tag() == NodeTag::T_Sort && self.streams(n.as_plan().and_then(|p| p.lefttree))
+        })
     }
 
     /// `n` is a CteScan of the union under only projections: PG pulls it row by row, the union's rows in its order.
@@ -773,21 +1154,28 @@ impl<'p> Reach<'p, '_> {
         crate::walk::stack_check(); // D3748
         let Some(n) = n else { return false };
         match n.node_tag() {
-            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => self.streams(n.as_plan().and_then(|p| p.lefttree)),
+            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
+                self.streams(n.as_plan().and_then(|p| p.lefttree))
+            }
             NodeTag::T_SubqueryScan => self.streams(n.as_subquery_scan().and_then(|s| s.subplan)),
             _ => self.scan(n),
         }
     }
 
     fn entered(&self, id: i32) -> bool {
-        u32::try_from(id).ok().and_then(|i| 1u64.checked_shl(i)).is_some_and(|bit| self.entered & bit != 0)
+        u32::try_from(id)
+            .ok()
+            .and_then(|i| 1u64.checked_shl(i))
+            .is_some_and(|bit| self.entered & bit != 0)
     }
 
     /// D2212: walk CTE plan `id` once, PG running it to its end (`readers`); its root reads as the statement's does, under a
     /// breaker where `at` has one. The union read through it is thin, and read through (`through`) unless that breaker
     /// reads the plan whole: a pull that may stop runs the plan's seed whole first, where PG stops with its reader.
     fn enter(&mut self, id: i32, at: At) -> Result<(), ()> {
-        let bit = 1u64.checked_shl(u32::try_from(id).map_err(|_| ())?).ok_or(())?;
+        let bit = 1u64
+            .checked_shl(u32::try_from(id).map_err(|_| ())?)
+            .ok_or(())?;
         if self.entered & bit != 0 {
             return Ok(());
         }
@@ -795,14 +1183,23 @@ impl<'p> Reach<'p, '_> {
         self.thin = true;
         self.through |= !at.whole;
         let root = crate::rerun::subplan_root(self.stmt, id).ok_or(())?;
-        self.walk(Some(root), At { whole: at.whole, top: at.top, ..At::default() })
+        self.walk(
+            Some(root),
+            At {
+                whole: at.whole,
+                top: at.top,
+                ..At::default()
+            },
+        )
     }
 
     /// D2034: walk the plan of CTE `id`, recursive union `outer` whose generations stream this union's CTE (`gen_stream`),
     /// under a reader that may stop (`at`): its term reads this union as far as that reader reads (`At::early`); a seed
     /// holding it is not the shape.
     fn enter_streamed(&mut self, id: i32, outer: &'p RecursiveUnion<'p>, at: At) -> Result<(), ()> {
-        let bit = 1u64.checked_shl(u32::try_from(id).map_err(|_| ())?).ok_or(())?;
+        let bit = 1u64
+            .checked_shl(u32::try_from(id).map_err(|_| ())?)
+            .ok_or(())?;
         if self.entered & bit != 0 {
             return Ok(());
         }
@@ -812,7 +1209,15 @@ impl<'p> Reach<'p, '_> {
         self.entered |= bit;
         self.thin = true;
         self.through = true;
-        self.walk(outer.plan.righttree, At { early: true, none: at.none, top: at.top, ..At::default() })
+        self.walk(
+            outer.plan.righttree,
+            At {
+                early: true,
+                none: at.none,
+                top: at.top,
+                ..At::default()
+            },
+        )
     }
 
     /// D3373 (E-1): walk the seed of recursive union `outer` (CTE `id`), which alone holds this union's CteScan, under a
@@ -820,7 +1225,9 @@ impl<'p> Reach<'p, '_> {
     /// own mapping refuses by D2212's name unless it pulls its seed (`seed_pulls`, `Builder::seed_pulls`): run whole, the
     /// seed would read this union to its end where PG stops.
     fn enter_seeded(&mut self, id: i32, outer: &'p RecursiveUnion<'p>, at: At) -> Result<(), ()> {
-        let bit = 1u64.checked_shl(u32::try_from(id).map_err(|_| ())?).ok_or(())?;
+        let bit = 1u64
+            .checked_shl(u32::try_from(id).map_err(|_| ())?)
+            .ok_or(())?;
         if self.entered & bit != 0 {
             return Ok(());
         }
@@ -828,7 +1235,15 @@ impl<'p> Reach<'p, '_> {
         self.seed_pulls |= bit;
         // no `through`: `outer` pulls its seed (or refuses), so a pull that counts its rows reads this union no further
         self.thin = true;
-        self.walk(outer.plan.lefttree, At { early: true, none: at.none, top: at.top, ..At::default() })
+        self.walk(
+            outer.plan.lefttree,
+            At {
+                early: true,
+                none: at.none,
+                top: at.top,
+                ..At::default()
+            },
+        )
     }
 
     /// D2212 (Hibernate's jsonb_mergepatch emulation: three recursive unions, `res` reading `val0` and `val1` in its seed and
@@ -844,7 +1259,9 @@ impl<'p> Reach<'p, '_> {
     /// (`thin`) with a breaker reading it whole (no `through`). `Ok(false)`: not that shape, nothing recorded (the caller's
     /// wall); an InitPlan in the seed reading this union is `readers`' own walk.
     fn enter_first_whole(&mut self, id: i32, outer: &'p RecursiveUnion<'p>) -> Result<bool, ()> {
-        let bit = 1u64.checked_shl(u32::try_from(id).map_err(|_| ())?).ok_or(())?;
+        let bit = 1u64
+            .checked_shl(u32::try_from(id).map_err(|_| ())?)
+            .ok_or(())?;
         if self.entered & bit != 0 {
             return Ok(true);
         }
@@ -855,7 +1272,10 @@ impl<'p> Reach<'p, '_> {
         self.entered |= bit;
         self.thin = true;
         self.early = false;
-        let whole = At { whole: true, ..At::default() };
+        let whole = At {
+            whole: true,
+            ..At::default()
+        };
         // the seed: every CteScan of this union read whole (none `early`); the term then reads the finished store, so a
         // stop on its path (an INNER probe's empty table, a merge join ending at one side) reads no less of the union than
         // PG's seed already did: its CteScans are counted (`count_finished`)
@@ -879,14 +1299,25 @@ impl<'p> Reach<'p, '_> {
             self.found += 1;
             return Ok(());
         }
-        if self.other_cte(n).is_some_and(|(id, r)| !self.entered(id) && self.holds(Some(r))) {
+        if self
+            .other_cte(n)
+            .is_some_and(|(id, r)| !self.entered(id) && self.holds(Some(r)))
+        {
             return Err(());
         }
         let p = n.as_plan().ok_or(())?;
-        for c in [p.lefttree, p.righttree, n.as_subquery_scan().and_then(|s| s.subplan)] {
+        for c in [
+            p.lefttree,
+            p.righttree,
+            n.as_subquery_scan().and_then(|s| s.subplan),
+        ] {
             self.count_finished(c)?;
         }
-        if let Some(arms) = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans)) {
+        if let Some(arms) = n
+            .as_append()
+            .map(|a| &a.appendplans)
+            .or(n.as_merge_append().map(|a| &a.mergeplans))
+        {
             for c in arms.iter() {
                 self.count_finished(Some(c))?;
             }
@@ -902,9 +1333,18 @@ impl<'p> Reach<'p, '_> {
         let Some(n) = n else { return false };
         let Some(p) = n.as_plan() else { return false };
         match n.node_tag() {
-            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => self.first_pull_whole(p.lefttree),
-            NodeTag::T_SubqueryScan => self.first_pull_whole(n.as_subquery_scan().and_then(|s| s.subplan)),
-            NodeTag::T_Agg if n.as_agg().is_some_and(|a| a.aggstrategy == AGG_SORTED || a.aggstrategy == crate::ops::shared::agg::AGG_MIXED) => {
+            NodeTag::T_Result if n.as_result().is_some_and(|r| r.resconstantqual.is_none()) => {
+                self.first_pull_whole(p.lefttree)
+            }
+            NodeTag::T_SubqueryScan => {
+                self.first_pull_whole(n.as_subquery_scan().and_then(|s| s.subplan))
+            }
+            NodeTag::T_Agg
+                if n.as_agg().is_some_and(|a| {
+                    a.aggstrategy == AGG_SORTED
+                        || a.aggstrategy == crate::ops::shared::agg::AGG_MIXED
+                }) =>
+            {
                 self.first_pull_whole(p.lefttree)
             }
             NodeTag::T_Sort | NodeTag::T_Agg => true,
@@ -915,14 +1355,24 @@ impl<'p> Reach<'p, '_> {
     /// D3373 (E-2): walk plain CTE plan `root` (CTE `id`), a pipeline its readers pull, under a reader that may stop (`at`):
     /// read as far as that reader reads (`At::early`), the union read through it.
     fn enter_lazy(&mut self, id: i32, root: Node<'p>, at: At) -> Result<(), ()> {
-        let bit = 1u64.checked_shl(u32::try_from(id).map_err(|_| ())?).ok_or(())?;
+        let bit = 1u64
+            .checked_shl(u32::try_from(id).map_err(|_| ())?)
+            .ok_or(())?;
         if self.entered & bit != 0 {
             return Ok(());
         }
         self.entered |= bit;
         self.thin = true;
         self.through = true;
-        self.walk(Some(root), At { early: true, none: at.none, top: at.top, ..At::default() })
+        self.walk(
+            Some(root),
+            At {
+                early: true,
+                none: at.none,
+                top: at.top,
+                ..At::default()
+            },
+        )
     }
 
     fn walk(&mut self, n: Option<Node<'p>>, mut at: At) -> Result<(), ()> {
@@ -951,7 +1401,9 @@ impl<'p> Reach<'p, '_> {
                 // D2034: a recursive union whose term streams this union's CTE (ops/setop/gen_stream.rs) pulls it one
                 // budget at a time as its own reader reads, as PG's term pulls the CteScan one row per call: read as far
                 // as that reader reads, never to its end
-                let streams = root.as_recursive_union().filter(|o| gen_stream::source(self.stmt, o) == Some(self.plan_id));
+                let streams = root
+                    .as_recursive_union()
+                    .filter(|o| gen_stream::source(self.stmt, o) == Some(self.plan_id));
                 let stops = !dml && !at.window && (at.stop || (at.early && !at.whole));
                 if let Some(outer) = streams.filter(|_| stops) {
                     return self.enter_streamed(id, outer, at);
@@ -959,8 +1411,16 @@ impl<'p> Reach<'p, '_> {
                 // D2212 (Hibernate's jsonb_mergepatch): a recursive union whose seed reads this union whole before its first
                 // row, under a reader that surely pulls it once: read whole there, so its seed needs no pull (E-1 below)
                 #[allow(clippy::nonminimal_bool)]
-                let sure = at.early && !at.stop && !at.window && !at.probe && !at.none && !(self.partial && at.top);
-                if let Some(outer) = root.as_recursive_union().filter(|_| !dml && sure && !at.whole) {
+                let sure = at.early
+                    && !at.stop
+                    && !at.window
+                    && !at.probe
+                    && !at.none
+                    && !(self.partial && at.top);
+                if let Some(outer) = root
+                    .as_recursive_union()
+                    .filter(|_| !dml && sure && !at.whole)
+                {
                     if self.enter_first_whole(id, outer)? {
                         return Ok(());
                     }
@@ -968,7 +1428,9 @@ impl<'p> Reach<'p, '_> {
                 // D3373 (E-1): a recursive union whose seed alone holds this union's CteScan pulls that seed a budget at a
                 // time under a reader that may stop (D2034's seed cliff, `IterDesc::seed`), as PG's ExecRecursiveUnion pulls
                 // its non-recursive term row by row: read as far as that reader reads
-                let seeded = root.as_recursive_union().filter(|o| self.holds(o.plan.lefttree) && !self.holds(o.plan.righttree));
+                let seeded = root
+                    .as_recursive_union()
+                    .filter(|o| self.holds(o.plan.lefttree) && !self.holds(o.plan.righttree));
                 // D3373 (E-3): a partial pull on the root path (a cursor's FETCH) stops there too: `outer` pulls its seed
                 // under it (map_recursive_union `must_pull`)
                 let counted = !dml && !at.window && self.partial && at.top && !at.whole && !at.none;
@@ -999,15 +1461,26 @@ impl<'p> Reach<'p, '_> {
             }
             NodeTag::T_Limit => {
                 (at.early, at.probe) = (true, false);
-                let may_stop = node.as_limit().is_none_or(|l| !matches!(crate::ops::limit_bounds(l).0, Bound::All) && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c >= 1));
+                let may_stop = node.as_limit().is_none_or(|l| {
+                    !matches!(crate::ops::limit_bounds(l).0, Bound::All)
+                        && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c >= 1)
+                });
                 if may_stop {
                     at.limit = (!at.stop).then_some(p.plan_node_id);
                 }
-                at.none |= node.as_limit().is_some_and(|l| matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c <= 0));
+                at.none |= node.as_limit().is_some_and(
+                    |l| matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c <= 0),
+                );
                 at.stop |= may_stop;
                 p.lefttree
             }
-            NodeTag::T_Result if node.as_result().is_some_and(|r| r.resconstantqual.is_none()) => p.lefttree,
+            NodeTag::T_Result
+                if node
+                    .as_result()
+                    .is_some_and(|r| r.resconstantqual.is_none()) =>
+            {
+                p.lefttree
+            }
             // a one-time gate over a Sort or an Agg: read whole or not at all, as under a LIMIT that may count 0
             NodeTag::T_Result if !at.stop && !at.whole && !at.window && whole_below(p.lefttree) => {
                 (at.early, at.probe, at.stop, at.limit) = (true, false, true, Some(p.plan_node_id));
@@ -1029,7 +1502,12 @@ impl<'p> Reach<'p, '_> {
                 p.lefttree
             }
             // setop_rec-0060: a window PG surely reads whole before its first row (`facts::window::reads_whole`) is such a breaker
-            NodeTag::T_WindowAgg if !at.stop && node.as_window_agg().is_some_and(crate::facts::window::reads_whole) => {
+            NodeTag::T_WindowAgg
+                if !at.stop
+                    && node
+                        .as_window_agg()
+                        .is_some_and(crate::facts::window::reads_whole) =>
+            {
                 (at.whole, at.window, at.early, at.probe) = (true, false, false, false);
                 p.lefttree
             }
@@ -1038,14 +1516,19 @@ impl<'p> Reach<'p, '_> {
             // row by row as its frames need, wherever a reader or its run condition stops it: lowerv4's W10 pulled fill
             // (ops/window/lower.rs `streaming_fill` over a recursive union's pulled store) reads no further; lowerv4 refuses
             // by D2223's name where the window does not take that fill (`IterDesc::window`). One such window per union.
-            NodeTag::T_WindowAgg if !at.whole && !at.window && self.window.is_none() && cte_below(p.lefttree) => {
+            NodeTag::T_WindowAgg
+                if !at.whole && !at.window && self.window.is_none() && cte_below(p.lefttree) =>
+            {
                 self.window = Some(p.plan_node_id);
                 (at.early, at.probe) = (true, false);
                 p.lefttree
             }
             // a run condition may end PG's window before it reads the union whole, wherever the window sits
             NodeTag::T_WindowAgg => {
-                at.window |= !at.whole || node.as_window_agg().is_none_or(|w| !w.runCondition.is_nil());
+                at.window |= !at.whole
+                    || node
+                        .as_window_agg()
+                        .is_none_or(|w| !w.runCondition.is_nil());
                 p.lefttree
             }
             // D3373 (G-2): an Incremental Sort (nodeIncrementalSort.c) reads its input a presorted group at a time, ahead
@@ -1064,9 +1547,12 @@ impl<'p> Reach<'p, '_> {
             // pulls it, and PG pulls it only at a count above 0 (ExecLimit evaluates its bounds first and never pulls its
             // subplan at a zero count): whole or not at all, as the lowering's where the Limit's zero check stops the
             // union's reader before its first pull (`IterDesc::zero`, checked there)
-            NodeTag::T_Sort | NodeTag::T_Agg if at.limit.is_some() && self.zero.is_none_or(|z| Some(z) == at.limit) => {
+            NodeTag::T_Sort | NodeTag::T_Agg
+                if at.limit.is_some() && self.zero.is_none_or(|z| Some(z) == at.limit) =>
+            {
                 self.zero = at.limit;
-                (at.whole, at.window, at.early, at.stop, at.limit, at.probe) = (true, false, false, false, None, false);
+                (at.whole, at.window, at.early, at.stop, at.limit, at.probe) =
+                    (true, false, false, false, None, false);
                 p.lefttree
             }
             NodeTag::T_HashJoin => return self.hash_join(node, at),
@@ -1084,7 +1570,15 @@ impl<'p> Reach<'p, '_> {
                     self.walk(p.lefttree, at)?;
                 }
                 self.thin = true;
-                return self.walk(p.righttree, At { early: true, whole: false, probe: false, ..at });
+                return self.walk(
+                    p.righttree,
+                    At {
+                        early: true,
+                        whole: false,
+                        probe: false,
+                        ..at
+                    },
+                );
             }
             // a Memoize in that inner (nodeMemoize.c): a hit replays the entry and never rescans its child, a miss reads the
             // child as far as the consumer reads and stores each row as it goes; the lowering's nest.memo is that (lowerv4
@@ -1095,7 +1589,12 @@ impl<'p> Reach<'p, '_> {
             NodeTag::T_SetOp => return self.set_op(node, at),
             // an Append (nodeAppend.c) reads its arms in order, each to its end before the next: where nothing above may
             // stop it, PG reads every arm to its end; run-time pruning may skip one (refused)
-            NodeTag::T_Append if (at.stop || at.early) && node.as_append().is_some_and(|a| a.part_prune_index < 0) => return self.append_stops(node, at),
+            NodeTag::T_Append
+                if (at.stop || at.early)
+                    && node.as_append().is_some_and(|a| a.part_prune_index < 0) =>
+            {
+                return self.append_stops(node, at)
+            }
             NodeTag::T_Append => {
                 let a = node.as_append().ok_or(())?;
                 if at.stop || at.early || a.part_prune_index >= 0 {
@@ -1123,21 +1622,44 @@ impl<'p> Reach<'p, '_> {
     /// that reads a recursive union takes the lazy road whatever the join type: hashjoin D2635).
     fn hash_join(&mut self, node: Node<'p>, at: At) -> Result<(), ()> {
         let hj = node.as_hash_join().ok_or(())?;
-        let (outer, hash) = (hj.join.plan.lefttree, hj.join.plan.righttree.and_then(|n| n.as_hash()).ok_or(())?);
+        let (outer, hash) = (
+            hj.join.plan.lefttree,
+            hj.join.plan.righttree.and_then(|n| n.as_hash()).ok_or(())?,
+        );
         self.thin |= !at.whole;
         if self.holds(outer) {
-            if !matches!(hj.join.jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) {
+            if !matches!(
+                hj.join.jointype,
+                JoinType::JOIN_INNER
+                    | JoinType::JOIN_SEMI
+                    | JoinType::JOIN_LEFT
+                    | JoinType::JOIN_ANTI
+                    | JoinType::JOIN_RIGHT
+                    | JoinType::JOIN_RIGHT_SEMI
+                    | JoinType::JOIN_RIGHT_ANTI
+            ) {
                 return Err(());
             }
             // a RIGHT join hands a matched inner row on as its probe meets it, and the rest at the end (a Right Semi /
             // Right Anti join's drain, D1922): under a LIMIT PG may stop the outer at a row the lowering's drain reads past
-            let right = matches!(hj.join.jointype, JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI);
+            let right = matches!(
+                hj.join.jointype,
+                JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI
+            );
             if right && (at.early || at.stop) {
                 return Err(());
             }
             // an INNER, SEMI or RIGHT join's empty table ends PG's read of the outer before its end (a RIGHT join fills the
             // inner side only: PG builds first, and an empty table never reads the outer)
-            let early = at.early || matches!(hj.join.jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI);
+            let early = at.early
+                || matches!(
+                    hj.join.jointype,
+                    JoinType::JOIN_INNER
+                        | JoinType::JOIN_SEMI
+                        | JoinType::JOIN_RIGHT
+                        | JoinType::JOIN_RIGHT_SEMI
+                        | JoinType::JOIN_RIGHT_ANTI
+                );
             // D3373 (:99): an INNER or SEMI probe's own stop (its empty table) keeps `probe` where nothing else stops above;
             // a LEFT or ANTI join stops nothing of its own
             let probe = match hj.join.jointype {
@@ -1151,7 +1673,13 @@ impl<'p> Reach<'p, '_> {
             if at.stop {
                 return Err(());
             }
-            self.walk(hash.plan.lefttree, At { whole: true, ..At::default() })?;
+            self.walk(
+                hash.plan.lefttree,
+                At {
+                    whole: true,
+                    ..At::default()
+                },
+            )?;
         }
         Ok(())
     }
@@ -1164,8 +1692,17 @@ impl<'p> Reach<'p, '_> {
         // D2212: a FULL merge join read whole (under a breaker PG reads to its end, nothing stopping between) reads both its
         // sides to their ends, as the lowering does: ExecMergeJoin hands on each side's unmatched rows, so it ends only once
         // both sides ended (Hibernate's jsonb_mergepatch: full joins of the argument unions, nested two deep)
-        if at.whole && !at.stop && !at.early && node.as_merge_join().is_some_and(|m| m.join.jointype == JoinType::JOIN_FULL) {
-            let whole = At { whole: true, ..At::default() };
+        if at.whole
+            && !at.stop
+            && !at.early
+            && node
+                .as_merge_join()
+                .is_some_and(|m| m.join.jointype == JoinType::JOIN_FULL)
+        {
+            let whole = At {
+                whole: true,
+                ..At::default()
+            };
             for c in [p.lefttree, p.righttree] {
                 if self.holds(c) {
                     self.walk(c, whole)?;
@@ -1179,7 +1716,10 @@ impl<'p> Reach<'p, '_> {
             return Err(());
         }
         self.thin |= !at.whole;
-        let whole = At { whole: true, ..At::default() };
+        let whole = At {
+            whole: true,
+            ..At::default()
+        };
         self.walk(p.lefttree, whole)?;
         if self.holds(p.righttree) {
             self.walk(p.righttree, whole)?;
@@ -1213,7 +1753,11 @@ impl<'p> Reach<'p, '_> {
                     self.walk(Some(c), at)?;
                 }
                 (true, true) => return Err(()),
-                (true, false) if !crate::effects::setop::quiet_in(self.stmt, self.facts, self.arena, c) => return Err(()),
+                (true, false)
+                    if !crate::effects::setop::quiet_in(self.stmt, self.facts, self.arena, c) =>
+                {
+                    return Err(())
+                }
                 _ => {}
             }
         }
@@ -1230,11 +1774,15 @@ impl<'p> Reach<'p, '_> {
     fn set_op(&mut self, node: Node<'p>, at: At) -> Result<(), ()> {
         let p = node.as_plan().ok_or(())?;
         let hashed = node.as_set_op().ok_or(())?.strategy == SETOP_HASHED;
-        if at.stop || at.early || !(self.sorts(p.lefttree) || (hashed && self.streams(p.lefttree))) {
+        if at.stop || at.early || !(self.sorts(p.lefttree) || (hashed && self.streams(p.lefttree)))
+        {
             return Err(());
         }
         self.thin |= !at.whole;
-        let whole = At { whole: true, ..At::default() };
+        let whole = At {
+            whole: true,
+            ..At::default()
+        };
         self.walk(p.lefttree, whole)?;
         if self.holds(p.righttree) {
             self.walk(p.righttree, whole)?;
@@ -1262,9 +1810,17 @@ fn project_set(n: Node<'_>) -> bool {
 /// The plan children `project_set` and `srf_ends` walk: the outer and inner plans, a SubqueryScan's subplan, an Append's or
 /// MergeAppend's arms.
 fn plan_kids<'p>(n: Node<'p>) -> impl Iterator<Item = Node<'p>> {
-    let kids = n.as_plan().map(|p| p.lefttree.into_iter().chain(p.righttree)).into_iter().flatten();
-    let arms = n.as_append().map(|a| &a.appendplans).or(n.as_merge_append().map(|a| &a.mergeplans));
-    kids.chain(n.as_subquery_scan().and_then(|s| s.subplan)).chain(arms.into_iter().flat_map(|l| l.iter()))
+    let kids = n
+        .as_plan()
+        .map(|p| p.lefttree.into_iter().chain(p.righttree))
+        .into_iter()
+        .flatten();
+    let arms = n
+        .as_append()
+        .map(|a| &a.appendplans)
+        .or(n.as_merge_append().map(|a| &a.mergeplans));
+    kids.chain(n.as_subquery_scan().and_then(|s| s.subplan))
+        .chain(arms.into_iter().flat_map(|l| l.iter()))
 }
 
 /// D3373 (D2312's finite form): whether every target-list set-returning function in plan tree `n` ends, its
@@ -1280,37 +1836,71 @@ fn plan_kids<'p>(n: Node<'p>) -> impl Iterator<Item = Node<'p>> {
 fn srf_ends<'p>(n: Node<'p>, lits: &mut dyn FnMut(Node<'p>)) -> bool {
     crate::walk::stack_check(); // D3748
     use crate::ops::shared::srf::SrfKind;
-    let lit = |c: Option<Node<'p>>| c.and_then(|c| c.as_const()).is_some_and(|c| c.constbyval && !c.constisnull);
+    let lit = |c: Option<Node<'p>>| {
+        c.and_then(|c| c.as_const())
+            .is_some_and(|c| c.constbyval && !c.constisnull)
+    };
     let calls = |ps: Node<'p>, lits: &mut dyn FnMut(Node<'p>), series: bool| {
         ps.as_plan().is_some_and(|p| {
-            p.targetlist.iter().filter_map(|t| t.as_target_entry()).all(|t| {
-                let Some((funcid, args)) = t.expr.as_func_expr().filter(|f| f.funcretset).map(|f| (f.funcid, &f.args)) else {
-                    // a plain entry, or a set-returning operator (kept out)
-                    return t.expr.as_op_expr().is_none_or(|o| !o.opretset);
-                };
-                match crate::catalog::srf::kind_of(funcid, true) {
-                    SrfKind::SeriesInt { step, .. } if series => {
-                        let (a, z, s) = (args.iter().next(), args.iter().nth(1), args.iter().nth(2));
-                        let ok = lit(a) && lit(z) && (!step || s.is_some_and(|s| s.as_const().is_some()));
-                        if ok {
-                            a.into_iter().chain(z).for_each(&mut *lits);
+            p.targetlist
+                .iter()
+                .filter_map(|t| t.as_target_entry())
+                .all(|t| {
+                    let Some((funcid, args)) = t
+                        .expr
+                        .as_func_expr()
+                        .filter(|f| f.funcretset)
+                        .map(|f| (f.funcid, &f.args))
+                    else {
+                        // a plain entry, or a set-returning operator (kept out)
+                        return t.expr.as_op_expr().is_none_or(|o| !o.opretset);
+                    };
+                    match crate::catalog::srf::kind_of(funcid, true) {
+                        SrfKind::SeriesInt { step, .. } if series => {
+                            let (a, z, s) =
+                                (args.iter().next(), args.iter().nth(1), args.iter().nth(2));
+                            let ok = lit(a)
+                                && lit(z)
+                                && (!step || s.is_some_and(|s| s.as_const().is_some()));
+                            if ok {
+                                a.into_iter().chain(z).for_each(&mut *lits);
+                            }
+                            ok
                         }
-                        ok
+                        SrfKind::SeriesInt { .. } => true,
+                        SrfKind::Subscripts
+                        | SrfKind::Unnest
+                        | SrfKind::RegexpMatches
+                        | SrfKind::RegexpSplit
+                        | SrfKind::StringToTable => true,
+                        SrfKind::JsonbArrayElements { .. }
+                        | SrfKind::JsonbEach { .. }
+                        | SrfKind::JsonbObjectKeys => true,
+                        SrfKind::JsonArrayElements { .. }
+                        | SrfKind::JsonEach { .. }
+                        | SrfKind::JsonObjectKeys
+                        | SrfKind::JsonbPathQuery => true,
+                        // D4546: a directory listing ends with its directory's entries (pg_rewind's seed, pg_ls_dir('.'))
+                        _ => crate::catalog::srf::lists_a_directory(funcid),
                     }
-                    SrfKind::SeriesInt { .. } => true,
-                    SrfKind::Subscripts | SrfKind::Unnest | SrfKind::RegexpMatches | SrfKind::RegexpSplit | SrfKind::StringToTable => true,
-                    SrfKind::JsonbArrayElements { .. } | SrfKind::JsonbEach { .. } | SrfKind::JsonbObjectKeys => true,
-                    SrfKind::JsonArrayElements { .. } | SrfKind::JsonEach { .. } | SrfKind::JsonObjectKeys | SrfKind::JsonbPathQuery => true,
-                    // D4546: a directory listing ends with its directory's entries (pg_rewind's seed, pg_ls_dir('.'))
-                    _ => crate::catalog::srf::lists_a_directory(funcid),
-                }
-            })
+                })
         })
     };
     if let Some(l) = n.as_limit() {
-        if let Some(ps) = l.plan.lefttree.filter(|k| k.node_tag() == NodeTag::T_ProjectSet) {
-            if lit(l.limitCount) && (l.limitOffset.is_none() || lit(l.limitOffset)) && !plan_kids(ps).any(project_set) && calls(ps, &mut |_| {}, false) {
-                l.limitCount.into_iter().chain(l.limitOffset).for_each(&mut *lits);
+        if let Some(ps) = l
+            .plan
+            .lefttree
+            .filter(|k| k.node_tag() == NodeTag::T_ProjectSet)
+        {
+            if lit(l.limitCount)
+                && (l.limitOffset.is_none() || lit(l.limitOffset))
+                && !plan_kids(ps).any(project_set)
+                && calls(ps, &mut |_| {}, false)
+            {
+                l.limitCount
+                    .into_iter()
+                    .chain(l.limitOffset)
+                    .for_each(&mut *lits);
                 return true;
             }
         }
@@ -1322,11 +1912,18 @@ fn srf_ends<'p>(n: Node<'p>, lits: &mut dyn FnMut(Node<'p>)) -> bool {
 }
 
 #[inline(never)] // D3748: never inlined into `map`, whose frame a set-operation nest keeps live per level
-fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Result<Open<'p>, Refusal> {
+fn map_recursive_union<'p>(
+    b: &mut Builder<'p, '_>,
+    ru: &'p RecursiveUnion<'p>,
+) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&ru.plan, Kind::RecursiveUnion);
     let id = plan.plan_node_id;
-    let seed = plan.lefttree.ok_or(Refusal::shape(k, id, "no non-recursive term"))?;
-    let term = plan.righttree.ok_or(Refusal::shape(k, id, "no recursive term"))?;
+    let seed = plan
+        .lefttree
+        .ok_or(Refusal::shape(k, id, "no non-recursive term"))?;
+    let term = plan
+        .righttree
+        .ok_or(Refusal::shape(k, id, "no recursive term"))?;
     if !plan.qual.is_nil() {
         return Err(Refusal::shape(k, id, "a qual on RecursiveUnion"));
     }
@@ -1335,13 +1932,28 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     let ends = srf_ends(seed, &mut |c| bounds.push(c)) && srf_ends(term, &mut |c| bounds.push(c));
     let (seed_srf, term_srf) = (project_set(seed), project_set(term));
     let srf = (!ends && (seed_srf || term_srf)).then_some(SRF_WALL);
-    let (thin, through, zero, read_whole, top, root, window, arms, arms_later, raised, read_wall) = match readers(b, ru) {
-        Ok((thin, through, zero, whole, top, pulls, window, arms, later, raised, root)) => {
-            b.seed_pulls |= pulls;
-            (thin, through, zero, whole, top, root, window, arms, later, raised, None)
-        }
-        Err(why) => (false, false, None, false, false, false, None, false, false, false, Some(why)),
-    };
+    let (thin, through, zero, read_whole, top, root, window, arms, arms_later, raised, read_wall) =
+        match readers(b, ru) {
+            Ok((thin, through, zero, whole, top, pulls, window, arms, later, raised, root)) => {
+                b.seed_pulls |= pulls;
+                (
+                    thin, through, zero, whole, top, root, window, arms, later, raised, None,
+                )
+            }
+            Err(why) => (
+                false,
+                false,
+                None,
+                false,
+                false,
+                false,
+                None,
+                false,
+                false,
+                false,
+                Some(why),
+            ),
+        };
     // with#114 (append): a UNION ALL seed keeps its union's Materialize form (`sort::spool` settles it: its arms feed the
     // union's own spool, whose one emit fills the working table): no table end continues over a streamed union's arms
     // (lowerv4 ops/append/lower.rs, D393)
@@ -1350,7 +1962,16 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     let seed_union = seed_open.union.is_some();
     let work = match seed_open.union {
         Some(_) => crate::ops::shared::breaker::spool(b, seed_open, k, id)?,
-        None => crate::ops::shared::breaker::close(b, seed_open, BreakerKind::Materialize, ROW_LAYOUT, Budget::Share, Spill::Runs, k, id)?,
+        None => crate::ops::shared::breaker::close(
+            b,
+            seed_open,
+            BreakerKind::Materialize,
+            ROW_LAYOUT,
+            Budget::Share,
+            Spill::Runs,
+            k,
+            id,
+        )?,
     };
     // the working table's fill is the seed's (not the first term node's): a rescan that reaches the union re-runs it
     // (rerun.rs `union_seed`, PG's ExecReScanRecursiveUnion)
@@ -1360,8 +1981,24 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     let mut out = crate::ops::shared::breaker::emit(b, id, work);
     // D1378: a UNION's keys; the lowering's two table fills drop a row the union already holds (no slot: the
     // set is the generation object's, not a breaker)
-    loose_keys(b, &plan.targetlist, ru.dupColIdx, ru.dupCollations, ru.numCols, k, id)?;
-    let dedup = eq_keys(b, &plan.targetlist, ru.dupColIdx, ru.dupOperators, ru.numCols, k, id)?;
+    loose_keys(
+        b,
+        &plan.targetlist,
+        ru.dupColIdx,
+        ru.dupCollations,
+        ru.numCols,
+        k,
+        id,
+    )?;
+    let dedup = eq_keys(
+        b,
+        &plan.targetlist,
+        ru.dupColIdx,
+        ru.dupOperators,
+        ru.numCols,
+        k,
+        id,
+    )?;
     let dedup_rows = crate::facts::record_union::dedup_rows(b, ru, &dedup);
     let mut dedup_colls = ArenaVec::with_capacity_in(dedup.len(), b.arena);
     (0..dedup.len()).for_each(|i| dedup_colls.push(ru.dupCollations.get(i).copied().unwrap_or(0)));
@@ -1372,13 +2009,23 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     let body = b.plan(term);
     b.work.pop();
     let body = crate::ops::shared::breaker::respool(b, body?, k, id)?;
-    let next = crate::ops::shared::breaker::close(b, body, BreakerKind::Materialize, ROW_LAYOUT, Budget::Share, Spill::Runs, k, id)?;
+    let next = crate::ops::shared::breaker::close(
+        b,
+        body,
+        BreakerKind::Materialize,
+        ROW_LAYOUT,
+        Budget::Share,
+        Spill::Runs,
+        k,
+        id,
+    )?;
     let body_ix = (b.graph.pipelines.len() - 1) as u16;
     b.graph.term_from = outer_term; // the driver's lease (`lease_iter`) holds the range from here
-    // the body runs the term's nodes: its closer is the term (the WorkTableScan's wtParam is in its allParam, not
-    // the RecursiveUnion's)
+                                    // the body runs the term's nodes: its closer is the term (the WorkTableScan's wtParam is in its allParam, not
+                                    // the RecursiveUnion's)
     b.closed_by(term);
-    let (mut reruns, mut slots, kept_by) = crate::lifetime::rerun_set(b, term_start, &[ru.wtParam], k, id)?;
+    let (mut reruns, mut slots, kept_by) =
+        crate::lifetime::rerun_set(b, term_start, &[ru.wtParam], k, id)?;
     // D3373: a term the planner proved empty (a constant-false qual: a Result with no input whose one-time filter is false,
     // and no WorkTableScan) reads no wtParam, so no pipeline joins the set; PG still runs it once after the seed
     // (ExecRecursiveUnion), finds no row and ends the union: its body alone is the set, each run empty
@@ -1389,24 +2036,36 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
             crate::graph::slot_set(&mut slots, *s);
         }
     }
-    b.graph.kept_by.extend(kept_by.iter().map(|r| crate::lifetime::KeptRec { plan_id: RECURSIVE_SET, ..*r }));
+    b.graph
+        .kept_by
+        .extend(kept_by.iter().map(|r| crate::lifetime::KeptRec {
+            plan_id: RECURSIVE_SET,
+            ..*r
+        }));
     // D4104: a hashed table PG keeps across generations whose fill may raise is a kept member (lowerv4 RERUN_KEPT: run at
     // the term's first run only, where PG fills it), never run again at every generation
-    let (keep, outer) = crate::lifetime::kept_hashed(b, term_start, &reruns, &[ru.wtParam], true).map_err(|why| Refusal::shape(k, id, why))?;
+    let (keep, outer) = crate::lifetime::kept_hashed(b, term_start, &reruns, &[ru.wtParam], true)
+        .map_err(|why| Refusal::shape(k, id, why))?;
     b.graph.kept.extend(keep.iter().copied());
     let rerun = |p: usize| reruns.iter().any(|&r| r as usize == p);
     // F3: a once-run input of a member that is not kept whole across generations (the rerun home's keep list)
     let unwhole = crate::lifetime::term_unwhole(b, &reruns, work);
     let f3 = unwhole.then_some("a recursive term's once-run input kept across generations that is not kept whole (an owner-folded hash table, a Materialize, a TopK, ...; W8-RECURSE F3)");
-    let once_quiet = (term_start..=body_ix as usize).filter(|&p| !rerun(p)).all(|p| b.closers.get(p).copied().is_some_and(|n| quiet(b, n)));
+    let once_quiet = (term_start..=body_ix as usize)
+        .filter(|&p| !rerun(p))
+        .all(|p| b.closers.get(p).copied().is_some_and(|n| quiet(b, n)));
     let early_quiet = quiet(b, seed) && once_quiet;
     // D2732 (Hibernate's json_mergepatch: res read by an EXPR SubLink's InitPlan): readers that stop only by raising
     // (`raised`: an EXPR SubLink's 21000 at a second row) read the union to its end or fail the statement, so the
     // lowering's whole run of its seed and once-run term inputs at the first pull departs from PG as under a whole reader
     // or where PG fails too. Where they call no user or VOLATILE function (nothing but a raise shows), the seed wall does
     // not apply (they still run whole: they are no quiet ones)
-    let calm = |n: Node<'p>| !crate::effects::setop::acts(&crate::rerun::of_plan(b.stmt, b.facts, b.arena, n));
-    let once_calm = (term_start..=body_ix as usize).filter(|&p| !rerun(p)).all(|p| b.closers.get(p).copied().is_some_and(calm));
+    let calm = |n: Node<'p>| {
+        !crate::effects::setop::acts(&crate::rerun::of_plan(b.stmt, b.facts, b.arena, n))
+    };
+    let once_calm = (term_start..=body_ix as usize)
+        .filter(|&p| !rerun(p))
+        .all(|p| b.closers.get(p).copied().is_some_and(calm));
     let raise_ok = raised && calm(seed) && once_calm;
     // D4470 (early work that can only raise an error PG never hits is the accepted class, licensed by name:
     // `effects::accepted`): a seed and once-run term inputs that call no user or VOLATILE
@@ -1419,10 +2078,26 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // never end (with#45's inner union). PG streams each generation to the reader; the lowering runs a generation whole,
     // so where a reader may stop before this union's end it would not return: the union must be read whole
     let inner_seed = reruns.iter().any(|&m| {
-        let Some(&c) = b.closers.get(m as usize) else { return false };
-        let reads_wt = c.as_plan().is_some_and(|p| p.allParam.is_member(ru.wtParam));
+        let Some(&c) = b.closers.get(m as usize) else {
+            return false;
+        };
+        let reads_wt = c
+            .as_plan()
+            .is_some_and(|p| p.allParam.is_member(ru.wtParam));
         let id = c.as_plan().map(|p| p.plan_node_id);
-        !reads_wt && id.and_then(|id| crate::lifetime::node_of(b.stmt, id)).and_then(|(_, up)| up).and_then(|u| u.as_recursive_union()).is_some_and(|r| r.plan.plan_node_id != plan.plan_node_id && r.plan.lefttree.and_then(|l| l.as_plan()).map(|l| l.plan_node_id) == id)
+        !reads_wt
+            && id
+                .and_then(|id| crate::lifetime::node_of(b.stmt, id))
+                .and_then(|(_, up)| up)
+                .and_then(|u| u.as_recursive_union())
+                .is_some_and(|r| {
+                    r.plan.plan_node_id != plan.plan_node_id
+                        && r.plan
+                            .lefttree
+                            .and_then(|l| l.as_plan())
+                            .map(|l| l.plan_node_id)
+                            == id
+                })
     });
     // the streamed form (ops/setop/gen_stream.rs) pulls such a generation as PG does, for the term shape whose set runs only
     // the body; readers() lifted the inner union's D2212 wall for exactly that shape, so a mismatch refuses
@@ -1430,7 +2105,12 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // D3373 (F-2, D2312's streamed form): a term whose target-list SRF is not known to end (the seed holds none) under a
     // reader that may stop: the streamed form pulls the term's body a budget at a time, its end stopping after the row that
     // reaches the want and the ProjectSet resuming inside its set, as PG's RecursiveUnion pulls the term one row per call
-    let term_rows = srf.is_some() && term_srf && !seed_srf && !read_whole && stream_src.is_none() && !inner_seed;
+    let term_rows = srf.is_some()
+        && term_srf
+        && !seed_srf
+        && !read_whole
+        && stream_src.is_none()
+        && !inner_seed;
     let stream = (inner_seed && !read_whole && stream_src.is_some()) || term_rows;
     let streamed = (inner_seed && !read_whole && !stream).then_some("a recursive term holding another recursive union whose seed runs again at every generation, read by a reader that may stop before the union's end: the lowering runs each generation whole where PG streams it, so an inner union that never ends never returns (D2034)");
     let unmatched = (stream_src.is_some() && !read_whole && !inner_seed).then_some("a recursive term streaming another recursive union's CTE whose seed does not run again at every generation (D2034: not the streamed shape)");
@@ -1439,8 +2119,18 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // row that reaches the driver's want (`IterDesc::seed_row`) and the ProjectSet resumes inside its set at the next pull,
     // as PG's ExecRecursiveUnion pulls the non-recursive term once per row it returns. A seed under a UNION ALL (its own
     // spool), a term SRF and a union read whole keep the wall
-    let seed_free = seed.as_plan().is_some_and(|p| p.allParam.is_empty() && p.extParam.is_empty());
-    let seed_rows = seed_srf && !term_srf && (!read_whole || (top && b.graph.partial)) && !seed_union && seed_free && outer_term.is_none() && seed_end == seed_start + 1 && !inner_seed && stream_src.is_none();
+    let seed_free = seed
+        .as_plan()
+        .is_some_and(|p| p.allParam.is_empty() && p.extParam.is_empty());
+    let seed_rows = seed_srf
+        && !term_srf
+        && (!read_whole || (top && b.graph.partial))
+        && !seed_union
+        && seed_free
+        && outer_term.is_none()
+        && seed_end == seed_start + 1
+        && !inner_seed
+        && stream_src.is_none();
     let srf = srf.filter(|_| !seed_rows && !term_rows);
     // `srf_ends`' literal guard where a set is run whole (a pulled seed or a streamed term reads it as far as PG does,
     // whatever its bounds, so it takes none)
@@ -1451,13 +2141,26 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // D2034, the seed cliff: under a reader that may stop, a quiet seed of one pipeline reading no param (so no other rerun
     // set runs it) is pulled as PG pulls it, a budget at a time (`IterDesc::seed`); a seed read whole, a UNION ALL seed's
     // spool, a multi-pipeline seed, a union inside another's term and a streamed term keep the whole seed
-    let seed_param_free = seed.as_plan().is_some_and(|p| p.allParam.is_empty() && p.extParam.is_empty());
-    let seed_form = walled.is_none() && !stream && !seed_union && seed_param_free && outer_term.is_none() && seed_end == seed_start + 1;
+    let seed_param_free = seed
+        .as_plan()
+        .is_some_and(|p| p.allParam.is_empty() && p.extParam.is_empty());
+    let seed_form = walled.is_none()
+        && !stream
+        && !seed_union
+        && seed_param_free
+        && outer_term.is_none()
+        && seed_end == seed_start + 1;
     // D2732 (D3373): one CteScan on the root path under a reader that may stop pulls the union's CTE no further than its
     // bound, a row a pull where the plan calls (lowerv4 ops/ctescan/lower.rs `Pull`), and the CTE object holds an error
     // behind the rows a larger pull stored; a seed that may raise or call of that shape is then pulled a row at a time
     // (`IterDesc::seed_exact`), where its once-run term inputs are quiet
-    let stop_exact = seed_form && !read_whole && top && !through && !quiet(b, seed) && once_quiet && one_scan(b, ru);
+    let stop_exact = seed_form
+        && !read_whole
+        && top
+        && !through
+        && !quiet(b, seed)
+        && once_quiet
+        && one_scan(b, ru);
     // D2732: PG reads the seed row by row as the CTE is pulled (and runs a once-run term input only at the first
     // generation); the lowering's first pull runs both whole, so where a reader may stop before the union's end a seed row
     // PG never reads could raise (or a user / VOLATILE call show) here. D4470: a calm seed's raise is the accepted class
@@ -1473,14 +2176,26 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // a later call in the statement reads): PG hands each seed row on as it reads it (a Sort over the CteScan pulls it a row
     // at a time too), so a call between the union and its reader sees only the seed rows read so far, and a seed read whole
     // would show it every row's act. The CteScan pulls such a CTE a row per miss (lowerv4 ops/ctescan/lower.rs `Pull::One`)
-    let seed_exact = seed_shape && (stop_exact || (read_whole && !through && ((top && b.graph.partial) || (root && crate::effects::setop::acts_past_local(b, seed))) && !quiet(b, seed) && once_quiet && one_scan(b, ru)));
+    let seed_exact = seed_shape
+        && (stop_exact
+            || (read_whole
+                && !through
+                && ((top && b.graph.partial)
+                    || (root && crate::effects::setop::acts_past_local(b, seed)))
+                && !quiet(b, seed)
+                && once_quiet
+                && one_scan(b, ru)));
     let pull_loud = top && !early_quiet && !seed_exact;
     // D3373 (E-1, E-3): another recursive union's readers() read it through this seed as far as this union's reader reads
     // (`Reach::enter_seeded`): a seed run whole would read that union to its end where PG stops; under a partial pull on
     // the root path (a cursor's FETCH) too
-    let must_pull = plan_id_of(b, ru).and_then(|i| 1u64.checked_shl(i as u32)).is_some_and(|bit| b.seed_pulls & bit != 0);
+    let must_pull = plan_id_of(b, ru)
+        .and_then(|i| 1u64.checked_shl(i as u32))
+        .is_some_and(|bit| b.seed_pulls & bit != 0);
     let counted = must_pull && top && read_whole && b.graph.partial && early_quiet;
-    let seed_set = (seed_shape && ((!read_whole && early_quiet) || seed_exact || seed_rows || counted)).then_some(seed_start as u16);
+    let seed_set = (seed_shape
+        && ((!read_whole && early_quiet) || seed_exact || seed_rows || counted))
+        .then_some(seed_start as u16);
     // D3373 (F-1): a seed SRF that is not pulled is walled as before
     let seed_row = seed_rows && seed_set.is_some();
     let wall = wall.or((seed_rows && !seed_row).then_some(SRF_WALL));
@@ -1494,7 +2209,12 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
         for s in d.consumes.iter().chain(d.produces().iter()) {
             crate::graph::slot_set(&mut slots, *s);
         }
-        b.graph.reruns.push(crate::graph::Rerun { node_id: id, plan_id: RECURSIVE_SEED_SET, pipelines, slots });
+        b.graph.reruns.push(crate::graph::Rerun {
+            node_id: id,
+            plan_id: RECURSIVE_SEED_SET,
+            pipelines,
+            slots,
+        });
     }
     // construct C2: the licence the seed and the once-run term inputs run under ahead of PG's row-by-row pull (the seed
     // whole at the first pull or a budget past the reader's row, a once-run input before the first generation): quiet
@@ -1507,9 +2227,12 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
     // refuses)
     let seed_ahead = {
         use crate::effects::{accepted, call_local, quiet_ahead, whole_read_local, Cx, Effects};
-        let fx = |n: Node<'p>| Effects::of_found(crate::rerun::of_plan(b.stmt, b.facts, b.arena, n));
+        let fx =
+            |n: Node<'p>| Effects::of_found(crate::rerun::of_plan(b.stmt, b.facts, b.arena, n));
         let once = || (term_start..=body_ix as usize).filter(|&p| !rerun(p));
-        let once_fx = once().fold(Effects::NONE, |e, p| e.and(b.closers.get(p).copied().map_or(Effects::UNKNOWN, fx)));
+        let once_fx = once().fold(Effects::NONE, |e, p| {
+            e.and(b.closers.get(p).copied().map_or(Effects::UNKNOWN, fx))
+        });
         if wall.is_some() {
             None
         } else if seed_exact {
@@ -1523,8 +2246,11 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
             // a once-run pipeline with no closer is unknown code: no proof covers it
             let early = fx(seed).and(once_fx);
             let closed = once().all(|p| b.closers.get(p).is_some());
-            let units = || core::iter::once(seed).chain(once().filter_map(|p| b.closers.get(p).copied()));
-            let local = (early.acts && closed).then(|| call_local(&Cx::new(b.stmt, b.facts, b.arena), units())).flatten();
+            let units =
+                || core::iter::once(seed).chain(once().filter_map(|p| b.closers.get(p).copied()));
+            let local = (early.acts && closed)
+                .then(|| call_local(&Cx::new(b.stmt, b.facts, b.arena), units()))
+                .flatten();
             whole_read_local(early, local).ok()
         }
     };
@@ -1537,14 +2263,53 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
         let mut set = ArenaVec::with_capacity_in(reruns.len(), b.arena);
         reruns.iter().for_each(|&p| set.push(p));
         let changed = crate::lifetime::changed_params(b, &set, &[ru.wtParam]);
-        b.graph.reruns.push(crate::graph::Rerun { node_id: id, plan_id: RECURSIVE_SET, pipelines: set, slots });
+        b.graph.reruns.push(crate::graph::Rerun {
+            node_id: id,
+            plan_id: RECURSIVE_SET,
+            pipelines: set,
+            slots,
+        });
         let at = (b.graph.reruns.len() - 1) as u16;
         crate::lifetime::claim_refills(b, term_start, at, &changed);
         // D4120: a kept fill reading an enclosing owner's params waits for that owner's set to claim them
-        b.graph.stale_reads.extend(outer.iter().map(|&x| (at, x, id)));
+        b.graph
+            .stale_reads
+            .extend(outer.iter().map(|&x| (at, x, id)));
     }
     crate::ops::shared::breaker::consume(b, &mut out, next); // the driver swaps each generation's rows into `work`
-    crate::breakers::lease_iter(b, &mut out, IterDesc { body: body_ix, reruns, work, next, until: IterUntil::Empty, dedup, dedup_colls, dedup_rows, wt_param: ru.wtParam, early_quiet, read_whole, term_volatile, hash_loud, thin, through, wall, zero, pull_loud, stream, seed: seed_set, seed_exact, seed_ahead, calm: calm_early, window, seed_row, arms, arms_later });
+    crate::breakers::lease_iter(
+        b,
+        &mut out,
+        IterDesc {
+            body: body_ix,
+            reruns,
+            work,
+            next,
+            until: IterUntil::Empty,
+            dedup,
+            dedup_colls,
+            dedup_rows,
+            wt_param: ru.wtParam,
+            early_quiet,
+            read_whole,
+            term_volatile,
+            hash_loud,
+            thin,
+            through,
+            wall,
+            zero,
+            pull_loud,
+            stream,
+            seed: seed_set,
+            seed_exact,
+            seed_ahead,
+            calm: calm_early,
+            window,
+            seed_row,
+            arms,
+            arms_later,
+        },
+    );
     ops::project(&mut out, &plan.targetlist);
     b.graph.note(k);
     Ok(out)
@@ -1553,7 +2318,9 @@ fn map_recursive_union<'p>(b: &mut Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) 
 /// D3373: plan node `n` is the planner's empty relation: a Result with no input and a constant false or NULL one-time filter.
 fn dummy(n: Node<'_>) -> bool {
     let Some(r) = n.as_result() else { return false };
-    r.plan.lefttree.is_none() && r.resconstantqual.is_some_and(crate::ops::shared::gate::never)
+    r.plan.lefttree.is_none()
+        && r.resconstantqual
+            .is_some_and(crate::ops::shared::gate::never)
 }
 
 /// D3373 (E-1): the wall of a recursive union another union's readers() read through its seed, when its seed is not pulled.
@@ -1561,17 +2328,24 @@ const SEED_UNPULLED: &str = "a recursive union read through another recursive un
 
 /// The CTE plan id of recursive union `ru` (its place in the statement's subplans, plus one).
 fn plan_id_of<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> Option<i32> {
-    let at = b.stmt.subplans.iter().position(|r| r.and_then(|r| r.as_plan()).is_some_and(|p| p.plan_node_id == ru.plan.plan_node_id));
+    let at = b.stmt.subplans.iter().position(|r| {
+        r.and_then(|r| r.as_plan())
+            .is_some_and(|p| p.plan_node_id == ru.plan.plan_node_id)
+    });
     at.map(|i| i as i32 + 1)
 }
 
 /// D2732 (D3377): the statement reads recursive union `ru` through exactly one CteScan.
 fn one_scan<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> bool {
     let stmt = b.stmt;
-    let Some(plan_id) = plan_id_of(b, ru) else { return false };
+    let Some(plan_id) = plan_id_of(b, ru) else {
+        return false;
+    };
     let mut scans = 0;
     crate::rerun::each_plan_node(stmt, &mut |n| {
-        if n.node_tag() == NodeTag::T_CteScan && n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id) {
+        if n.node_tag() == NodeTag::T_CteScan
+            && n.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id)
+        {
             scans += 1;
         }
     });
@@ -1579,11 +2353,29 @@ fn one_scan<'p>(b: &Builder<'p, '_>, ru: &'p RecursiveUnion<'p>) -> bool {
 }
 
 #[inline(never)] // D3748: never inlined into `map`, whose frame a set-operation nest keeps live per level
-fn map_work_table_scan<'p>(b: &mut Builder<'p, '_>, w: &'p WorkTableScan<'p>) -> Result<Open<'p>, Refusal> {
+fn map_work_table_scan<'p>(
+    b: &mut Builder<'p, '_>,
+    w: &'p WorkTableScan<'p>,
+) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&w.scan.plan, Kind::WorkTableScan);
     let id = plan.plan_node_id;
-    let slot = b.work.iter().rev().find(|(p, _)| *p == w.wtParam).map(|(_, s)| *s).ok_or(Refusal::shape(k, id, "a WorkTableScan outside its RecursiveUnion"))?;
-    let mut open = Open::new(b.arena, id, Source::Breaker { slot }, Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite));
+    let slot = b
+        .work
+        .iter()
+        .rev()
+        .find(|(p, _)| *p == w.wtParam)
+        .map(|(_, s)| *s)
+        .ok_or(Refusal::shape(
+            k,
+            id,
+            "a WorkTableScan outside its RecursiveUnion",
+        ))?;
+    let mut open = Open::new(
+        b.arena,
+        id,
+        Source::Breaker { slot },
+        Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite),
+    );
     open.desc = crate::breakers::consuming(b, open.desc, slot);
     ops::filters(&mut open, &plan.qual);
     ops::project(&mut open, &plan.targetlist);
@@ -1596,7 +2388,10 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
         Kind::SetOp => map_set_op(b, node.as_set_op().unwrap()),
         Kind::RecursiveUnion => map_recursive_union(b, node.as_recursive_union().unwrap()),
         Kind::WorkTableScan => map_work_table_scan(b, node.as_work_table_scan().unwrap()),
-        _ => Err(Refusal::kind(k, node.as_plan().map_or(STMT_NODE, |p| p.plan_node_id))),
+        _ => Err(Refusal::kind(
+            k,
+            node.as_plan().map_or(STMT_NODE, |p| p.plan_node_id),
+        )),
     }
 }
 
@@ -1607,16 +2402,40 @@ impl SetDesc<'_> {
                 write!(out, "  identity keys=")?;
                 dump_eq_keys(keys, out)
             }
-            SetDesc::Set { cmd, right, keys, groups, form: SetForm::Stream { .. }, .. } => {
-                write!(out, "  setop {cmd:?} sorted stream right=slot{right} groups={groups} keys=")?;
+            SetDesc::Set {
+                cmd,
+                right,
+                keys,
+                groups,
+                form: SetForm::Stream { .. },
+                ..
+            } => {
+                write!(
+                    out,
+                    "  setop {cmd:?} sorted stream right=slot{right} groups={groups} keys="
+                )?;
                 dump_eq_keys(keys, out)
             }
-            SetDesc::Set { cmd, hashed, left, right, keys, groups, form, pull_loud, .. } => {
+            SetDesc::Set {
+                cmd,
+                hashed,
+                left,
+                right,
+                keys,
+                groups,
+                form,
+                pull_loud,
+                ..
+            } => {
                 write!(out, "  setop {cmd:?} {}{}{} left=slot{left} right=slot{right} groups={groups} keys=", if *hashed { "hashed" } else { "sorted" }, if *form == SetForm::Ahead { " ahead" } else { "" }, if *pull_loud { " pull_loud" } else { "" })?;
                 dump_eq_keys(keys, out)
             }
             SetDesc::Iter(d) => {
-                write!(out, "  iterate body=p{} work=slot{} next=slot{} until={:?} wtparam={}", d.body, d.work, d.next, d.until, d.wt_param)?;
+                write!(
+                    out,
+                    "  iterate body=p{} work=slot{} next=slot{} until={:?} wtparam={}",
+                    d.body, d.work, d.next, d.until, d.wt_param
+                )?;
                 if !d.dedup.is_empty() {
                     write!(out, " dedup keys=")?;
                     dump_eq_keys(&d.dedup, out)?;

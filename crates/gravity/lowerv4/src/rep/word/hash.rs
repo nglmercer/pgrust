@@ -18,13 +18,16 @@ use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatCond, IntCond, Type, Value};
 use gravity_program::Rep;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::At;
 use crate::face::kinds::KindId;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 use crate::rep::{self, CellRef, HashArm, Lx, Scope, StoredRef, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepWordHash, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepWordHash, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: HashArm = HashArm { image, eq };
 
@@ -32,7 +35,10 @@ pub(crate) const ARM: HashArm = HashArm { image, eq };
 pub(crate) const F64_NAN: u64 = 0x7FF8_0000_0000_0000;
 
 fn image(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _scope: Scope) -> Words {
-    Words { w: [Some(word(cx, c, tf)), None], exact: true }
+    Words {
+        w: [Some(word(cx, c, tf)), None],
+        exact: true,
+    }
 }
 
 /// Equality against a stored image: the stored word is this arm's image, so equal words are equal keys.
@@ -60,7 +66,12 @@ pub(crate) fn word(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts) -> V
         (Some(signed), _) => int_image(cx.b, v, tf.typlen, signed),
         _ if tf.image.is_enum() => int_image(cx.b, v, 4, false),
         (_, Some(f32)) => float_image(cx.b, v, f32),
-        _ => crate::refuse!(cx, Reason::Bug { payload: "a word cell whose type has no word image" }),
+        _ => crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: "a word cell whose type has no word image"
+            }
+        ),
     }
 }
 
@@ -69,7 +80,11 @@ pub(crate) fn word(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts) -> V
 /// reason: PostgreSQL compares it by user code, so its word is no image.
 fn user_spec(cx: &mut Lx<'_, '_, '_>, tf: &TypeFacts) -> Option<u64> {
     // KeySem decides it (keysem::rep::word_user_key)
-    match gravity_fn::typesem::keysem::rep::word_user_key(tf.typid, tf.byval, gravity_decompose::catalog::typefacts::row_of(tf.typid).is_some()) {
+    match gravity_fn::typesem::keysem::rep::word_user_key(
+        tf.typid,
+        tf.byval,
+        gravity_decompose::catalog::typefacts::row_of(tf.typid).is_some(),
+    ) {
         Ok(spec) => spec,
         Err(why) => crate::refuse!(cx, Reason::Shape { why: ShapeWhy(why) }),
     }
@@ -86,13 +101,33 @@ fn user_class(cx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, spec: u64
     cx.b.cond_br(null, (l_out, &[zero]), (l_val, &[]));
     cx.b.switch_to(l_val);
     let ctx = cx.frame().ctx;
-    let Some(keys) = crate::frame::env::user_keys(cx.b, ctx) else { crate::refuse!(cx, Reason::Bug { payload: crate::frame::env::NO_USER_KEYS }) };
+    let Some(keys) = crate::frame::env::user_keys(cx.b, ctx) else {
+        crate::refuse!(
+            cx,
+            Reason::Bug {
+                payload: crate::frame::env::NO_USER_KEYS
+            }
+        )
+    };
     let out = crate::rep::varlena::hash::out2(cx.b);
-    let flags = gravity_ir::HostFlags { may_error: true, touches_memory: true, ..gravity_ir::HostFlags::default() };
-    let host = gravity_kernels::contract::entry4::<gravity_kernels::typesem::userfp::UserClass> as *const () as usize;
-    let f = cx.b.declare_host_once("m6_user_class", &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), host, flags);
+    let flags = gravity_ir::HostFlags {
+        may_error: true,
+        touches_memory: true,
+        ..gravity_ir::HostFlags::default()
+    };
+    let host = gravity_kernels::contract::entry4::<gravity_kernels::typesem::userfp::UserClass>
+        as *const () as usize;
+    let f = cx.b.declare_host_once(
+        "m6_user_class",
+        &[Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr],
+        Some(Type::I64),
+        host,
+        flags,
+    );
     let spec = cx.b.iconst(Type::I64, spec as i64);
-    let st = cx.b.call_host(f, &[ctx, keys, v, spec, out], Some(Type::I64)).expect("m6_user_class returns its status");
+    let st =
+        cx.b.call_host(f, &[ctx, keys, v, spec, out], Some(Type::I64))
+            .expect("m6_user_class returns its status");
     crate::rep::varlena::hash::raise_on(cx, st);
     let w = cx.b.load(Type::I64, out, 0);
     cx.b.br(l_out, &[w]);
@@ -110,7 +145,11 @@ pub fn int_image(b: &mut FunctionBuilder<'_>, v: Value, typlen: i16, signed: boo
         _ => return v,
     };
     let t = b.conv(ConvOp::Trunc, ty, v);
-    b.conv(if signed { ConvOp::Sext } else { ConvOp::Zext }, Type::I64, t)
+    b.conv(
+        if signed { ConvOp::Sext } else { ConvOp::Zext },
+        Type::I64,
+        t,
+    )
 }
 
 /// A float datum word's canonical image: float8 bits of the (widened) value, `-0 → +0`, every NaN → [`F64_NAN`].
@@ -145,14 +184,33 @@ mod tests {
     fn img(typid: u32, d: u64) -> u64 {
         let rig = mcx::MemoryContext::new("GravityPlanRig");
         let tf = *row_of(typid).expect("type facts");
-        let c = Cell { rep: Rep::Word { bytes: 8 }, typid, num: NumTypmod::NONE, life: CellLife { until: Until::Row, home: CellHome::RowCx }, at: At::Value(0), null: Nullable::Never };
+        let c = Cell {
+            rep: Rep::Word { bytes: 8 },
+            typid,
+            num: NumTypmod::NONE,
+            life: CellLife {
+                until: Until::Row,
+                home: CellHome::RowCx,
+            },
+            at: At::Value(0),
+            null: Nullable::Never,
+        };
         let mut pb = ProgramBuilder::new();
         let f = pb.declare_func("i", &[Type::I64], &[Type::I64]);
         let mut b = pb.define(f);
         let p = b.params()[0];
         let v = {
             let mut cx = Lx::new(&mut b, 1, rig.mcx());
-            let w = image(&mut cx, CellRef { cell: &c, val: p, null: None }, &tf, Scope::Program);
+            let w = image(
+                &mut cx,
+                CellRef {
+                    cell: &c,
+                    val: p,
+                    null: None,
+                },
+                &tf,
+                Scope::Program,
+            );
             assert!(w.exact && w.w[1].is_none());
             w.w[0].unwrap()
         };
@@ -163,10 +221,18 @@ mod tests {
 
     #[test]
     fn integer_widths_key_alike() {
-        assert_eq!(img(23, 0xDEAD_BEEF_FFFF_FFFB), -5i64 as u64, "int4 by its low 32 bits, sign-extended");
+        assert_eq!(
+            img(23, 0xDEAD_BEEF_FFFF_FFFB),
+            -5i64 as u64,
+            "int4 by its low 32 bits, sign-extended"
+        );
         assert_eq!(img(21, 0xFFFB), -5i64 as u64, "int2");
         assert_eq!(img(20, -5i64 as u64), -5i64 as u64, "int8");
-        assert_eq!(img(26, 0xFFFF_FFFF_FFFF_FFFB), 0xFFFF_FFFB, "oid zero-extended");
+        assert_eq!(
+            img(26, 0xFFFF_FFFF_FFFF_FFFB),
+            0xFFFF_FFFB,
+            "oid zero-extended"
+        );
         assert_eq!(img(16, 0x101), 1, "bool by its low byte");
     }
 

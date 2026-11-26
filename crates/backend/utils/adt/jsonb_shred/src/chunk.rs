@@ -51,7 +51,7 @@ impl Bitmap {
         debug_assert!(i <= self.nbits);
         let full = (i / 64) as usize;
         let mut n: u32 = self.words[..full].iter().map(|w| w.count_ones()).sum();
-        if ! i.is_multiple_of( 64) {
+        if !i.is_multiple_of(64) {
             n += (self.words[full] & ((1u64 << (i % 64)) - 1)).count_ones();
         }
         n
@@ -157,8 +157,7 @@ impl ResidualBucket {
         (lo..hi).map(move |k| {
             (
                 self.path_ids[k],
-                &self.val_bytes
-                    [self.val_offsets[k] as usize..self.val_offsets[k + 1] as usize],
+                &self.val_bytes[self.val_offsets[k] as usize..self.val_offsets[k + 1] as usize],
             )
         })
     }

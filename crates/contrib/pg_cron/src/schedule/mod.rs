@@ -98,7 +98,10 @@ pub fn parse_schedule(text: &str) -> Option<Entry> {
     if let Some(e) = parse_cron_entry(text) {
         return Some(e);
     }
-    try_parse_interval(text).map(|secs| Entry { seconds_interval: secs, ..Entry::default() })
+    try_parse_interval(text).map(|secs| Entry {
+        seconds_interval: secs,
+        ..Entry::default()
+    })
 }
 
 /// `TryParseInterval` (job_metadata.c:1560): sscanf(" %u secon%c%c %c")
@@ -119,7 +122,9 @@ pub fn try_parse_interval(text: &str) -> Option<u32> {
     let mut value: u64 = 0;
     let mut overflow = false;
     while i < b.len() && b[i].is_ascii_digit() {
-        value = value.saturating_mul(10).saturating_add((b[i] - b'0') as u64);
+        value = value
+            .saturating_mul(10)
+            .saturating_add((b[i] - b'0') as u64);
         overflow |= value > u32::MAX as u64;
         i += 1;
     }
@@ -145,7 +150,11 @@ pub fn try_parse_interval(text: &str) -> Option<u32> {
             while i < b.len() && ws(b[i]) {
                 i += 1;
             }
-            if i < b.len() { 4 } else { 3 }
+            if i < b.len() {
+                4
+            } else {
+                3
+            }
         }
     };
     let in_range = !negative && !overflow && (1..60).contains(&(value as u32));

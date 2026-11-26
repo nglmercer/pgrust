@@ -16,7 +16,11 @@ use types_storage::{RelFileLocator, RelFileLocatorBackend};
 fn nblocks_on_fresh_open_errors_when_segment0_is_gone() {
     let dir = common::setup("nblocks_unlinked");
     let key = RelFileLocatorBackend {
-        locator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16385 },
+        locator: RelFileLocator {
+            spcOid: 1663,
+            dbOid: 5,
+            relNumber: 16385,
+        },
         backend: INVALID_PROC_NUMBER,
     };
     let fork = ForkNumber::MAIN_FORKNUM;
@@ -38,11 +42,14 @@ fn nblocks_on_fresh_open_errors_when_segment0_is_gone() {
     let r = smgr::smgrnblocks(key, fork);
     match r {
         Err(e) => assert!(
-            e.message.starts_with("could not open file \"base/5/16385\""),
+            e.message
+                .starts_with("could not open file \"base/5/16385\""),
             "unexpected error: {}",
             e.message
         ),
-        Ok(n) => panic!("mdnblocks answered {n} for an unlinked segment 0 (C: could not open file)"),
+        Ok(n) => {
+            panic!("mdnblocks answered {n} for an unlinked segment 0 (C: could not open file)")
+        }
     }
 
     let _ = std::fs::remove_dir_all(dir);

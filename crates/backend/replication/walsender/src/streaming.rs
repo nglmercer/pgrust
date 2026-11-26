@@ -210,8 +210,10 @@ pub fn StartReplication(mcx: mcx::Mcx<'_>, cmd: &StartReplicationCmd) -> PgResul
 
         crate::REPLICATION_ACTIVE.with(|c| c.set(true));
 
-        let mut reader =
-            PhysicalReader(XLogReaderState::allocate(mcx, transam_xlog::wal_segment_size())?);
+        let mut reader = PhysicalReader(XLogReaderState::allocate(
+            mcx,
+            transam_xlog::wal_segment_size(),
+        )?);
         crate::pgrc_files::start(cmd.startpoint);
         let r = WalSndLoop(&mut |()| XLogSendPhysical(&mut reader.0), false);
         crate::pgrc_files::stop();
@@ -282,8 +284,7 @@ pub fn XLogSendPhysical(reader: &mut XLogReaderState<'_>) -> PgResult<()> {
             let send_tli = crate::SEND_TIME_LINE.with(|c| c.get());
             let (valid_upto, next_tli) = {
                 let cx = mcx::MemoryContext::new("XLogSendPhysical/timeline-history");
-                let history =
-                    timeline_seams::read_timeline_history::call(cx.mcx(), send_rqst_tli)?;
+                let history = timeline_seams::read_timeline_history::call(cx.mcx(), send_rqst_tli)?;
                 timeline_seams::tli_switch_point::call(send_tli, &history)?
             };
             debug_assert!(send_tli < next_tli);
@@ -440,7 +441,11 @@ fn xlog_send_physical_emit(
             let seg_end = (seg_no + 1) * segsize_u;
             let chunk_end = seg_end.min(endptr);
             let chunk_len = (chunk_end - chunk_start) as usize;
-            let tli = if historic && seg_no == end_seg_no { next_tli } else { send_tli };
+            let tli = if historic && seg_no == end_seg_no {
+                next_tli
+            } else {
+                send_tli
+            };
             if let Err(errinfo) = xlogreader::WALRead(
                 &mut reader.v,
                 &mut WalSndSegment,
@@ -523,7 +528,9 @@ impl XLogSegmentRoutine for WalSndSegment {
             ereport(ERROR)
                 .with_saved_errno(en)
                 .errcode_for_file_access()
-                .errmsg(format!("requested WAL segment {fname} has already been removed"))
+                .errmsg(format!(
+                    "requested WAL segment {fname} has already been removed"
+                ))
                 .finish(loc(3120, "WalSndSegmentOpen"))?;
         } else {
             ereport(ERROR)
@@ -542,15 +549,10 @@ impl XLogSegmentRoutine for WalSndSegment {
 // WALReadRaiseError(&errinfo) (xlogutils.c:1047): the C error text, keyed on
 // the failing segment file name / offset, with %m from the saved errno on a
 // short read and ERRCODE_DATA_CORRUPTED on a premature zero read.
-pub(crate) fn wal_read_raise_error(
-    errinfo: &xlogreader_seams::WALReadError,
-) -> PgResult<()> {
+pub(crate) fn wal_read_raise_error(errinfo: &xlogreader_seams::WALReadError) -> PgResult<()> {
     let seg = &errinfo.wre_seg;
-    let fname = transam_xlog::XLogFileName(
-        seg.ws_tli,
-        seg.ws_segno,
-        transam_xlog::wal_segment_size(),
-    );
+    let fname =
+        transam_xlog::XLogFileName(seg.ws_tli, seg.ws_segno, transam_xlog::wal_segment_size());
     if errinfo.wre_read < 0 {
         ereport(ERROR)
             .with_saved_errno(errinfo.wre_errno)
@@ -560,7 +562,9 @@ pub(crate) fn wal_read_raise_error(
                 errinfo.wre_off
             ))
             .finish(ErrorLocation::new(
-                "src/backend/access/transam/xlogutils.c", 1060, "WALReadRaiseError",
+                "src/backend/access/transam/xlogutils.c",
+                1060,
+                "WALReadRaiseError",
             ))
     } else {
         ereport(ERROR)
@@ -570,7 +574,9 @@ pub(crate) fn wal_read_raise_error(
                 errinfo.wre_off, errinfo.wre_read, errinfo.wre_req
             ))
             .finish(ErrorLocation::new(
-                "src/backend/access/transam/xlogutils.c", 1068, "WALReadRaiseError",
+                "src/backend/access/transam/xlogutils.c",
+                1068,
+                "WALReadRaiseError",
             ))
     }
 }
@@ -629,11 +635,11 @@ pub(crate) fn WalSndLoop(
 
         if caught_up() && !pqcomm::pq_is_send_pending() {
             if crate::my_walsnd_state() == WalSndState::Catchup {
-                let app = guc_tables::vars::application_name.read().unwrap_or_default();
+                let app = guc_tables::vars::application_name
+                    .read()
+                    .unwrap_or_default();
                 let _ = ereport(DEBUG1)
-                    .errmsg_internal(format!(
-                        "\"{app}\" has now caught up with upstream server"
-                    ))
+                    .errmsg_internal(format!("\"{app}\" has now caught up with upstream server"))
                     .finish(loc(2898, "WalSndLoop"));
                 crate::WalSndSetState(WalSndState::Streaming);
             }
@@ -791,7 +797,11 @@ pub(crate) fn WalSndKeepalive(request_reply: bool, write_ptr: XLogRecPtr) -> PgR
         let mut b = b.borrow_mut();
         b.clear();
         b.push(b'k');
-        let wpos = if write_ptr == InvalidXLogRecPtr { sent } else { write_ptr };
+        let wpos = if write_ptr == InvalidXLogRecPtr {
+            sent
+        } else {
+            write_ptr
+        };
         b.extend_from_slice(&wpos.to_be_bytes());
         b.extend_from_slice(&(now as u64).to_be_bytes());
         b.push(u8::from(request_reply));
@@ -850,7 +860,8 @@ mod tests {
                     ws_segno: 1,
                     ws_tli: 1,
                 },
-            }).unwrap_err();
+            })
+            .unwrap_err();
             let location = err.location.unwrap();
             assert_eq!(location.filename.as_deref(), Some("xlogutils.c"));
             assert_eq!(location.lineno, line);
@@ -866,10 +877,16 @@ mod tests {
         let prev = elog::config::where_to_send_output();
         elog::config::set_where_to_send_output(types_dest::CommandDest::Remote);
         suppress_frontend_output();
-        assert_eq!(elog::config::where_to_send_output(), types_dest::CommandDest::None);
+        assert_eq!(
+            elog::config::where_to_send_output(),
+            types_dest::CommandDest::None
+        );
         elog::config::set_where_to_send_output(types_dest::CommandDest::Debug);
         suppress_frontend_output();
-        assert_eq!(elog::config::where_to_send_output(), types_dest::CommandDest::Debug);
+        assert_eq!(
+            elog::config::where_to_send_output(),
+            types_dest::CommandDest::Debug
+        );
         elog::config::set_where_to_send_output(prev);
     }
 

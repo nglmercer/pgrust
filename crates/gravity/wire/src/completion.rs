@@ -1,5 +1,7 @@
 use gravity_program::Cmd;
-use types_portal::{QueryCompletion, CMDTAG_DELETE, CMDTAG_INSERT, CMDTAG_MERGE, CMDTAG_SELECT, CMDTAG_UPDATE};
+use types_portal::{
+    QueryCompletion, CMDTAG_DELETE, CMDTAG_INSERT, CMDTAG_MERGE, CMDTAG_SELECT, CMDTAG_UPDATE,
+};
 
 pub fn completion(cmd: Cmd, rows_processed: u64) -> QueryCompletion {
     let tag = match cmd {
@@ -9,5 +11,8 @@ pub fn completion(cmd: Cmd, rows_processed: u64) -> QueryCompletion {
         Cmd::Delete => CMDTAG_DELETE,
         Cmd::Merge => CMDTAG_MERGE,
     };
-    QueryCompletion { commandTag: tag, nprocessed: rows_processed }
+    QueryCompletion {
+        commandTag: tag,
+        nprocessed: rows_processed,
+    }
 }

@@ -8,22 +8,25 @@ use gravity_driver::{BindingRef, Cursor, Error, Result, Source, Window, WindowBa
 use mcx::Mcx;
 use types_core::Oid;
 use types_error::{PgError, PgResult};
+use types_fmgr::LocalFcinfo;
 use types_nodes::node_tree::Node;
 use types_nodes::primnodes::{RowCompareExpr, INDEX_VAR};
 use types_nodes::NodeList;
 use types_rel::{Relation, RelationData, LOCKMODE, RELKIND_MATVIEW, RELKIND_RELATION};
 use types_relscan::IndexScanDescData;
+use types_scan::scankey::{
+    ScanKeyData, StrategyNumber, SK_ISNULL, SK_ORDER_BY, SK_ROW_END, SK_ROW_HEADER, SK_ROW_MEMBER,
+    SK_SEARCHARRAY, SK_SEARCHNOTNULL, SK_SEARCHNULL,
+};
 use types_scan::sdir::ScanDirection;
-use types_scan::scankey::{ScanKeyData, StrategyNumber, SK_ISNULL, SK_ROW_END, SK_ROW_HEADER, SK_ROW_MEMBER, SK_ORDER_BY, SK_SEARCHARRAY, SK_SEARCHNOTNULL, SK_SEARCHNULL};
 use types_slot::SlotData;
-use types_fmgr::LocalFcinfo;
 use types_snapshot::SnapshotData;
 use types_storage::lock::NoLock;
 
-pub use crate::ops::shared::rel::{open_heap, open_index, park, pos_of, repin, tid_of};
-use crate::ops::shared::rel::snapshot_of;
-use crate::scratch::NodeScratch;
 use crate::ops::scan::index_window::Quals;
+use crate::ops::shared::rel::snapshot_of;
+pub use crate::ops::shared::rel::{open_heap, open_index, park, pos_of, repin, tid_of};
+use crate::scratch::NodeScratch;
 use crate::FilterFn;
 
 mod raw;
@@ -37,7 +40,9 @@ pub const HEAP_TABLE_AM_OID: Oid = 2;
 /// registers at entry build as C resolves rd_tableam: tableam_vocab `TableAm::of`, the range source's test). Not relam 0
 /// (a sequence, which these sources never read).
 pub fn heap_am(heap: &Relation<'_>) -> bool {
-    heap.rd_rel.relam == HEAP_TABLE_AM_OID || (heap.rd_rel.relam != 0 && tableam_vocab::TableAm::of(heap) == Some(tableam_vocab::TableAm::Heap))
+    heap.rd_rel.relam == HEAP_TABLE_AM_OID
+        || (heap.rd_rel.relam != 0
+            && tableam_vocab::TableAm::of(heap) == Some(tableam_vocab::TableAm::Heap))
 }
 
 /// Whether `heap`'s table AM fetches by index TID and walks a bitmap through tableam (the pool forms still need `heap_am`).
@@ -219,16 +224,141 @@ pub struct SiteLists {
 impl SiteRecipe {
     /// The recipe as its core and its lists, each field moved (none copied).
     pub fn split(self) -> (SiteCore, SiteLists) {
-        let SiteRecipe { heap, index, index_lockmode, nkeys, keys, natts, attnos, key_heap_attnos, host_keys, host_args, filter, point, copy_dear, plan_node, backward, only, rows, words, am, heap_natts, index_am, heap_fetches, bitmap, row_budget, run_bound, run, worker, leaves, ranges } = self;
-        let core = SiteCore { heap, index, index_lockmode, nkeys, natts, filter, point, copy_dear, plan_node, backward, only, am, heap_natts, index_am, heap_fetches, bitmap, row_budget, run_bound, run, worker, leaves, ranges };
-        (core, SiteLists { keys, attnos, key_heap_attnos, host_keys, host_args, rows, words })
+        let SiteRecipe {
+            heap,
+            index,
+            index_lockmode,
+            nkeys,
+            keys,
+            natts,
+            attnos,
+            key_heap_attnos,
+            host_keys,
+            host_args,
+            filter,
+            point,
+            copy_dear,
+            plan_node,
+            backward,
+            only,
+            rows,
+            words,
+            am,
+            heap_natts,
+            index_am,
+            heap_fetches,
+            bitmap,
+            row_budget,
+            run_bound,
+            run,
+            worker,
+            leaves,
+            ranges,
+        } = self;
+        let core = SiteCore {
+            heap,
+            index,
+            index_lockmode,
+            nkeys,
+            natts,
+            filter,
+            point,
+            copy_dear,
+            plan_node,
+            backward,
+            only,
+            am,
+            heap_natts,
+            index_am,
+            heap_fetches,
+            bitmap,
+            row_budget,
+            run_bound,
+            run,
+            worker,
+            leaves,
+            ranges,
+        };
+        (
+            core,
+            SiteLists {
+                keys,
+                attnos,
+                key_heap_attnos,
+                host_keys,
+                host_args,
+                rows,
+                words,
+            },
+        )
     }
 
     /// The recipe `split` took apart, each field moved back.
     pub fn assemble(core: SiteCore, lists: SiteLists) -> SiteRecipe {
-        let SiteCore { heap, index, index_lockmode, nkeys, natts, filter, point, copy_dear, plan_node, backward, only, am, heap_natts, index_am, heap_fetches, bitmap, row_budget, run_bound, run, worker, leaves, ranges } = core;
-        let SiteLists { keys, attnos, key_heap_attnos, host_keys, host_args, rows, words } = lists;
-        SiteRecipe { heap, index, index_lockmode, nkeys, keys, natts, attnos, key_heap_attnos, host_keys, host_args, filter, point, copy_dear, plan_node, backward, only, rows, words, am, heap_natts, index_am, heap_fetches, bitmap, row_budget, run_bound, run, worker, leaves, ranges }
+        let SiteCore {
+            heap,
+            index,
+            index_lockmode,
+            nkeys,
+            natts,
+            filter,
+            point,
+            copy_dear,
+            plan_node,
+            backward,
+            only,
+            am,
+            heap_natts,
+            index_am,
+            heap_fetches,
+            bitmap,
+            row_budget,
+            run_bound,
+            run,
+            worker,
+            leaves,
+            ranges,
+        } = core;
+        let SiteLists {
+            keys,
+            attnos,
+            key_heap_attnos,
+            host_keys,
+            host_args,
+            rows,
+            words,
+        } = lists;
+        SiteRecipe {
+            heap,
+            index,
+            index_lockmode,
+            nkeys,
+            keys,
+            natts,
+            attnos,
+            key_heap_attnos,
+            host_keys,
+            host_args,
+            filter,
+            point,
+            copy_dear,
+            plan_node,
+            backward,
+            only,
+            rows,
+            words,
+            am,
+            heap_natts,
+            index_am,
+            heap_fetches,
+            bitmap,
+            row_budget,
+            run_bound,
+            run,
+            worker,
+            leaves,
+            ranges,
+        }
     }
 }
 
@@ -252,35 +382,97 @@ fn err(msg: &'static str) -> Box<PgError> {
 const WALK_CANCELED: &str = "gravity: an index walk stopped for its statement's cancel";
 
 impl SiteRecipe {
-    pub fn from_plan(heap: &Relation<'_>, index: &Relation<'_>, indexqual: &NodeList<'_>, indexorderby: &NodeList<'_>, index_lockmode: LOCKMODE, attnos: &[i16]) -> PgResult<SiteRecipe> {
+    pub fn from_plan(
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+        indexqual: &NodeList<'_>,
+        indexorderby: &NodeList<'_>,
+        index_lockmode: LOCKMODE,
+        attnos: &[i16],
+    ) -> PgResult<SiteRecipe> {
         if index.rd_rel.relam != BTREE_AM_OID {
             return Err(err("gravity: valid btree index only"));
         }
-        SiteRecipe::build(heap, index, indexqual, indexorderby, index_lockmode, attnos, Walk::Btree, false)
+        SiteRecipe::build(
+            heap,
+            index,
+            indexqual,
+            indexorderby,
+            index_lockmode,
+            attnos,
+            Walk::Btree,
+            false,
+        )
     }
 
     /// `from_plan` for the v4 btree walks (V4R-108, PERF-OLTP's sketch): a constant `= ANY` array is bound from its key word
     /// at every seek as a parameter's is (V4R-44), never held by the recipe (lowerv4 `key_words` gives the Const a word): a
     /// filed program serves every literal array of its shape, where the image in the recipe made each `IN (…)` list its own
     /// program. The shape table keeps `from_plan`.
-    pub fn from_plan_words(heap: &Relation<'_>, index: &Relation<'_>, indexqual: &NodeList<'_>, index_lockmode: LOCKMODE, attnos: &[i16]) -> PgResult<SiteRecipe> {
+    pub fn from_plan_words(
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+        indexqual: &NodeList<'_>,
+        index_lockmode: LOCKMODE,
+        attnos: &[i16],
+    ) -> PgResult<SiteRecipe> {
         if index.rd_rel.relam != BTREE_AM_OID {
             return Err(err("gravity: valid btree index only"));
         }
-        SiteRecipe::build(heap, index, indexqual, &NodeList::nil(), index_lockmode, attnos, Walk::Btree, true)
+        SiteRecipe::build(
+            heap,
+            index,
+            indexqual,
+            &NodeList::nil(),
+            index_lockmode,
+            attnos,
+            Walk::Btree,
+            true,
+        )
     }
 
     /// An any-AM index walk's recipe (V4R-49): `from_plan_any_am` for the ordered walk
     /// (no word); the caller adds the walk's ORDER BY keys (`am`, hosts v4/m2_index.rs `AmRecipe::new`).
-    pub fn from_plan_am(heap: &Relation<'_>, index: &Relation<'_>, indexqual: &NodeList<'_>, index_lockmode: LOCKMODE, attnos: &[i16]) -> PgResult<SiteRecipe> {
-        SiteRecipe::build(heap, index, indexqual, &NodeList::nil(), index_lockmode, attnos, Walk::Am, true)
+    pub fn from_plan_am(
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+        indexqual: &NodeList<'_>,
+        index_lockmode: LOCKMODE,
+        attnos: &[i16],
+    ) -> PgResult<SiteRecipe> {
+        SiteRecipe::build(
+            heap,
+            index,
+            indexqual,
+            &NodeList::nil(),
+            index_lockmode,
+            attnos,
+            Walk::Am,
+            true,
+        )
     }
 
     /// `from_plan` for the bitmap walk (`bitmap_source.rs`): any access method with `amgetbitmap` (btree, hash, gist, gin,
     /// spgist, brin, bloom; the AM's own recheck flag drives the host's recheck of the original quals), the keys bound the same way
     /// (a constant `= ANY` array too, V4R-108).
-    pub fn from_plan_any_am(heap: &Relation<'_>, index: &Relation<'_>, indexqual: &NodeList<'_>, indexorderby: &NodeList<'_>, index_lockmode: LOCKMODE, attnos: &[i16]) -> PgResult<SiteRecipe> {
-        SiteRecipe::build(heap, index, indexqual, indexorderby, index_lockmode, attnos, Walk::Bitmap, true)
+    pub fn from_plan_any_am(
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+        indexqual: &NodeList<'_>,
+        indexorderby: &NodeList<'_>,
+        index_lockmode: LOCKMODE,
+        attnos: &[i16],
+    ) -> PgResult<SiteRecipe> {
+        SiteRecipe::build(
+            heap,
+            index,
+            indexqual,
+            indexorderby,
+            index_lockmode,
+            attnos,
+            Walk::Bitmap,
+            true,
+        )
     }
 
     /// `walk`: a btree index scan's keys (`from_plan`) also take a row comparison; every walk's keys take an expression
@@ -288,9 +480,20 @@ impl SiteRecipe {
     /// substituted row by the plan's `bitmapqualorig` alone, BitmapHeapRecheck). `array_words`: a constant `= ANY` array is bound
     /// from its key word (V4R-108) rather than held by the recipe.
     #[allow(clippy::too_many_arguments)]
-    fn build(heap: &Relation<'_>, index: &Relation<'_>, indexqual: &NodeList<'_>, indexorderby: &NodeList<'_>, index_lockmode: LOCKMODE, attnos: &[i16], walk: Walk, array_words: bool) -> PgResult<SiteRecipe> {
+    fn build(
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+        indexqual: &NodeList<'_>,
+        indexorderby: &NodeList<'_>,
+        index_lockmode: LOCKMODE,
+        attnos: &[i16],
+        walk: Walk,
+        array_words: bool,
+    ) -> PgResult<SiteRecipe> {
         let btree = walk == Walk::Btree;
-        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || !index_fetch_am(heap) {
+        if !matches!(heap.rd_rel.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+            || !index_fetch_am(heap)
+        {
             return Err(err("gravity: a table AM without an index fetch"));
         }
         if !index.rd_index.as_ref().is_some_and(|i| i.indisvalid) {
@@ -302,33 +505,71 @@ impl SiteRecipe {
         // No qual = the key-less ordered walk (need 8): `nkeys = 0`, begin / rescan with no
         // keys, the whole index in its own order (forward, or backward from the plan's
         // indexorderdir) — a merge join's ordinary sides.
-        let mut keys: Vec<ScanKeyData> = (0..indexqual.len()).map(|_| ScanKeyData::empty()).collect(); // alloc: Program
+        let mut keys: Vec<ScanKeyData> =
+            (0..indexqual.len()).map(|_| ScanKeyData::empty()).collect(); // alloc: Program
         let mut key_heap_attnos = vec![0i16; indexqual.len()]; // alloc: Program
         let mut host_keys = vec![false; indexqual.len()]; // alloc: Program
         let mut host_args: Vec<Option<Arc<[u8]>>> = vec![None; indexqual.len()]; // alloc: Program
         let (mut rows, mut words) = (Vec::new(), Vec::with_capacity(indexqual.len())); // alloc: Program
-        // bounded("other: one scan key built per clause of the plan's index quals, at plan time; the statement's quals bound them")
+                                                                                       // bounded("other: one scan key built per clause of the plan's index quals, at plan time; the statement's quals bound them")
         for (i, clause) in indexqual.iter().enumerate() {
             // a row comparison is nbtree's (SK_ROW_HEADER): the btree walk's, and a bitmap walk's over a btree index
-            if let Some(rc) = clause.as_row_compare_expr().filter(|_| btree || index.rd_rel.relam == BTREE_AM_OID) {
+            if let Some(rc) = clause
+                .as_row_compare_expr()
+                .filter(|_| btree || index.rd_rel.relam == BTREE_AM_OID)
+            {
                 rows.push(row_key(index, &mut keys[i], rc, i, rows.len(), &mut words)?); // alloc: Program
                 continue;
             }
             // `column IS [NOT] NULL` (every AM the planner puts it on has amsearchnulls; D409 for btree and the bitmap walk)
             if let Some(nt) = clause.as_null_test() {
-                let var = nt.arg.and_then(|a| strip_relabel(a).as_var()).filter(|v| v.varno == INDEX_VAR).ok_or_else(|| err("gravity: index qual key side"))?;
-                key_heap_attnos[i] = key_column(index, var.varattno, index.rd_indcollation.get(var.varattno as usize - 1).copied().unwrap_or(0), Some(walk))?;
-                let search = if nt.nulltesttype == types_nodes::primnodes::NullTestType::IS_NULL { SK_SEARCHNULL } else { SK_SEARCHNOTNULL };
-                (keys[i].sk_flags, keys[i].sk_attno, host_keys[i]) = (SK_ISNULL | search, var.varattno, true);
+                let var = nt
+                    .arg
+                    .and_then(|a| strip_relabel(a).as_var())
+                    .filter(|v| v.varno == INDEX_VAR)
+                    .ok_or_else(|| err("gravity: index qual key side"))?;
+                key_heap_attnos[i] = key_column(
+                    index,
+                    var.varattno,
+                    index
+                        .rd_indcollation
+                        .get(var.varattno as usize - 1)
+                        .copied()
+                        .unwrap_or(0),
+                    Some(walk),
+                )?;
+                let search = if nt.nulltesttype == types_nodes::primnodes::NullTestType::IS_NULL {
+                    SK_SEARCHNULL
+                } else {
+                    SK_SEARCHNOTNULL
+                };
+                (keys[i].sk_flags, keys[i].sk_attno, host_keys[i]) =
+                    (SK_ISNULL | search, var.varattno, true);
                 continue;
             }
             words.push(KeyWord::Key(i as u16)); // alloc: Program
             if let Some(sa) = clause.as_scalar_array_op_expr() {
-                let var = strip_relabel(sa.args.nth(0)).as_var().filter(|v| v.varno == INDEX_VAR).ok_or_else(|| err("gravity: index qual key side"))?;
-                if !sa.useOr || sa.args.len() != 2 || strip_relabel(sa.args.nth(1)).as_var().is_some_and(|v| v.varno == INDEX_VAR) {
+                let var = strip_relabel(sa.args.nth(0))
+                    .as_var()
+                    .filter(|v| v.varno == INDEX_VAR)
+                    .ok_or_else(|| err("gravity: index qual key side"))?;
+                if !sa.useOr
+                    || sa.args.len() != 2
+                    || strip_relabel(sa.args.nth(1))
+                        .as_var()
+                        .is_some_and(|v| v.varno == INDEX_VAR)
+                {
                     return Err(err("gravity: index qual argument"));
                 }
-                key_heap_attnos[i] = key_from_op(index, &mut keys[i], var.varattno, sa.opno, sa.opfuncid, sa.inputcollid, Some(walk))?;
+                key_heap_attnos[i] = key_from_op(
+                    index,
+                    &mut keys[i],
+                    var.varattno,
+                    sa.opno,
+                    sa.opfuncid,
+                    sa.inputcollid,
+                    Some(walk),
+                )?;
                 // a parameter's or an expression's array (V4R-44), and a constant's under `array_words` (V4R-108): the seek binds
                 // it from the key word like a comparison's value (nbtree preprocesses the array at every rescan: sorted,
                 // deduplicated, NULL elements dropped); a NULL array word matches nothing
@@ -336,36 +577,94 @@ impl SiteRecipe {
                     keys[i].sk_flags = types_scan::scankey::SK_SEARCHARRAY;
                     continue;
                 };
-                keys[i].sk_flags = types_scan::scankey::SK_SEARCHARRAY | if c.constisnull { types_scan::scankey::SK_ISNULL } else { 0 };
+                keys[i].sk_flags = types_scan::scankey::SK_SEARCHARRAY
+                    | if c.constisnull {
+                        types_scan::scankey::SK_ISNULL
+                    } else {
+                        0
+                    };
                 if !c.constisnull {
                     // the filed recipe keeps the array's image: a bake (gravity_decompose::bake)
-                    let img = varlena_image(gravity_decompose::bake::read(c).as_usize() as *const u8).ok_or_else(|| err("gravity: a search array whose image is a toast pointer"))?;
+                    let img =
+                        varlena_image(gravity_decompose::bake::read(c).as_usize() as *const u8)
+                            .ok_or_else(|| {
+                                err("gravity: a search array whose image is a toast pointer")
+                            })?;
                     keys[i].sk_argument = datum::Datum::from_u64(img.as_ptr() as u64);
                     host_args[i] = Some(img);
                 }
                 host_keys[i] = true;
                 continue;
             }
-            let op = clause.as_op_expr().ok_or_else(|| err("gravity: index qual is not an operator"))?;
-            let var = strip_relabel(op.args.nth(0)).as_var().filter(|v| v.varno == INDEX_VAR).ok_or_else(|| err("gravity: index qual key side"))?;
+            let op = clause
+                .as_op_expr()
+                .ok_or_else(|| err("gravity: index qual is not an operator"))?;
+            let var = strip_relabel(op.args.nth(0))
+                .as_var()
+                .filter(|v| v.varno == INDEX_VAR)
+                .ok_or_else(|| err("gravity: index qual key side"))?;
             // The argument side may be a Param, a Const (plain-text query, the
             // planner folded it) or any non-INDEX_VAR expression: its value is
             // supplied at seek time from the kernel's key cells, so the recipe
             // only reads the operator, never the argument. Reject only another
             // INDEX_VAR (a column = column qual is not a probe key).
-            if op.args.len() != 2 || strip_relabel(op.args.nth(1)).as_var().is_some_and(|v| v.varno == INDEX_VAR) {
+            if op.args.len() != 2
+                || strip_relabel(op.args.nth(1))
+                    .as_var()
+                    .is_some_and(|v| v.varno == INDEX_VAR)
+            {
                 return Err(err("gravity: index qual argument"));
             }
-            key_heap_attnos[i] = key_from_op(index, &mut keys[i], var.varattno, op.opno, op.opfuncid, op.inputcollid, Some(walk))?;
+            key_heap_attnos[i] = key_from_op(
+                index,
+                &mut keys[i],
+                var.varattno,
+                op.opno,
+                op.opfuncid,
+                op.inputcollid,
+                Some(walk),
+            )?;
         }
         let eq = types_scan::BTEqualStrategyNumber as types_scan::scankey::StrategyNumber;
         let point = btree
             && rows.is_empty()
             && index.rd_index.as_ref().is_some_and(|i| i.indisunique)
-            && (1..=index.indnkeyatts()).all(|a| keys.iter().any(|k| k.sk_attno as i32 == a && k.sk_flags == 0 && k.sk_strategy == eq));
-        Ok(SiteRecipe { heap: heap.rd_id, index: index.rd_id, index_lockmode, nkeys: indexqual.len(), keys, natts: attnos.len(), attnos: attnos.to_vec(), key_heap_attnos, host_keys, host_args, filter: None, point, copy_dear: copy_dear(heap, attnos), plan_node: -1, backward: false, only: false, rows, words, heap_natts: heap.rd_att.natts, index_am: index.rd_rel.relam, am: None, heap_fetches: Arc::default(), bitmap: Arc::default(), row_budget: None, run_bound: Default::default(), run: None, worker: None, leaves: None, ranges: None }) // alloc: Program
+            && (1..=index.indnkeyatts()).all(|a| {
+                keys.iter()
+                    .any(|k| k.sk_attno as i32 == a && k.sk_flags == 0 && k.sk_strategy == eq)
+            });
+        Ok(SiteRecipe {
+            heap: heap.rd_id,
+            index: index.rd_id,
+            index_lockmode,
+            nkeys: indexqual.len(),
+            keys,
+            natts: attnos.len(),
+            attnos: attnos.to_vec(),
+            key_heap_attnos,
+            host_keys,
+            host_args,
+            filter: None,
+            point,
+            copy_dear: copy_dear(heap, attnos),
+            plan_node: -1,
+            backward: false,
+            only: false,
+            rows,
+            words,
+            heap_natts: heap.rd_att.natts,
+            index_am: index.rd_rel.relam,
+            am: None,
+            heap_fetches: Arc::default(),
+            bitmap: Arc::default(),
+            row_budget: None,
+            run_bound: Default::default(),
+            run: None,
+            worker: None,
+            leaves: None,
+            ranges: None,
+        }) // alloc: Program
     }
-
 
     /// The columns a fetch delivers: none for an index-only walk, a btree walk's own, every one for another index AM's.
     fn fetch_needed(&self, natts: usize) -> Option<Box<[bool]>> {
@@ -373,9 +672,18 @@ impl SiteRecipe {
             return None;
         }
         let mut m = vec![false; natts]; // alloc: Node
-        // bounded("key-columns: one flag per read column and key column, at most MaxTupleAttributeNumber (1664)")
-        for &a in self.attnos.iter().chain(&self.key_heap_attnos).filter(|_| !self.only) {
-            if let Some(x) = usize::try_from(a).ok().and_then(|a| a.checked_sub(1)).and_then(|i| m.get_mut(i)) {
+                                        // bounded("key-columns: one flag per read column and key column, at most MaxTupleAttributeNumber (1664)")
+        for &a in self
+            .attnos
+            .iter()
+            .chain(&self.key_heap_attnos)
+            .filter(|_| !self.only)
+        {
+            if let Some(x) = usize::try_from(a)
+                .ok()
+                .and_then(|a| a.checked_sub(1))
+                .and_then(|i| m.get_mut(i))
+            {
                 *x = true;
             }
         }
@@ -471,7 +779,10 @@ impl SiteRecipe {
     /// D3014O: the recipe of a site a worker probes (`SiteDesc::worker_probe`) keeps its worker form when the walk is a
     /// plain point probe (`WorkerProbe::of`); after `with_backward` / `with_only`.
     pub fn with_worker(mut self, heap: &Relation<'_>) -> SiteRecipe {
-        self.worker = heap_am(heap).then(|| crate::ops::scan::index_probe::WorkerProbe::of(&self, heap)).flatten().map(Arc::new); // alloc: Program
+        self.worker = heap_am(heap)
+            .then(|| crate::ops::scan::index_probe::WorkerProbe::of(&self, heap))
+            .flatten()
+            .map(Arc::new); // alloc: Program
         self
     }
 
@@ -482,11 +793,16 @@ impl SiteRecipe {
 
     /// The leaf form of an index-only site the pool reads (`index_leaves.rs`, `SiteDesc::leaves`): `None` when the walk
     /// has none (`LeafRecipe::of`), so exec runs its pipeline on the leader.
-    pub fn with_leaves(mut self, heap: &Relation<'_>, index: &Relation<'_>) -> PgResult<SiteRecipe> {
+    pub fn with_leaves(
+        mut self,
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+    ) -> PgResult<SiteRecipe> {
         if !heap_am(heap) {
             return Ok(self);
         }
-        self.leaves = crate::ops::scan::index_leaves::LeafRecipe::of(&self, heap, index)?.map(Arc::new); // alloc: Program
+        self.leaves =
+            crate::ops::scan::index_leaves::LeafRecipe::of(&self, heap, index)?.map(Arc::new); // alloc: Program
         Ok(self)
     }
 
@@ -497,11 +813,16 @@ impl SiteRecipe {
 
     /// The ranges form of an ordered site the pool reads in key ranges (`index_ranges.rs`, `SiteDesc::ranges`): `None`
     /// when the walk has none (`RangesRecipe::of`), so exec runs its pipeline on the leader.
-    pub fn with_ranges(mut self, heap: &Relation<'_>, index: &Relation<'_>) -> PgResult<SiteRecipe> {
+    pub fn with_ranges(
+        mut self,
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+    ) -> PgResult<SiteRecipe> {
         if !heap_am(heap) {
             return Ok(self);
         }
-        self.ranges = crate::ops::scan::index_ranges::RangesRecipe::of(&self, heap, index)?.map(Arc::new); // alloc: Program
+        self.ranges =
+            crate::ops::scan::index_ranges::RangesRecipe::of(&self, heap, index)?.map(Arc::new); // alloc: Program
         Ok(self)
     }
 
@@ -513,12 +834,19 @@ impl SiteRecipe {
     /// The recipe's keys bound to one execution's key words (`words` / `nulls`, the site's key cells as a seek reads
     /// them; a search array's compressed or external image detoasted into `mcx`): `None` when a key's argument is NULL,
     /// which matches nothing (`seek`'s rule). Plain keys only: a row comparison member or an ORDER BY word is refused.
-    pub fn bind_keys(&self, mcx: Mcx<'_>, words: &[Word], nulls: &[u8]) -> PgResult<Option<Vec<ScanKeyData>>> {
+    pub fn bind_keys(
+        &self,
+        mcx: Mcx<'_>,
+        words: &[Word],
+        nulls: &[u8],
+    ) -> PgResult<Option<Vec<ScanKeyData>>> {
         if words.len() < self.words.len() || nulls.len() < self.words.len() {
-            return Err(crate::pg_err("gravity: a key bind with fewer key words than its recipe"));
+            return Err(crate::pg_err(
+                "gravity: a key bind with fewer key words than its recipe",
+            ));
         }
         let mut keys = self.keys[..self.nkeys].to_vec(); // alloc: Exec
-        // bounded("other: one key word per scan key of the site, which the statement's index quals bound")
+                                                         // bounded("other: one key word per scan key of the site, which the statement's index quals bound")
         for (w, word) in self.words.iter().enumerate() {
             match *word {
                 KeyWord::Key(i) if !self.host_keys[i as usize] => {
@@ -532,7 +860,11 @@ impl SiteRecipe {
                     }
                 }
                 KeyWord::Key(_) => {}
-                KeyWord::OrderBy(_) | KeyWord::Member(..) => return Err(crate::pg_err("gravity: a key bind over a row comparison or an ORDER BY key")),
+                KeyWord::OrderBy(_) | KeyWord::Member(..) => {
+                    return Err(crate::pg_err(
+                        "gravity: a key bind over a row comparison or an ORDER BY key",
+                    ))
+                }
             }
         }
         Ok(Some(keys))
@@ -564,7 +896,16 @@ impl SiteRecipe {
                 h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
             }
         };
-        for w in [self.heap as u64, self.index as u64, self.index_lockmode as u64, self.nkeys as u64, self.natts as u64, self.heap_natts as u64, self.backward as u64, self.only as u64] {
+        for w in [
+            self.heap as u64,
+            self.index as u64,
+            self.index_lockmode as u64,
+            self.nkeys as u64,
+            self.natts as u64,
+            self.heap_natts as u64,
+            self.backward as u64,
+            self.only as u64,
+        ] {
             mix(w);
         }
         mix(self.attnos.len() as u64);
@@ -574,10 +915,23 @@ impl SiteRecipe {
         // bounded("other: one scan key of the recipe per pass, seven words each; the statement's index quals bound them")
         for (k, key) in self.keys.iter().enumerate().take(self.nkeys) {
             let host = self.host_keys.get(k).copied().unwrap_or(false);
-            for w in [key.sk_flags as u64, key.sk_attno as u64, key.sk_strategy as u64, key.sk_subtype as u64, key.sk_collation as u64, key.sk_func.fn_oid as u64, host as u64] {
+            for w in [
+                key.sk_flags as u64,
+                key.sk_attno as u64,
+                key.sk_strategy as u64,
+                key.sk_subtype as u64,
+                key.sk_collation as u64,
+                key.sk_func.fn_oid as u64,
+                host as u64,
+            ] {
                 mix(w);
             }
-            if let Some(img) = self.host_args.get(k).and_then(|a| a.as_ref()).filter(|_| host) {
+            if let Some(img) = self
+                .host_args
+                .get(k)
+                .and_then(|a| a.as_ref())
+                .filter(|_| host)
+            {
                 mix(img.len() as u64);
                 // bounded("other: the image of a search array the recipe owns (a constant of the statement's text, which bounds it), eight bytes a pass, hashed once at the park key's first ask")
                 for c in img.chunks(8) {
@@ -592,7 +946,15 @@ impl SiteRecipe {
             mix(r.key as u64);
             // bounded("small-fixed: a row compare's members (at most INDEX_MAX_KEYS), seven words each")
             for (m, &a) in r.members.iter().zip(r.heap_attnos.iter()) {
-                for w in [m.sk_flags as u64, m.sk_attno as u64, m.sk_strategy as u64, m.sk_subtype as u64, m.sk_collation as u64, m.sk_func.fn_oid as u64, a as u64] {
+                for w in [
+                    m.sk_flags as u64,
+                    m.sk_attno as u64,
+                    m.sk_strategy as u64,
+                    m.sk_subtype as u64,
+                    m.sk_collation as u64,
+                    m.sk_func.fn_oid as u64,
+                    a as u64,
+                ] {
                     mix(w);
                 }
             }
@@ -615,10 +977,19 @@ impl SiteRecipe {
 /// index column is on: 0 for an expression column, which a walk's key takes
 /// (`walk`, `key_column`) and the equality probe's (`None`) does not.
 #[allow(clippy::too_many_arguments)]
-fn key_from_op(index: &Relation<'_>, k: &mut ScanKeyData, attno: i16, opno: Oid, opfuncid: Oid, collid: Oid, walk: Option<Walk>) -> PgResult<i16> {
+fn key_from_op(
+    index: &Relation<'_>,
+    k: &mut ScanKeyData,
+    attno: i16,
+    opno: Oid,
+    opfuncid: Oid,
+    collid: Oid,
+    walk: Option<Walk>,
+) -> PgResult<i16> {
     let heap_attno = key_column(index, attno, collid, walk)?;
     let opfamily = index.rd_opfamily[attno as usize - 1];
-    let (strategy, _left, right) = gravity_fn::typesem::op_opfamily_properties(opno, opfamily, false)?;
+    let (strategy, _left, right) =
+        gravity_fn::typesem::op_opfamily_properties(opno, opfamily, false)?;
     k.sk_flags = 0;
     k.sk_attno = attno;
     k.sk_strategy = strategy as types_scan::scankey::StrategyNumber;
@@ -636,13 +1007,23 @@ fn key_column(index: &Relation<'_>, attno: i16, collid: Oid, walk: Option<Walk>)
     if attno < 1 || attno as i32 > index.indnkeyatts() {
         return Err(err("gravity: index qual attno"));
     }
-    let heap_attno = index.rd_index.as_ref().and_then(|f| f.indkey.get(attno as usize - 1).copied()).unwrap_or(0);
+    let heap_attno = index
+        .rd_index
+        .as_ref()
+        .and_then(|f| f.indkey.get(attno as usize - 1).copied())
+        .unwrap_or(0);
     if heap_attno < 0 || (heap_attno == 0 && !exprs) {
         return Err(err("gravity: expression index key"));
     }
-    let coll = index.rd_indcollation.get(attno as usize - 1).copied().unwrap_or(0);
+    let coll = index
+        .rd_indcollation
+        .get(attno as usize - 1)
+        .copied()
+        .unwrap_or(0);
     if matches!(walk, Some(Walk::Btree | Walk::Am)) && coll != 0 && coll != collid {
-        return Err(err("gravity: an index key whose collation is not its index column's"));
+        return Err(err(
+            "gravity: an index key whose collation is not its index column's",
+        ));
     }
     Ok(heap_attno)
 }
@@ -651,28 +1032,46 @@ fn key_column(index: &Relation<'_>, attno: i16, collid: Oid, walk: Option<Walk>)
 /// (BTORDER_PROC of the column's opfamily, the operator's strategy, which must be the comparison's, its right type, the
 /// member's collation), SK_ROW_END on the last, and `header` the SK_ROW_HEADER (the first member's column, the comparison's
 /// strategy; its argument is the source's member array). Each member's value is a site key word (`KeyWord::Member`).
-fn row_key(index: &Relation<'_>, header: &mut ScanKeyData, rc: &RowCompareExpr<'_>, key: usize, r: usize, words: &mut Vec<KeyWord>) -> PgResult<RowKey> {
+fn row_key(
+    index: &Relation<'_>,
+    header: &mut ScanKeyData,
+    rc: &RowCompareExpr<'_>,
+    key: usize,
+    r: usize,
+    words: &mut Vec<KeyWord>,
+) -> PgResult<RowKey> {
     let n = rc.opnos.len();
     if n == 0 || rc.largs.len() != n || rc.rargs.len() != n || rc.inputcollids.len() != n {
         return Err(err("gravity: a row comparison index key with unlike sides"));
     }
     let (mut members, mut heap_attnos) = (Vec::with_capacity(n), Vec::with_capacity(n)); // alloc: Program
-    // bounded("small-fixed: a row compare's members (at most INDEX_MAX_KEYS, 32), one member key built each, at plan time")
+                                                                                         // bounded("small-fixed: a row compare's members (at most INDEX_MAX_KEYS, 32), one member key built each, at plan time")
     for j in 0..n {
-        let var = strip_relabel(rc.largs.nth(j)).as_var().filter(|v| v.varno == INDEX_VAR).ok_or_else(|| err("gravity: index qual key side"))?;
-        if strip_relabel(rc.rargs.nth(j)).as_var().is_some_and(|v| v.varno == INDEX_VAR) {
+        let var = strip_relabel(rc.largs.nth(j))
+            .as_var()
+            .filter(|v| v.varno == INDEX_VAR)
+            .ok_or_else(|| err("gravity: index qual key side"))?;
+        if strip_relabel(rc.rargs.nth(j))
+            .as_var()
+            .is_some_and(|v| v.varno == INDEX_VAR)
+        {
             return Err(err("gravity: index qual argument"));
         }
         let (attno, collid) = (var.varattno, rc.inputcollids.nth(j));
         heap_attnos.push(key_column(index, attno, collid, Some(Walk::Btree))?); // alloc: Program
         let opfamily = index.rd_opfamily[attno as usize - 1];
-        let (strategy, left, right) = gravity_fn::typesem::op_opfamily_properties(rc.opnos.nth(j), opfamily, false)?;
+        let (strategy, left, right) =
+            gravity_fn::typesem::op_opfamily_properties(rc.opnos.nth(j), opfamily, false)?;
         if strategy != rc.cmptype {
-            return Err(err("gravity: a row comparison member whose operator is not the comparison's"));
+            return Err(err(
+                "gravity: a row comparison member whose operator is not the comparison's",
+            ));
         }
         let proc = gravity_fn::typesem::opfamily_proc(opfamily, left, right, BTORDER_PROC)?;
         if proc == 0 {
-            return Err(err("gravity: a row comparison member without its opfamily's comparison function"));
+            return Err(err(
+                "gravity: a row comparison member without its opfamily's comparison function",
+            ));
         }
         let mut m = ScanKeyData::empty();
         m.sk_flags = SK_ROW_MEMBER;
@@ -691,7 +1090,11 @@ fn row_key(index: &Relation<'_>, header: &mut ScanKeyData, rc: &RowCompareExpr<'
     header.sk_flags = SK_ROW_HEADER;
     header.sk_attno = members[0].sk_attno;
     header.sk_strategy = rc.cmptype as StrategyNumber;
-    Ok(RowKey { key, members, heap_attnos })
+    Ok(RowKey {
+        key,
+        members,
+        heap_attnos,
+    })
 }
 
 /// D4528: whether a bound search array's image is read in place (a plain 4-byte or short header), so `plain_array` has
@@ -714,14 +1117,22 @@ pub(crate) fn plain_array(mcx: Mcx<'_>, d: datum::Datum) -> PgResult<datum::Datu
 }
 
 /// V4R-44: `column op ANY (array)` for a substituted row: some non-null element of the key's array passes its operator.
-fn any_element(mcx: Mcx<'_>, key: &mut ScanKeyData, d: datum::Datum, fcinfo: &mut LocalFcinfo<2>) -> PgResult<bool> {
+fn any_element(
+    mcx: Mcx<'_>,
+    key: &mut ScanKeyData,
+    d: datum::Datum,
+    fcinfo: &mut LocalFcinfo<2>,
+) -> PgResult<bool> {
     let p = key.sk_argument.as_u64() as *const u8;
     // the key's array image is live (the recipe's Const image or the seek's plain image)
     let img: Vec<u8> = raw::array_image(p);
-    let (len, byval, align) = gravity_fn::typesem::storage::len_byval_align(arrayfuncs::arr_elemtype(&img))?;
-    let (vals, nulls) = arrayfuncs::deconstruct_array(mcx, &img, len as i32, byval, align as u8, true)?;
+    let (len, byval, align) =
+        gravity_fn::typesem::storage::len_byval_align(arrayfuncs::arr_elemtype(&img))?;
+    let (vals, nulls) =
+        arrayfuncs::deconstruct_array(mcx, &img, len as i32, byval, align as u8, true)?;
     // an element's operator call is the unit: the array is as long as its value
-    let mut step = cancelpoll::step("index_source any_element: one operator call per array element");
+    let mut step =
+        cancelpoll::step("index_source any_element: one operator call per array element");
     for (v, _) in vals.iter().zip(nulls.iter()).filter(|(_, n)| !**n) {
         step.tick().map_err(|_| err(WALK_CANCELED))?;
         fcinfo.rearm(key.sk_collation);
@@ -813,8 +1224,16 @@ pub const PREFILTER_DEFORM: i16 = 8;
 /// Whether the window's copy of a fetched row is dear: the walk projects a by-reference cell (copied into the window) or
 /// deforms past `PREFILTER_DEFORM` columns. A copy of a few by-value cells costs less than an interpreted qual program.
 fn copy_dear(heap: &Relation<'_>, attnos: &[i16]) -> bool {
-    let by_ref = |a: i16| a > 0 && heap.rd_att.attrs.get(a as usize - 1).is_some_and(|x| !x.attbyval);
-    attnos.iter().any(|&a| by_ref(a)) || attnos.iter().copied().max().unwrap_or(0) > PREFILTER_DEFORM
+    let by_ref = |a: i16| {
+        a > 0
+            && heap
+                .rd_att
+                .attrs
+                .get(a as usize - 1)
+                .is_some_and(|x| !x.attbyval)
+    };
+    attnos.iter().any(|&a| by_ref(a))
+        || attnos.iter().copied().max().unwrap_or(0) > PREFILTER_DEFORM
 }
 
 /// The recipe's qual pre-check (`SiteRecipe::filter`) and its tally over the source's life. A row it keeps pays for the qual
@@ -831,7 +1250,8 @@ pub struct Prefilter {
 
 impl Prefilter {
     pub fn on(&self) -> bool {
-        !self.failed && self.kept <= self.dropped + crate::ops::scan::index_window::IOS_MAX_ROWS as u64
+        !self.failed
+            && self.kept <= self.dropped + crate::ops::scan::index_window::IOS_MAX_ROWS as u64
     }
 
     /// One row's pre-check result: keep it or not. An error the qual raised from the row keeps the row: a window may read
@@ -842,7 +1262,12 @@ impl Prefilter {
     pub fn check(&mut self, r: PgResult<bool>) -> PgResult<bool> {
         let keep = match r {
             Ok(k) => k,
-            Err(e) if types_error::errcode_to_category(e.sqlstate()) == types_error::ERRCODE_OPERATOR_INTERVENTION => return Err(e),
+            Err(e)
+                if types_error::errcode_to_category(e.sqlstate())
+                    == types_error::ERRCODE_OPERATOR_INTERVENTION =>
+            {
+                return Err(e)
+            }
             Err(_) => {
                 self.failed = true;
                 true
@@ -864,14 +1289,53 @@ impl IndexSource {
         let mut keys = mcx::PgVec::new_in(scratch.mcx());
         mcx::GrowIn::extend_from_slice_in(&mut keys, &recipe.keys);
         let rows: Vec<Vec<ScanKeyData>> = recipe.rows.iter().map(|r| r.members.clone()).collect(); // alloc: Node
-        // bounded("other: one pointer per row comparison of the recipe's keys, which the statement's index quals bound")
+                                                                                                   // bounded("other: one pointer per row comparison of the recipe's keys, which the statement's index quals bound")
         for (r, m) in recipe.rows.iter().zip(rows.iter()) {
             keys[r.key].sk_argument = datum::Datum::from_usize(m.as_ptr() as usize);
         }
         let natts = recipe.natts;
-        let am = recipe.am.as_ref().map(|a| crate::ops::scan::index_window::AmWalk::new(a, &scratch));
+        let am = recipe
+            .am
+            .as_ref()
+            .map(|a| crate::ops::scan::index_window::AmWalk::new(a, &scratch));
         let proj = crate::ops::shared::heap_fetch::Proj::of(&recipe.attnos);
-        IndexSource { recipe, keys, rows, heap: None, index: None, parked_heap: None, parked_index: None, scan: None, slot: None, snapshot: None, substituted: None, recheck: false, fcinfo: LocalFcinfo::<2>::new(0), pos: ScanPos::NONE, open: false, bound: false, row: vec![0; natts], row_valid: vec![0; natts], vbuf: vec![0; natts], nbuf: vec![0; natts], cur: Cursor::new(), seek_images: Default::default(), scratch, vm: visibilitymap::VmBuffer::default(), itup_attnums: Vec::new(), itup_names: Vec::new(), image_cols: Vec::new(), name_bufs: Vec::new(), fetched: 0, index_info: None, batched: false, batch: None, am, pre: Prefilter::default(), proj } // alloc: Node
+        IndexSource {
+            recipe,
+            keys,
+            rows,
+            heap: None,
+            index: None,
+            parked_heap: None,
+            parked_index: None,
+            scan: None,
+            slot: None,
+            snapshot: None,
+            substituted: None,
+            recheck: false,
+            fcinfo: LocalFcinfo::<2>::new(0),
+            pos: ScanPos::NONE,
+            open: false,
+            bound: false,
+            row: vec![0; natts],
+            row_valid: vec![0; natts],
+            vbuf: vec![0; natts],
+            nbuf: vec![0; natts],
+            cur: Cursor::new(),
+            seek_images: Default::default(),
+            scratch,
+            vm: visibilitymap::VmBuffer::default(),
+            itup_attnums: Vec::new(),
+            itup_names: Vec::new(),
+            image_cols: Vec::new(),
+            name_bufs: Vec::new(),
+            fetched: 0,
+            index_info: None,
+            batched: false,
+            batch: None,
+            am,
+            pre: Prefilter::default(),
+            proj,
+        } // alloc: Node
     }
 
     pub fn scratch_used(&self) -> usize {
@@ -894,7 +1358,12 @@ impl IndexSource {
     fn bind_pg(&mut self, snapshot: Rc<SnapshotData<'static>>) -> PgResult<()> {
         let mcx = self.scratch.mcx();
         let heap = open_heap(mcx, &self.parked_heap, self.recipe.heap)?;
-        let index = match open_index(mcx, &self.parked_index, self.recipe.index, self.recipe.index_lockmode) {
+        let index = match open_index(
+            mcx,
+            &self.parked_index,
+            self.recipe.index,
+            self.recipe.index_lockmode,
+        ) {
             Ok(i) => i,
             Err(e) => {
                 heap.close(NoLock)?;
@@ -904,7 +1373,10 @@ impl IndexSource {
         let stale = heap.rd_att.natts != self.recipe.heap_natts
             || !index_fetch_am(&heap)
             || index.rd_rel.relam != self.recipe.index_am
-            || !index.rd_index.as_ref().is_some_and(|i| i.indisvalid && i.indrelid == heap.rd_id);
+            || !index
+                .rd_index
+                .as_ref()
+                .is_some_and(|i| i.indisvalid && i.indrelid == heap.rd_id);
         if stale {
             index.close(NoLock)?;
             heap.close(NoLock)?;
@@ -919,12 +1391,21 @@ impl IndexSource {
         }
         if self.recipe.only && self.itup_attnums.is_empty() {
             // D3453: the columns the AM returns (a non-returnable one's image cell is NULL), asked once per bind
-            let only = crate::ops::scan::indexonly::returnable(mcx, &index, self.recipe.index_am == BTREE_AM_OID)
-                .and_then(|r| crate::ops::scan::indexonly::index_attnums(&index, &heap, &self.recipe.attnos, &r).map(|x| (x, r)));
+            let only = crate::ops::scan::indexonly::returnable(
+                mcx,
+                &index,
+                self.recipe.index_am == BTREE_AM_OID,
+            )
+            .and_then(|r| {
+                crate::ops::scan::indexonly::index_attnums(&index, &heap, &self.recipe.attnos, &r)
+                    .map(|x| (x, r))
+            });
             match only {
                 Ok(((v, names), r)) => {
                     if names.iter().any(|&n| n) {
-                        self.name_bufs = vec![0; names.len() * crate::ops::scan::indexonly::NAMEDATALEN]; // alloc: Node
+                        self.name_bufs =
+                            vec![0; names.len() * crate::ops::scan::indexonly::NAMEDATALEN];
+                        // alloc: Node
                     }
                     (self.itup_attnums, self.itup_names) = (v, names);
                     self.image_cols = crate::ops::scan::indexonly::image_cols(&index, &r);
@@ -939,8 +1420,22 @@ impl IndexSource {
         match self.scan.as_mut() {
             None => {
                 // V4R-49: a scan of an AM that cannot park lives in the exec context and ends at unbind
-                let (smcx, norderbys) = if self.recipe.index_am == BTREE_AM_OID { (mcx, 0) } else { (self.scratch.exec_mcx(), self.am.as_ref().map_or(0, |a| a.orderby.len() as i32)) };
-                self.scan = Some(indexam::index_beginscan(smcx, &heap, &index, snapshot.clone(), self.recipe.nkeys as i32, norderbys)?);
+                let (smcx, norderbys) = if self.recipe.index_am == BTREE_AM_OID {
+                    (mcx, 0)
+                } else {
+                    (
+                        self.scratch.exec_mcx(),
+                        self.am.as_ref().map_or(0, |a| a.orderby.len() as i32),
+                    )
+                };
+                self.scan = Some(indexam::index_beginscan(
+                    smcx,
+                    &heap,
+                    &index,
+                    snapshot.clone(),
+                    self.recipe.nkeys as i32,
+                    norderbys,
+                )?);
                 if self.slot.is_none() {
                     self.slot = Some(tableam::table_slot_create(mcx, &heap)?);
                 }
@@ -951,12 +1446,20 @@ impl IndexSource {
             scan.xs_want_itup = self.recipe.only;
             if !heap_am(&heap) {
                 if let Some(indexam::IndexFetchTableData::Table(f)) = scan.xs_heapfetch.as_mut() {
-                    tableam::table_index_fetch_set_needed_attrs(f, self.recipe.fetch_needed(heap.rd_att.natts as usize));
+                    tableam::table_index_fetch_set_needed_attrs(
+                        f,
+                        self.recipe.fetch_needed(heap.rd_att.natts as usize),
+                    );
                 }
             }
         }
         if self.batched && self.batch.is_none() {
-            self.batch = Some(crate::ops::scan::index_window::IosBatch::new(&heap, &self.recipe.attnos, self.recipe.row_budget, self.recipe.run.as_ref().map(|r| r.clone())));
+            self.batch = Some(crate::ops::scan::index_window::IosBatch::new(
+                &heap,
+                &self.recipe.attnos,
+                self.recipe.row_budget,
+                self.recipe.run.as_ref().map(|r| r.clone()),
+            ));
         }
         self.heap = Some(heap);
         self.index = Some(index);
@@ -1004,7 +1507,9 @@ impl IndexSource {
     /// position to it; a miss yields no row.
     /// An N-row window (hosts v4/m2_index.rs `IosBatch::fill`): `next`'s rows, each copied into the window.
     fn window_batch(&mut self, w: &mut Window<'_>) -> Result<u32> {
-        let Some(mut b) = self.batch.take() else { return Ok(0) };
+        let Some(mut b) = self.batch.take() else {
+            return Ok(0);
+        };
         // D544: an any-AM walk's window is one row (its AM's consistent / distance / recheck calls on an entry past the row
         // where PostgreSQL's LIMIT stops pulling can raise, gist's KNN distance among them)
         if self.recipe.index_am != BTREE_AM_OID {
@@ -1014,9 +1519,29 @@ impl IndexSource {
         // a heap row of table columns goes from the slot into the window; an index-only row or one with a system cell
         // comes as next's arrays
         let got = if self.recipe.only || !self.proj.plain() {
-            b.fill_rows(|v, n| Ok::<_, Error>(if self.next_row(v, n)? { Some(self.pos) } else { None }), heap, w)
+            b.fill_rows(
+                |v, n| {
+                    Ok::<_, Error>(if self.next_row(v, n)? {
+                        Some(self.pos)
+                    } else {
+                        None
+                    })
+                },
+                heap,
+                w,
+            )
         } else {
-            b.fill(|c| Ok::<_, Error>(if self.next_cells(c)? { Some(self.pos) } else { None }), heap, w)
+            b.fill(
+                |c| {
+                    Ok::<_, Error>(if self.next_cells(c)? {
+                        Some(self.pos)
+                    } else {
+                        None
+                    })
+                },
+                heap,
+                w,
+            )
         };
         self.flush_fetches();
         self.batch = Some(b);
@@ -1031,16 +1556,39 @@ impl IndexSource {
     /// The heap walk's next row, its qual's pre-check passed, left in the slot with `pos` at it; false at the end.
     fn walk(&mut self) -> Result<bool> {
         let mcx = self.scratch.exec_mcx();
-        let dir = if self.recipe.backward { ScanDirection::BackwardScanDirection } else { ScanDirection::ForwardScanDirection };
+        let dir = if self.recipe.backward {
+            ScanDirection::BackwardScanDirection
+        } else {
+            ScanDirection::ForwardScanDirection
+        };
         // D3970 / D4046 (C9): a tick per row visited, dropped or passed, and D4213 one per TID whose row is not visible (a
         // row is a heap fetch, microseconds: a per-unit tick); a heap fetch's own interrupt check runs under its buffer's
         // content lock (held off)
         let mut step = cancelpoll::step("index_source walk: the heap walk's next row");
         loop {
-            let (scan, slot) = (self.scan.as_mut().expect("bound"), self.slot.as_mut().expect("bound"));
+            let (scan, slot) = (
+                self.scan.as_mut().expect("bound"),
+                self.slot.as_mut().expect("bound"),
+            );
             let got = match (self.am.as_mut(), self.recipe.am.as_ref()) {
-                (Some(w), Some(am)) => w.next(&mut step, am, Quals { keys: &mut self.keys[..self.recipe.nkeys], heap: &self.recipe.key_heap_attnos, index: self.index.as_ref().expect("bound"), info: &mut self.index_info, cols: &[] }, mcx, scan, slot, dir),
-                _ => crate::ops::scan::index_window::getnext_slot_polled(&mut step, mcx, scan, dir, slot),
+                (Some(w), Some(am)) => w.next(
+                    &mut step,
+                    am,
+                    Quals {
+                        keys: &mut self.keys[..self.recipe.nkeys],
+                        heap: &self.recipe.key_heap_attnos,
+                        index: self.index.as_ref().expect("bound"),
+                        info: &mut self.index_info,
+                        cols: &[],
+                    },
+                    mcx,
+                    scan,
+                    slot,
+                    dir,
+                ),
+                _ => crate::ops::scan::index_window::getnext_slot_polled(
+                    &mut step, mcx, scan, dir, slot,
+                ),
             };
             if !got.map_err(crate::stash)? {
                 self.open = false;
@@ -1051,7 +1599,9 @@ impl IndexSource {
             if let Some(f) = self.recipe.filter.as_ref().filter(|_| self.pre.on()) {
                 if !self.pre.check(f(slot)).map_err(crate::stash)? {
                     // EXPLAIN ANALYZE's Rows Removed by Filter: a row the walk's qual drops never reaches the program's Filter
-                    self.recipe.bitmap().add(crate::instr::BitmapCounts::FILTERED, 1);
+                    self.recipe
+                        .bitmap()
+                        .add(crate::instr::BitmapCounts::FILTERED, 1);
                     continue;
                 }
             }
@@ -1065,7 +1615,10 @@ impl IndexSource {
     /// `next` of a heap walk over table columns into an N-row window's row (`IosBatch::fill`): the cells go from the slot's
     /// deformed columns straight into the window's lanes, with no row arrays between (one deform to the highest column
     /// read, as `heap_fetch::project`): the same row and the same cells as `next`.
-    fn next_cells(&mut self, cells: &mut crate::ops::scan::index_window::Cells<'_>) -> Result<bool> {
+    fn next_cells(
+        &mut self,
+        cells: &mut crate::ops::scan::index_window::Cells<'_>,
+    ) -> Result<bool> {
         debug_assert!(!self.recipe.only && self.proj.plain() && !self.recheck);
         if !self.open || !self.walk()? {
             return Ok(false);
@@ -1076,7 +1629,10 @@ impl IndexSource {
             exectuples::slot_getsomeattrs(slot, last as i32);
         }
         let base = slot.base();
-        let (vals, nulls) = (&base.tts_values[..last as usize], &base.tts_isnull[..last as usize]);
+        let (vals, nulls) = (
+            &base.tts_values[..last as usize],
+            &base.tts_isnull[..last as usize],
+        );
         // bounded("key-columns: one cell per output column, at most MaxTupleAttributeNumber (1664) columns")
         for (k, &a) in self.recipe.attnos.iter().enumerate() {
             cells.put(k, vals[a as usize - 1].as_u64(), nulls[a as usize - 1]);
@@ -1084,7 +1640,12 @@ impl IndexSource {
         Ok(true)
     }
 
-    fn next_substituted(&mut self, pos: ScanPos, values: &mut [Word], isnull: &mut [u8]) -> PgResult<Subst> {
+    fn next_substituted(
+        &mut self,
+        pos: ScanPos,
+        values: &mut [Word],
+        isnull: &mut [u8],
+    ) -> PgResult<Subst> {
         // D2048 (lockrows): the empty row position a NULL REFERENCE mark stores (offset 0): no row, as the heap source's
         // window_substituted, never a fetch at block 0 (an empty relation has none)
         if !pos.is_valid() || pos.off == 0 {
@@ -1101,9 +1662,18 @@ impl IndexSource {
         // calls, as PostgreSQL's IndexRecheck makes them through indexqualorig on the same row)
         let mut ivals = [datum::Datum::from_u64(0); INDEX_COLS];
         let mut inull = [false; INDEX_COLS];
-        if self.recipe.key_heap_attnos.iter().chain(self.recipe.rows.iter().flat_map(|r| r.heap_attnos.iter())).any(|&a| a == 0) {
+        if self
+            .recipe
+            .key_heap_attnos
+            .iter()
+            .chain(self.recipe.rows.iter().flat_map(|r| r.heap_attnos.iter()))
+            .any(|&a| a == 0)
+        {
             if self.index_info.is_none() {
-                self.index_info = Some(execindexing::BuildIndexInfo(mcx, self.index.as_ref().expect("bound"))?);
+                self.index_info = Some(execindexing::BuildIndexInfo(
+                    mcx,
+                    self.index.as_ref().expect("bound"),
+                )?);
             }
             let info = self.index_info.as_mut().expect("built");
             execindexing::FormIndexDatum(mcx, mcx, info, slot, &mut ivals, &mut inull)?;
@@ -1112,7 +1682,14 @@ impl IndexSource {
             let search = self.keys[i].sk_flags & (SK_SEARCHNULL | SK_SEARCHNOTNULL);
             if search != 0 {
                 // V4R-49: a null test key rechecks its column's nullness
-                if column(slot, self.recipe.key_heap_attnos[i], self.keys[i].sk_attno, (&ivals, &inull)).1 != (search == SK_SEARCHNULL) {
+                if column(
+                    slot,
+                    self.recipe.key_heap_attnos[i],
+                    self.keys[i].sk_attno,
+                    (&ivals, &inull),
+                )
+                .1 != (search == SK_SEARCHNULL)
+                {
                     return Ok(Subst::Cleared);
                 }
                 continue;
@@ -1121,21 +1698,42 @@ impl IndexSource {
                 // V4R-44: a search array rechecks as `column op ANY (array)` (PostgreSQL's IndexRecheck over
                 // indexqualorig): some non-null element passes
                 let key = &mut self.keys[i];
-                let (d, null) = column(slot, self.recipe.key_heap_attnos[i], key.sk_attno, (&ivals, &inull));
-                if null || key.sk_flags & SK_ISNULL != 0 || !any_element(mcx, key, d, &mut self.fcinfo)? {
+                let (d, null) = column(
+                    slot,
+                    self.recipe.key_heap_attnos[i],
+                    key.sk_attno,
+                    (&ivals, &inull),
+                );
+                if null
+                    || key.sk_flags & SK_ISNULL != 0
+                    || !any_element(mcx, key, d, &mut self.fcinfo)?
+                {
                     return Ok(Subst::Cleared);
                 }
                 continue;
             }
             if let Some(r) = self.recipe.rows.iter().position(|r| r.key == i) {
                 let strategy = self.recipe.keys[i].sk_strategy;
-                if !row_passes(&mut self.rows[r], &self.recipe.rows[r].heap_attnos, strategy, &mut self.fcinfo, slot, (&ivals, &inull), mcx)? {
+                if !row_passes(
+                    &mut self.rows[r],
+                    &self.recipe.rows[r].heap_attnos,
+                    strategy,
+                    &mut self.fcinfo,
+                    slot,
+                    (&ivals, &inull),
+                    mcx,
+                )? {
                     return Ok(Subst::Cleared);
                 }
                 continue;
             }
             let key = &mut self.keys[i];
-            let (d, null) = column(slot, self.recipe.key_heap_attnos[i], key.sk_attno, (&ivals, &inull));
+            let (d, null) = column(
+                slot,
+                self.recipe.key_heap_attnos[i],
+                key.sk_attno,
+                (&ivals, &inull),
+            );
             if null {
                 return Ok(Subst::Cleared);
             }
@@ -1154,7 +1752,13 @@ impl IndexSource {
                 return Ok(Subst::Filtered);
             }
         }
-        crate::ops::shared::heap_fetch::project_by(slot, &self.recipe.attnos, self.proj, values, isnull)?;
+        crate::ops::shared::heap_fetch::project_by(
+            slot,
+            &self.recipe.attnos,
+            self.proj,
+            values,
+            isnull,
+        )?;
         self.pos = ScanPos::row(pos.rel, pos.block, pos.off);
         Ok(Subst::Row)
     }
@@ -1169,7 +1773,12 @@ enum Subst {
 }
 
 /// A key column's value in a substituted row: the table column, or the index's formed value of an expression column.
-fn column(slot: &mut SlotData<'static>, heap_attno: i16, index_attno: i16, (ivals, inull): (&[datum::Datum; INDEX_COLS], &[bool; INDEX_COLS])) -> (datum::Datum, bool) {
+fn column(
+    slot: &mut SlotData<'static>,
+    heap_attno: i16,
+    index_attno: i16,
+    (ivals, inull): (&[datum::Datum; INDEX_COLS], &[bool; INDEX_COLS]),
+) -> (datum::Datum, bool) {
     if heap_attno > 0 {
         let mut null = false;
         let d = exectuples::slot_getattr(slot, heap_attno as i32, &mut null);
@@ -1181,7 +1790,15 @@ fn column(slot: &mut SlotData<'static>, heap_attno: i16, index_attno: i16, (ival
 
 /// A row comparison over a substituted row, as PostgreSQL's ExecEvalRowCompare: the members in order, a NULL reached is not a
 /// match, the first unequal member decides by the comparison's strategy, all equal matches `<=` / `>=` only.
-fn row_passes(members: &mut [ScanKeyData], heap_attnos: &[i16], strategy: StrategyNumber, fcinfo: &mut LocalFcinfo<2>, slot: &mut SlotData<'static>, formed: (&[datum::Datum; INDEX_COLS], &[bool; INDEX_COLS]), mcx: Mcx<'_>) -> PgResult<bool> {
+fn row_passes(
+    members: &mut [ScanKeyData],
+    heap_attnos: &[i16],
+    strategy: StrategyNumber,
+    fcinfo: &mut LocalFcinfo<2>,
+    slot: &mut SlotData<'static>,
+    formed: (&[datum::Datum; INDEX_COLS], &[bool; INDEX_COLS]),
+    mcx: Mcx<'_>,
+) -> PgResult<bool> {
     use types_scan::scankey::{BTGreaterEqualStrategyNumber, BTLessEqualStrategyNumber};
     // bounded("small-fixed: a row compare's members (at most INDEX_MAX_KEYS), one column compare each")
     for (m, &a) in members.iter_mut().zip(heap_attnos) {
@@ -1203,7 +1820,11 @@ fn row_passes(members: &mut [ScanKeyData], heap_attnos: &[i16], strategy: Strate
         }
         let c = c.as_i32();
         if c != 0 {
-            return Ok(if strategy <= BTLessEqualStrategyNumber { c < 0 } else { c > 0 });
+            return Ok(if strategy <= BTLessEqualStrategyNumber {
+                c < 0
+            } else {
+                c > 0
+            });
         }
     }
     Ok(strategy == BTLessEqualStrategyNumber || strategy == BTGreaterEqualStrategyNumber)
@@ -1225,11 +1846,19 @@ impl Source for IndexSource {
         let n = self.recipe.nkeys;
         self.pos = ScanPos::NONE;
         if keys.len() < self.recipe.words.len() || keys_null.len() < self.recipe.words.len() {
-            return Err(Error::host("an index seek with fewer key words than its recipe"));
+            return Err(Error::host(
+                "an index seek with fewer key words than its recipe",
+            ));
         }
         // a NULL key argument matches nothing; a NULL row comparison member is nbtree's (SK_ISNULL: a first member makes
         // the key unsatisfiable, a later one decides only the rows the earlier members tie)
-        if self.recipe.words.iter().zip(keys_null).any(|(w, &x)| x != 0 && matches!(w, KeyWord::Key(_))) {
+        if self
+            .recipe
+            .words
+            .iter()
+            .zip(keys_null)
+            .any(|(w, &x)| x != 0 && matches!(w, KeyWord::Key(_)))
+        {
             self.open = false;
             self.substituted = None;
             return Ok(());
@@ -1251,12 +1880,19 @@ impl Source for IndexSource {
                 }
                 KeyWord::Key(_) => {}
                 KeyWord::OrderBy(j) => {
-                    let k = &mut self.am.as_mut().ok_or_else(|| Error::host("an ORDER BY word without its walk"))?.orderby[j as usize];
+                    let k = &mut self
+                        .am
+                        .as_mut()
+                        .ok_or_else(|| Error::host("an ORDER BY word without its walk"))?
+                        .orderby[j as usize];
                     k.sk_flags = SK_ORDER_BY | if keys_null[w] != 0 { SK_ISNULL } else { 0 };
                     k.sk_argument = datum::Datum::from_u64(keys[w]);
                 }
                 KeyWord::Member(r, j) => {
-                    let (t, m) = (&self.recipe.rows[r as usize].members[j as usize], &mut self.rows[r as usize][j as usize]);
+                    let (t, m) = (
+                        &self.recipe.rows[r as usize].members[j as usize],
+                        &mut self.rows[r as usize][j as usize],
+                    );
                     let null = keys_null[w] != 0;
                     m.sk_flags = t.sk_flags | if null { SK_ISNULL } else { 0 };
                     m.sk_strategy = t.sk_strategy;
@@ -1268,13 +1904,17 @@ impl Source for IndexSource {
             self.open = self.substituted.is_some();
             return Ok(());
         }
-        let scan = self.scan.as_mut().ok_or_else(|| Error::host("seek on an unbound source"))?;
+        let scan = self
+            .scan
+            .as_mut()
+            .ok_or_else(|| Error::host("seek on an unbound source"))?;
         let keys = if n == 0 { None } else { Some(&self.keys[..n]) };
         let orderbys = self.am.as_mut().map(|w| {
             w.rewind();
             &w.orderby[..]
         });
-        indexam::index_rescan(scan, keys, orderbys.filter(|o| !o.is_empty())).map_err(crate::stash)?;
+        indexam::index_rescan(scan, keys, orderbys.filter(|o| !o.is_empty()))
+            .map_err(crate::stash)?;
         if let Some(b) = self.batch.as_mut() {
             b.rewind();
         }
@@ -1301,8 +1941,21 @@ impl Source for IndexSource {
         for k in 0..natts {
             let null = self.nbuf[k] != 0;
             self.row_valid[k] = (!null) as u64;
-            let valid = if null { &self.row_valid[k] as *const u64 } else { core::ptr::null() };
-            w.set(k, Lane::byval(&self.row[k] as *const Word as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32)));
+            let valid = if null {
+                &self.row_valid[k] as *const u64
+            } else {
+                core::ptr::null()
+            };
+            w.set(
+                k,
+                Lane::byval(
+                    &self.row[k] as *const Word as *const u8,
+                    valid,
+                    8,
+                    lane::REGION_ARENA,
+                    lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32),
+                ),
+            );
         }
         if let Some(b) = self.batch.as_mut() {
             b.one(self.pos, w);
@@ -1340,10 +1993,23 @@ impl Source for IndexSource {
         }
         let mcx = self.scratch.exec_mcx();
         let tid = tid_of(self.pos);
-        let heap = self.heap.as_ref().ok_or_else(|| Error::host("refetch on an unbound source"))?;
+        let heap = self
+            .heap
+            .as_ref()
+            .ok_or_else(|| Error::host("refetch on an unbound source"))?;
         let snapshot = self.snapshot.as_ref().expect("bound");
         let slot = self.slot.as_mut().expect("bound");
-        crate::ops::shared::heap_fetch::fetch_by_tid(mcx, heap, &tid, snapshot, slot, &self.recipe.attnos, values, isnull).map_err(crate::stash)
+        crate::ops::shared::heap_fetch::fetch_by_tid(
+            mcx,
+            heap,
+            &tid,
+            snapshot,
+            slot,
+            &self.recipe.attnos,
+            values,
+            isnull,
+        )
+        .map_err(crate::stash)
     }
 
     fn substitute(&mut self, pos: ScanPos) {
@@ -1369,7 +2035,9 @@ impl IndexSource {
     /// D2900: the walk's uncounted heap fetches into the recipe's shared count, one atomic add a window.
     fn flush_fetches(&mut self) {
         if self.fetched != 0 {
-            self.recipe.heap_fetches.fetch_add(core::mem::take(&mut self.fetched), Ordering::Relaxed);
+            self.recipe
+                .heap_fetches
+                .fetch_add(core::mem::take(&mut self.fetched), Ordering::Relaxed);
         }
     }
 
@@ -1380,31 +2048,77 @@ impl IndexSource {
         }
         if self.recheck {
             self.open = false;
-            let Some(pos) = self.substituted else { return Ok(false) };
-            return Ok(match self.next_substituted(pos, values, isnull).map_err(crate::stash)? {
-                Subst::Row => true,
-                Subst::Filtered => false,
-                Subst::Cleared => {
-                    self.substituted = None;
-                    false
-                }
-            });
+            let Some(pos) = self.substituted else {
+                return Ok(false);
+            };
+            return Ok(
+                match self
+                    .next_substituted(pos, values, isnull)
+                    .map_err(crate::stash)?
+                {
+                    Subst::Row => true,
+                    Subst::Filtered => false,
+                    Subst::Cleared => {
+                        self.substituted = None;
+                        false
+                    }
+                },
+            );
         }
         let mcx = self.scratch.exec_mcx();
-        let dir = if self.recipe.backward { ScanDirection::BackwardScanDirection } else { ScanDirection::ForwardScanDirection };
+        let dir = if self.recipe.backward {
+            ScanDirection::BackwardScanDirection
+        } else {
+            ScanDirection::ForwardScanDirection
+        };
         if self.recipe.only {
-            let (scan, slot, heap) = (self.scan.as_mut().expect("bound"), self.slot.as_mut().expect("bound"), self.heap.as_ref().expect("bound"));
+            let (scan, slot, heap) = (
+                self.scan.as_mut().expect("bound"),
+                self.slot.as_mut().expect("bound"),
+                self.heap.as_ref().expect("bound"),
+            );
             let snapshot = self.snapshot.as_ref().expect("bound");
             // D3970 / D4046 (C9): a tick per row visited, as `walk`
             let mut step = cancelpoll::step("index_source walk: the index-only walk's next row");
             loop {
-                if !crate::ops::scan::indexonly::next(&mut step, mcx, scan, heap, slot, snapshot, &mut self.vm, dir, &self.itup_attnums, &self.itup_names, &mut self.name_bufs, values, isnull, &mut self.fetched).map_err(crate::stash)? {
+                if !crate::ops::scan::indexonly::next(
+                    &mut step,
+                    mcx,
+                    scan,
+                    heap,
+                    slot,
+                    snapshot,
+                    &mut self.vm,
+                    dir,
+                    &self.itup_attnums,
+                    &self.itup_names,
+                    &mut self.name_bufs,
+                    values,
+                    isnull,
+                    &mut self.fetched,
+                )
+                .map_err(crate::stash)?
+                {
                     self.open = false;
                     return Ok(false);
                 }
                 step.tick()?;
                 if let Some(w) = self.am.as_mut() {
-                    if !w.only_passes(Quals { keys: &mut self.keys[..self.recipe.nkeys], heap: &self.recipe.key_heap_attnos, index: self.index.as_ref().expect("bound"), info: &mut self.index_info, cols: &self.image_cols }, mcx, scan, slot).map_err(crate::stash)? {
+                    if !w
+                        .only_passes(
+                            Quals {
+                                keys: &mut self.keys[..self.recipe.nkeys],
+                                heap: &self.recipe.key_heap_attnos,
+                                index: self.index.as_ref().expect("bound"),
+                                info: &mut self.index_info,
+                                cols: &self.image_cols,
+                            },
+                            mcx,
+                            scan,
+                            slot,
+                        )
+                        .map_err(crate::stash)?
+                    {
                         continue;
                     }
                 }
@@ -1416,7 +2130,14 @@ impl IndexSource {
         if !self.walk()? {
             return Ok(false);
         }
-        crate::ops::shared::heap_fetch::project_by(self.slot.as_mut().expect("bound"), &self.recipe.attnos, self.proj, values, isnull).map_err(crate::stash)?;
+        crate::ops::shared::heap_fetch::project_by(
+            self.slot.as_mut().expect("bound"),
+            &self.recipe.attnos,
+            self.proj,
+            values,
+            isnull,
+        )
+        .map_err(crate::stash)?;
         Ok(true)
     }
 }
@@ -1458,16 +2179,28 @@ mod tests {
     #[test]
     fn an_error_in_the_prefilter_keeps_the_row_and_turns_it_off() {
         let mut p = Prefilter::default();
-        let div = types_error::PgError::new(types_error::ERROR, "division by zero").with_sqlstate(types_error::ERRCODE_DIVISION_BY_ZERO);
+        let div = types_error::PgError::new(types_error::ERROR, "division by zero")
+            .with_sqlstate(types_error::ERRCODE_DIVISION_BY_ZERO);
         assert!(p.check(Err(Box::new(div))).unwrap(), "kept for the program"); // alloc: Cold
         assert!(!p.on());
         let mut l = Prefilter::default();
-        let long = types_error::PgError::new(types_error::ERROR, "requested length too large").with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-        assert!(l.check(Err(Box::new(long))).unwrap(), "a limit error from the row is kept too"); // alloc: Cold
+        let long = types_error::PgError::new(types_error::ERROR, "requested length too large")
+            .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
+        assert!(
+            l.check(Err(Box::new(long))).unwrap(),
+            "a limit error from the row is kept too"
+        ); // alloc: Cold
         assert!(!l.on());
         let mut q = Prefilter::default();
-        let cancel = types_error::PgError::new(types_error::ERROR, "canceling statement due to user request").with_sqlstate(types_error::ERRCODE_QUERY_CANCELED);
-        assert!(q.check(Err(Box::new(cancel))).is_err(), "a cancel is raised"); // alloc: Cold
+        let cancel = types_error::PgError::new(
+            types_error::ERROR,
+            "canceling statement due to user request",
+        )
+        .with_sqlstate(types_error::ERRCODE_QUERY_CANCELED);
+        assert!(
+            q.check(Err(Box::new(cancel))).is_err(),
+            "a cancel is raised"
+        ); // alloc: Cold
         assert!(q.on());
     }
 }

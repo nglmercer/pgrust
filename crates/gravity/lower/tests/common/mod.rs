@@ -13,7 +13,9 @@ use gravity_decompose::{corpus, Bound, Facts, Op, PipelineGraph, PipelineNode, S
 use gravity_expr::catalog::{DomainFacts, FuncFacts, IoFacts, TextFacts, TypeFacts};
 use gravity_expr::{Catalog, Compiled, Expr, Region, Row};
 use gravity_fn::{Shim, Tier};
-use gravity_lower::{assemble, compile, lower_graph as lower, Backend, Lowered, Sequential, WordSrc};
+use gravity_lower::{
+    assemble, compile, lower_graph as lower, Backend, Lowered, Sequential, WordSrc,
+};
 use gravity_program::{Arena, LaneId, Program};
 use mcx::MemoryContext;
 use types_core::Oid;
@@ -67,7 +69,9 @@ fn dat_entries(path: &Path) -> Vec<HashMap<String, String>> {
                     let mut e = 0;
                     #[allow(clippy::while_let_loop)]
                     loop {
-                        let Some(i) = after[e..].find('\'') else { break };
+                        let Some(i) = after[e..].find('\'') else {
+                            break;
+                        };
                         e += i;
                         if e > 0 && after.as_bytes()[e - 1] == b'\\' {
                             e += 1;
@@ -136,7 +140,9 @@ impl DatCatalog {
         let mut names: HashMap<String, Oid> = HashMap::new();
         let mut types = HashMap::new();
         for e in dat_entries(&d.join("pg_type.dat")) {
-            let (Some(oid), Some(name)) = (e.get("oid"), e.get("typname")) else { continue };
+            let (Some(oid), Some(name)) = (e.get("oid"), e.get("typname")) else {
+                continue;
+            };
             let oid: Oid = oid.parse().unwrap();
             names.insert(name.clone(), oid);
             types.insert(oid, (e.clone(), name.clone()));
@@ -163,53 +169,146 @@ impl DatCatalog {
                 Some("C") => 950,
                 _ => 0,
             };
-            let elem = e.get("typelem").and_then(|n| names.get(n)).copied().unwrap_or(0);
-            tys.insert(*oid, TypeRow { name: types[oid].1.clone(), len, byval, align, typtype, collation, elem });
+            let elem = e
+                .get("typelem")
+                .and_then(|n| names.get(n))
+                .copied()
+                .unwrap_or(0);
+            tys.insert(
+                *oid,
+                TypeRow {
+                    name: types[oid].1.clone(),
+                    len,
+                    byval,
+                    align,
+                    typtype,
+                    collation,
+                    elem,
+                },
+            );
         }
         for (arr, base) in arrays {
             let Some(b) = tys.get(&base) else { continue };
-            let align = if b.align == b'd' as i8 { b'd' as i8 } else { b'i' as i8 };
-            let row = TypeRow { name: format!("_{}", b.name), len: -1, byval: false, align, typtype: b'b' as i8, collation: b.collation, elem: base };
+            let align = if b.align == b'd' as i8 {
+                b'd' as i8
+            } else {
+                b'i' as i8
+            };
+            let row = TypeRow {
+                name: format!("_{}", b.name),
+                len: -1,
+                byval: false,
+                align,
+                typtype: b'b' as i8,
+                collation: b.collation,
+                elem: base,
+            };
             tys.insert(arr, row);
         }
         let mut procs = HashMap::new();
         let mut proc_names: HashMap<String, Oid> = HashMap::new();
         for e in dat_entries(&d.join("pg_proc.dat")) {
-            let (Some(oid), Some(name)) = (e.get("oid"), e.get("proname")) else { continue };
+            let (Some(oid), Some(name)) = (e.get("oid"), e.get("proname")) else {
+                continue;
+            };
             let oid: Oid = oid.parse().unwrap();
             proc_names.entry(name.clone()).or_insert(oid);
-            let nargs = e.get("proargtypes").map_or(0, |a| a.split_whitespace().count()) as i16;
-            let node_arg = e.get("proargtypes").is_some_and(|a| a.split_whitespace().any(|t| matches!(t, "any" | "anyarray" | "anyelement" | "anynonarray" | "anyenum" | "anyrange" | "anymultirange" | "anycompatible" | "anycompatiblearray" | "anycompatiblenonarray" | "anycompatiblerange" | "anycompatiblemultirange" | "internal" | "record")))
-                || e.get("provariadic").is_some_and(|v| v == "any");
-            procs.insert(oid, ProcRow { strict: e.get("proisstrict").is_none_or(|v| v == "t"), retset: e.get("proretset").is_some_and(|v| v == "t"), nargs, volatility: e.get("provolatile").map_or(b'i', |v| v.as_bytes()[0]), parallel: e.get("proparallel").map_or(b's', |v| v.as_bytes()[0]), node_arg });
+            let nargs = e
+                .get("proargtypes")
+                .map_or(0, |a| a.split_whitespace().count()) as i16;
+            let node_arg = e.get("proargtypes").is_some_and(|a| {
+                a.split_whitespace().any(|t| {
+                    matches!(
+                        t,
+                        "any"
+                            | "anyarray"
+                            | "anyelement"
+                            | "anynonarray"
+                            | "anyenum"
+                            | "anyrange"
+                            | "anymultirange"
+                            | "anycompatible"
+                            | "anycompatiblearray"
+                            | "anycompatiblenonarray"
+                            | "anycompatiblerange"
+                            | "anycompatiblemultirange"
+                            | "internal"
+                            | "record"
+                    )
+                })
+            }) || e.get("provariadic").is_some_and(|v| v == "any");
+            procs.insert(
+                oid,
+                ProcRow {
+                    strict: e.get("proisstrict").is_none_or(|v| v == "t"),
+                    retset: e.get("proretset").is_some_and(|v| v == "t"),
+                    nargs,
+                    volatility: e.get("provolatile").map_or(b'i', |v| v.as_bytes()[0]),
+                    parallel: e.get("proparallel").map_or(b's', |v| v.as_bytes()[0]),
+                    node_arg,
+                },
+            );
         }
         let mut ops = HashMap::new();
         for e in dat_entries(&d.join("pg_operator.dat")) {
-            let (Some(oid), Some(code)) = (e.get("oid"), e.get("oprcode")) else { continue };
+            let (Some(oid), Some(code)) = (e.get("oid"), e.get("oprcode")) else {
+                continue;
+            };
             let oid: Oid = oid.parse().unwrap();
             let f = proc_names.get(code).copied().unwrap_or(0);
-            let l = e.get("oprleft").and_then(|n| names.get(n)).copied().unwrap_or(0);
-            let r = e.get("oprright").and_then(|n| names.get(n)).copied().unwrap_or(0);
+            let l = e
+                .get("oprleft")
+                .and_then(|n| names.get(n))
+                .copied()
+                .unwrap_or(0);
+            let r = e
+                .get("oprright")
+                .and_then(|n| names.get(n))
+                .copied()
+                .unwrap_or(0);
             ops.insert(oid, (f, l, r));
         }
-        DatCatalog { types: tys, procs, ops, proc_names }
+        DatCatalog {
+            types: tys,
+            procs,
+            ops,
+            proc_names,
+        }
     }
 }
 
 fn unknown(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("fixture catalog: unknown {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "fixture catalog: unknown {what} {oid}"
+    )))
 }
 
 impl<'mcx> Catalog<'mcx> for DatCatalog {
     fn func(&self, funcid: Oid) -> PgResult<FuncFacts> {
-        let p = self.procs.get(&funcid).ok_or_else(|| unknown("function", funcid))?;
-        Ok(FuncFacts { strict: p.strict, retset: p.retset, nargs: p.nargs, volatility: Some(p.volatility), parallel: Some(p.parallel), node_arg: p.node_arg, leakproof: None, prolang: None, body: 0 })
+        let p = self
+            .procs
+            .get(&funcid)
+            .ok_or_else(|| unknown("function", funcid))?;
+        Ok(FuncFacts {
+            strict: p.strict,
+            retset: p.retset,
+            nargs: p.nargs,
+            volatility: Some(p.volatility),
+            parallel: Some(p.parallel),
+            node_arg: p.node_arg,
+            leakproof: None,
+            prolang: None,
+            body: 0,
+        })
     }
     fn opcode(&self, opno: Oid) -> PgResult<Oid> {
         Ok(self.ops.get(&opno).map_or(0, |o| o.0))
     }
     fn op_input_types(&self, opno: Oid) -> PgResult<(Oid, Oid)> {
-        let o = self.ops.get(&opno).ok_or_else(|| unknown("operator", opno))?;
+        let o = self
+            .ops
+            .get(&opno)
+            .ok_or_else(|| unknown("operator", opno))?;
         Ok((o.1, o.2))
     }
     fn btree_cmp_proc(&self, _opfamily: Oid, _l: Oid, _r: Oid) -> PgResult<Oid> {
@@ -219,8 +318,18 @@ impl<'mcx> Catalog<'mcx> for DatCatalog {
         Ok((0, 0))
     }
     fn type_facts(&self, typid: Oid) -> PgResult<TypeFacts> {
-        let t = self.types.get(&typid).ok_or_else(|| unknown("type", typid))?;
-        Ok(TypeFacts { len: t.len, byval: t.byval, align: t.align, typtype: t.typtype, collation: t.collation, elem: t.elem })
+        let t = self
+            .types
+            .get(&typid)
+            .ok_or_else(|| unknown("type", typid))?;
+        Ok(TypeFacts {
+            len: t.len,
+            byval: t.byval,
+            align: t.align,
+            typtype: t.typtype,
+            collation: t.collation,
+            elem: t.elem,
+        })
     }
     fn type_cmp_proc(&self, _typid: Oid) -> PgResult<Oid> {
         Ok(0)
@@ -235,7 +344,12 @@ impl<'mcx> Catalog<'mcx> for DatCatalog {
         Err(unknown("io of", typid))
     }
     fn text(&self, _collation: Oid) -> PgResult<TextFacts> {
-        Ok(TextFacts { deterministic: true, equality_is_bytes: true, order_is_bytes: true, ctype_is_c: true })
+        Ok(TextFacts {
+            deterministic: true,
+            equality_is_bytes: true,
+            order_is_bytes: true,
+            ctype_is_c: true,
+        })
     }
     fn tier(&self, funcid: Oid) -> Tier {
         gravity_fn::tier_of(funcid)
@@ -255,22 +369,86 @@ pub fn cat() -> &'static DatCatalog {
 pub fn init() {
     SEAMS.call_once(|| {
         fmgr_core::init_seams();
-        syscache_seams::pg_type_element_shape::set(|typid| Ok(cat().types.get(&typid).filter(|t| t.elem != 0).map(|t| syscache_seams::PgTypeElementShape { typelem: t.elem, typsubscript: 0 })));
-        syscache_seams::lookup_pg_type_shape::set(|typid| Ok(cat().types.get(&typid).map(|t| PgTypeShape { typlen: t.len, typbyval: t.byval, typalign: t.align, typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 }, typcollation: t.collation })));
+        syscache_seams::pg_type_element_shape::set(|typid| {
+            Ok(cat().types.get(&typid).filter(|t| t.elem != 0).map(|t| {
+                syscache_seams::PgTypeElementShape {
+                    typelem: t.elem,
+                    typsubscript: 0,
+                }
+            }))
+        });
+        syscache_seams::lookup_pg_type_shape::set(|typid| {
+            Ok(cat().types.get(&typid).map(|t| PgTypeShape {
+                typlen: t.len,
+                typbyval: t.byval,
+                typalign: t.align,
+                typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 },
+                typcollation: t.collation,
+            }))
+        });
         syscache_seams::lookup_pg_type_typcache_shape::set(|typid| {
             Ok(cat().types.get(&typid).map(|t| {
                 let mut name = types_tuple::NameData::default();
                 name.namestrcpy(&t.name);
-                syscache_seams::PgTypeTypcacheShape { typname: name, typlen: t.len, typbyval: t.byval, typalign: t.align, typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 }, typtype: t.typtype, typisdefined: true, typrelid: 0, typsubscript: 0, typelem: t.elem, typarray: 0, typcollation: t.collation }
+                syscache_seams::PgTypeTypcacheShape {
+                    typname: name,
+                    typlen: t.len,
+                    typbyval: t.byval,
+                    typalign: t.align,
+                    typstorage: if t.len == -1 { b'x' as i8 } else { b'p' as i8 },
+                    typtype: t.typtype,
+                    typisdefined: true,
+                    typrelid: 0,
+                    typsubscript: 0,
+                    typelem: t.elem,
+                    typarray: 0,
+                    typcollation: t.collation,
+                }
             }))
         });
-        syscache_seams::pg_type_typtype::set(|typid| Ok(cat().types.get(&typid).map(|t| t.typtype)));
+        syscache_seams::pg_type_typtype::set(|typid| {
+            Ok(cat().types.get(&typid).map(|t| t.typtype))
+        });
         // pg_aggregate from the decomposer's generated table (the transition function by name: the emit reads its strictness only)
         syscache_seams::lookup_pg_aggregate_shape::set(|fnoid| {
             let by_name = |n: &str| cat().proc_names.get(n).copied().unwrap_or(0);
-            Ok(gravity_decompose::ops::agg::trans::table::row(fnoid).map(|r| syscache_seams::PgAggregateShape { aggkind: r.kind as i8, aggnumdirectargs: r.ndirect as i16, aggtransfn: by_name(r.transfn), aggfinalfn: by_name(r.finalfn), aggcombinefn: by_name(r.combinefn), aggserialfn: 0, aggdeserialfn: 0, aggmtransfn: 0, aggminvtransfn: 0, aggmfinalfn: 0, aggfinalextra: false, aggmfinalextra: false, aggfinalmodify: b'r' as i8, aggmfinalmodify: b'r' as i8, aggsortop: r.sortop, aggtranstype: r.transtype, aggtransspace: 0, aggmtranstype: 0 }))
+            Ok(
+                gravity_decompose::ops::agg::trans::table::row(fnoid).map(|r| {
+                    syscache_seams::PgAggregateShape {
+                        aggkind: r.kind as i8,
+                        aggnumdirectargs: r.ndirect as i16,
+                        aggtransfn: by_name(r.transfn),
+                        aggfinalfn: by_name(r.finalfn),
+                        aggcombinefn: by_name(r.combinefn),
+                        aggserialfn: 0,
+                        aggdeserialfn: 0,
+                        aggmtransfn: 0,
+                        aggminvtransfn: 0,
+                        aggmfinalfn: 0,
+                        aggfinalextra: false,
+                        aggmfinalextra: false,
+                        aggfinalmodify: b'r' as i8,
+                        aggmfinalmodify: b'r' as i8,
+                        aggsortop: r.sortop,
+                        aggtranstype: r.transtype,
+                        aggtransspace: 0,
+                        aggmtranstype: 0,
+                    }
+                }),
+            )
         });
-        syscache_seams::pg_type_base_shape::set(|typid| Ok(cat().types.get(&typid).map(|t| syscache_seams::PgTypeBaseShape { typtype: t.typtype, typbasetype: 0, typtypmod: -1, typelem: t.elem, typsubscript: 0 })));
+        syscache_seams::pg_type_base_shape::set(|typid| {
+            Ok(cat()
+                .types
+                .get(&typid)
+                .map(|t| syscache_seams::PgTypeBaseShape {
+                    typtype: t.typtype,
+                    typbasetype: 0,
+                    typtypmod: -1,
+                    typelem: t.elem,
+                    typsubscript: 0,
+                }))
+        });
         miscinit_seams::get_user_id::set(|| 10);
         aclchk_seams::object_aclcheck::set(|_classid, _objid, _roleid, _mode| Ok(0));
         syscache_seams::pg_proc_proname::set(|_funcid| Ok(None));
@@ -286,7 +464,18 @@ pub fn plans_dir() -> PathBuf {
 
 /// The fixtures whose name starts with `prefix`, sorted.
 pub fn fixtures(prefix: &str) -> Vec<(String, String)> {
-    let mut v: Vec<(String, String)> = std::fs::read_dir(plans_dir()).unwrap().map(|e| e.unwrap().path()).filter(|p| p.extension().is_some_and(|e| e == "plan")).filter(|p| p.file_name().unwrap().to_str().unwrap().starts_with(prefix)).map(|p| (p.file_stem().unwrap().to_str().unwrap().to_owned(), std::fs::read_to_string(&p).unwrap())).collect();
+    let mut v: Vec<(String, String)> = std::fs::read_dir(plans_dir())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "plan"))
+        .filter(|p| p.file_name().unwrap().to_str().unwrap().starts_with(prefix))
+        .map(|p| {
+            (
+                p.file_stem().unwrap().to_str().unwrap().to_owned(),
+                std::fs::read_to_string(&p).unwrap(),
+            )
+        })
+        .collect();
     v.sort();
     v
 }
@@ -311,7 +500,17 @@ pub fn varlena(bytes: &[u8]) -> Box<[u8]> {
 /// The rig's dictionary: 64 entries in byte-rank order (the format's contract, `pgrc_format::dict.rs`:
 /// code order is byte order), code 0 the empty string.
 pub fn dict() -> Vec<Vec<u8>> {
-    let mut d: Vec<Vec<u8>> = (0..64).map(|c| if c == 0 { Vec::new() } else if c % 7 == 3 { format!("www.garden.com/{c}").into_bytes() } else { format!("entry-{c}").into_bytes() }).collect();
+    let mut d: Vec<Vec<u8>> = (0..64)
+        .map(|c| {
+            if c == 0 {
+                Vec::new()
+            } else if c % 7 == 3 {
+                format!("www.garden.com/{c}").into_bytes()
+            } else {
+                format!("entry-{c}").into_bytes()
+            }
+        })
+        .collect();
     d.sort();
     d
 }
@@ -325,9 +524,18 @@ thread_local! {
 
 /// The generated rows with every NOT NULL attribute of `p`'s relation made non-NULL (the value word kept).
 pub fn honor_notnull(p: &PipelineNode<'_>, mut rows: Vec<krig::Row>) -> Vec<krig::Row> {
-    let Some((_, relid, _)) = p.source.relation() else { return rows };
+    let Some((_, relid, _)) = p.source.relation() else {
+        return rows;
+    };
     let lanes = site_lanes(p);
-    let nn: Vec<usize> = NOTNULL.with(|n| lanes.iter().enumerate().filter(|(_, l)| n.borrow().contains(&(relid, l.0))).map(|(k, _)| k).collect());
+    let nn: Vec<usize> = NOTNULL.with(|n| {
+        lanes
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| n.borrow().contains(&(relid, l.0)))
+            .map(|(k, _)| k)
+            .collect()
+    });
     for (_, nulls) in rows.iter_mut() {
         for &k in nn.iter() {
             if let Some(b) = nulls.get_mut(k) {
@@ -353,10 +561,21 @@ pub fn rows_from_tl(keys: &[u64], _: &[u8]) -> Vec<krig::Row> {
 /// The lanes of the pipeline's site in lane order: `(attno, kind, width)`.
 pub fn site_lanes(p: &PipelineNode<'_>) -> Vec<(i16, u8, u8)> {
     let site = match &p.source {
-        Source::Range { site, .. } | Source::Index { site, .. } | Source::Bitmap { site, .. } => site,
+        Source::Range { site, .. } | Source::Index { site, .. } | Source::Bitmap { site, .. } => {
+            site
+        }
         _ => return Vec::new(),
     };
-    site.lanes().iter().filter_map(|l| if let LaneId::Attr(a) = l.id { Some((a, l.kind, l.width)) } else { None }).collect()
+    site.lanes()
+        .iter()
+        .filter_map(|l| {
+            if let LaneId::Attr(a) = l.id {
+                Some((a, l.kind, l.width))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Rows for the site: `n` rows, the value of lane `k` from a small pattern around the zone
@@ -393,28 +612,62 @@ pub struct Oracle<'a, 'm> {
 }
 
 impl<'a: 'm, 'm> Oracle<'a, 'm> {
-    pub fn new(cat: &'a DatCatalog, fx: &'a corpus::Fixture<'m>, params: &'a [ParamExternData]) -> Oracle<'a, 'm> {
-        Oracle { cat, fx, params, dict: dict().iter().map(|e| varlena(e)).collect() }
+    pub fn new(
+        cat: &'a DatCatalog,
+        fx: &'a corpus::Fixture<'m>,
+        params: &'a [ParamExternData],
+    ) -> Oracle<'a, 'm> {
+        Oracle {
+            cat,
+            fx,
+            params,
+            dict: dict().iter().map(|e| varlena(e)).collect(),
+        }
     }
 
     pub fn compile(&self, node: Node<'m>) -> Compiled<'m> {
         let node = node.as_target_entry().map_or(node, |te| te.expr);
-        let bind = ParamBind { extern_params: Some(self.params), exec_vals: None, n_exec: 0, param_callback: None, param_expanded: None, param_rw: None, param_ro_expanded: None, extern_fetch: None };
-        Expr::compile(lists(), node, self.cat, bind).unwrap_or_else(|e| panic!("tier 0: {e} ({:?} in {})", node.node_tag(), self.fx.name))
+        let bind = ParamBind {
+            extern_params: Some(self.params),
+            exec_vals: None,
+            n_exec: 0,
+            param_callback: None,
+            param_expanded: None,
+            param_rw: None,
+            param_ro_expanded: None,
+            extern_fetch: None,
+        };
+        Expr::compile(lists(), node, self.cat, bind)
+            .unwrap_or_else(|e| panic!("tier 0: {e} ({:?} in {})", node.node_tag(), self.fx.name))
     }
 
     /// `compile` of an aggregate argument through the child's projection (`outer.N` = entry `N` of `project`).
-    pub fn compile_outer(&self, node: Node<'m>, project: &types_nodes::list::NodeList<'m>) -> Compiled<'m> {
+    pub fn compile_outer(
+        &self,
+        node: Node<'m>,
+        project: &types_nodes::list::NodeList<'m>,
+    ) -> Compiled<'m> {
         let node = node.as_target_entry().map_or(node, |te| te.expr);
-        let bind = ParamBind { extern_params: Some(self.params), exec_vals: None, n_exec: 0, param_callback: None, param_expanded: None, param_rw: None, param_ro_expanded: None, extern_fetch: None };
-        Expr::compile_outer(lists(), node, self.cat, bind, project).unwrap_or_else(|e| panic!("tier 0: {e} ({:?} in {})", node.node_tag(), self.fx.name))
+        let bind = ParamBind {
+            extern_params: Some(self.params),
+            exec_vals: None,
+            n_exec: 0,
+            param_callback: None,
+            param_expanded: None,
+            param_rw: None,
+            param_ro_expanded: None,
+            extern_fetch: None,
+        };
+        Expr::compile_outer(lists(), node, self.cat, bind, project)
+            .unwrap_or_else(|e| panic!("tier 0: {e} ({:?} in {})", node.node_tag(), self.fx.name))
     }
 
     pub fn eval(&self, c: &mut Compiled<'m>, values: &[Datum], nulls: &[bool]) -> NullableDatum {
         let mut buf = [0u8; 4096];
         let mut region = Region::over(&mut buf);
         let row = Row::scan(values, nulls);
-        c.eval(&row, &mut region).unwrap_or_else(|e| panic!("tier 0 eval: {}", e.message()))
+        c.eval(&row, &mut region)
+            .unwrap_or_else(|e| panic!("tier 0 eval: {}", e.message()))
     }
 
     /// The expected output rows of pipeline `p` over `rows` (lane order): filters, projections
@@ -424,7 +677,12 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
     }
 
     /// `expect` over the flat ops before a sort / join (their junk columns kept when `keep_junk`).
-    pub fn expect_junk(&self, p: &PipelineNode<'m>, rows: &[krig::Row], keep_junk: bool) -> Vec<Vec<u64>> {
+    pub fn expect_junk(
+        &self,
+        p: &PipelineNode<'m>,
+        rows: &[krig::Row],
+        keep_junk: bool,
+    ) -> Vec<Vec<u64>> {
         let lanes = site_lanes(p);
         let mut out = Vec::new();
         let mut filters: Vec<Compiled<'m>> = Vec::new();
@@ -438,23 +696,47 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
                     Some(l) => gates.extend(l.iter().map(|q| self.compile(q))),
                     None => gates.push(self.compile(*n)),
                 },
-                Op::Project(t) => projects.push(t.iter().filter_map(|e| e.as_target_entry().filter(|te| keep_junk || !te.resjunk).map(|te| self.compile(te.expr))).collect()),
-                Op::Limit { count: c, offset: o, .. } => {
+                Op::Project(t) => projects.push(
+                    t.iter()
+                        .filter_map(|e| {
+                            e.as_target_entry()
+                                .filter(|te| keep_junk || !te.resjunk)
+                                .map(|te| self.compile(te.expr))
+                        })
+                        .collect(),
+                ),
+                Op::Limit {
+                    count: c,
+                    offset: o,
+                    ..
+                } => {
                     count = match c {
                         Bound::All => usize::MAX,
                         Bound::Const(n) => *n as usize,
-                        Bound::Expr(n) => self.eval(&mut self.compile(*n), &[], &[]).value.as_i64() as usize,
+                        Bound::Expr(n) => {
+                            self.eval(&mut self.compile(*n), &[], &[]).value.as_i64() as usize
+                        }
                     };
                     offset = match o {
                         Bound::All => 0,
                         Bound::Const(n) => *n as usize,
-                        Bound::Expr(n) => self.eval(&mut self.compile(*n), &[], &[]).value.as_i64() as usize,
+                        Bound::Expr(n) => {
+                            self.eval(&mut self.compile(*n), &[], &[]).value.as_i64() as usize
+                        }
                     };
                 }
                 Op::Sort(_) | Op::Join(_) => break,
                 // an identity set's marker changes no row of its pipeline (setops_shapes.rs models the set over the sides' rows)
                 Op::SetOp(gravity_decompose::ops::shared::setop::SetDesc::Identity { .. }) => {}
-                Op::Window(_) | Op::SetOp(_) | Op::SubPlan(_) | Op::Append(_) | Op::Write(_) | Op::Lock(_) | Op::Srf(_) | Op::FirstOfRun(_) | Op::GroupRun(_) => return out,
+                Op::Window(_)
+                | Op::SetOp(_)
+                | Op::SubPlan(_)
+                | Op::Append(_)
+                | Op::Write(_)
+                | Op::Lock(_)
+                | Op::Srf(_)
+                | Op::FirstOfRun(_)
+                | Op::GroupRun(_) => return out,
             }
         }
         for g in gates.iter_mut() {
@@ -463,7 +745,11 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
                 return out;
             }
         }
-        let mut src_rows: Vec<krig::Row> = if lanes.is_empty() { vec![(Vec::new(), Vec::new())] } else { rows.to_vec() };
+        let mut src_rows: Vec<krig::Row> = if lanes.is_empty() {
+            vec![(Vec::new(), Vec::new())]
+        } else {
+            rows.to_vec()
+        };
         let mut vlanes: Vec<(i16, u8, u8)> = Vec::new();
         if let Source::Values { lists, .. } = &p.source {
             src_rows.clear();
@@ -500,7 +786,13 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
         }
         // an index-only scan's `index.k` is the k-th index column: its lanes are read by position
         let by_position = matches!(p.source, Source::Index { only: true, .. });
-        let natts = if by_position { lanes.len() } else { lanes.iter().map(|l| l.0 as usize).max().unwrap_or(0) }.max(max_var).max(1);
+        let natts = if by_position {
+            lanes.len()
+        } else {
+            lanes.iter().map(|l| l.0 as usize).max().unwrap_or(0)
+        }
+        .max(max_var)
+        .max(1);
         let mut passed = 0usize;
         for (v, n) in &src_rows {
             let mut values = vec![Datum::from_i64(0); natts];
@@ -508,7 +800,11 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
             for (k, &(attno, kind, _)) in lanes.iter().enumerate() {
                 let i = if by_position { k } else { attno as usize - 1 };
                 nulls[i] = n[k] != 0;
-                values[i] = if kind == gravity_abi::ctx::lane::KIND_CODES { Datum::from_usize(self.dict[v[k] as usize].as_ptr() as usize) } else { Datum::from_u64(v[k]) };
+                values[i] = if kind == gravity_abi::ctx::lane::KIND_CODES {
+                    Datum::from_usize(self.dict[v[k] as usize].as_ptr() as usize)
+                } else {
+                    Datum::from_u64(v[k])
+                };
             }
             let mut ok = true;
             for f in filters.iter_mut() {
@@ -537,15 +833,39 @@ impl<'a: 'm, 'm> Oracle<'a, 'm> {
                 let mut nv = Vec::new();
                 let mut nn = Vec::new();
                 for c in stage.iter_mut() {
-                    let (vals, nls) = if si == 0 { (&values, &nulls) } else { (&outer_v, &outer_n) };
+                    let (vals, nls) = if si == 0 {
+                        (&values, &nulls)
+                    } else {
+                        (&outer_v, &outer_n)
+                    };
                     let mut buf = [0u8; 4096];
                     let mut region = Region::over(&mut buf);
-                    let row = if si == 0 { Row::scan(vals, nls) } else { Row { scan: gravity_expr::Cols::None, inner: gravity_expr::Cols::None, outer: gravity_expr::Cols::Slot { values: vals, nulls: nls, types: &[], tdtypeid: 0, desc: None, slot: None }, aggs: &[] } };
+                    let row = if si == 0 {
+                        Row::scan(vals, nls)
+                    } else {
+                        Row {
+                            scan: gravity_expr::Cols::None,
+                            inner: gravity_expr::Cols::None,
+                            outer: gravity_expr::Cols::Slot {
+                                values: vals,
+                                nulls: nls,
+                                types: &[],
+                                tdtypeid: 0,
+                                desc: None,
+                                slot: None,
+                            },
+                            aggs: &[],
+                        }
+                    };
                     let r = c.eval(&row, &mut region).unwrap();
                     nv.push(r.value);
                     nn.push(r.isnull);
                 }
-                row_out = nv.iter().zip(&nn).map(|(v, n)| if *n { u64::MAX } else { v.as_u64() }).collect();
+                row_out = nv
+                    .iter()
+                    .zip(&nn)
+                    .map(|(v, n)| if *n { u64::MAX } else { v.as_u64() })
+                    .collect();
                 cur_v = nv;
                 cur_n = nn;
             }
@@ -563,19 +883,43 @@ pub struct Built<'p> {
     pub words: Vec<WordSrc<'p>>,
 }
 
-pub fn build<'p>(arena: &Arena, graph: &PipelineGraph<'p>, facts: &dyn Facts, cat: &DatCatalog, backend: Backend) -> Result<Built<'p>, gravity_lower::Refusal> {
+pub fn build<'p>(
+    arena: &Arena,
+    graph: &PipelineGraph<'p>,
+    facts: &dyn Facts,
+    cat: &DatCatalog,
+    backend: Backend,
+) -> Result<Built<'p>, gravity_lower::Refusal> {
     let mut plan = Sequential::new(arena.handle());
     let pctx = mcx::MemoryContext::new("GravityPlan");
-    let lowered = lower(arena.handle(), pctx.mcx(), graph, facts, cat, &mut plan, gravity_lower::LowerOpts::default())?;
-    gravity_ir::verify::verify(&lowered.ir).unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&lowered.ir)));
-    gravity_ir::verify::verify_dominance(&lowered.ir).unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&lowered.ir)));
+    let lowered = lower(
+        arena.handle(),
+        pctx.mcx(),
+        graph,
+        facts,
+        cat,
+        &mut plan,
+        gravity_lower::LowerOpts::default(),
+    )?;
+    gravity_ir::verify::verify(&lowered.ir)
+        .unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&lowered.ir)));
+    gravity_ir::verify::verify_dominance(&lowered.ir)
+        .unwrap_or_else(|e| panic!("{e:?}\n{}", gravity_ir::text::print_program(&lowered.ir)));
     let codes = compile(&lowered, backend).unwrap_or_else(|e| panic!("backend: {}", e.message()));
     let program = assemble(&lowered, codes);
-    Ok(Built { lowered, program, words: plan.words.iter().copied().collect() })
+    Ok(Built {
+        lowered,
+        program,
+        words: plan.words.iter().copied().collect(),
+    })
 }
 
 /// The rig's parameter words from the plan's word sources; an `Expr` word is evaluated at tier 0.
-pub fn rig_params(words: &[WordSrc<'_>], externs: &[ParamExternData], cat: &DatCatalog) -> Option<(Vec<u64>, Vec<u8>)> {
+pub fn rig_params(
+    words: &[WordSrc<'_>],
+    externs: &[ParamExternData],
+    cat: &DatCatalog,
+) -> Option<(Vec<u64>, Vec<u8>)> {
     let mut v = Vec::new();
     let mut n = Vec::new();
     for w in words {
@@ -600,7 +944,16 @@ pub fn rig_params(words: &[WordSrc<'_>], externs: &[ParamExternData], cat: &DatC
                 n.push(1);
             }
             WordSrc::Expr(node) | WordSrc::Late(node) => {
-                let bind = ParamBind { extern_params: Some(externs), exec_vals: None, n_exec: 0, param_callback: None, param_expanded: None, param_rw: None, param_ro_expanded: None, extern_fetch: None };
+                let bind = ParamBind {
+                    extern_params: Some(externs),
+                    exec_vals: None,
+                    n_exec: 0,
+                    param_callback: None,
+                    param_expanded: None,
+                    param_rw: None,
+                    param_ro_expanded: None,
+                    extern_fetch: None,
+                };
                 let mut c = Expr::compile(lists(), node, cat, bind).ok()?;
                 let mut buf = [0u8; 256];
                 let mut region = Region::over(&mut buf);
@@ -619,25 +972,49 @@ pub fn rig_params(words: &[WordSrc<'_>], externs: &[ParamExternData], cat: &DatC
 
 pub fn count_insts(p: &gravity_ir::Program) -> (usize, usize) {
     let f = &p.funcs[0];
-    (f.blocks.len(), f.blocks.iter().map(|b| b.insts.len() + 1).sum())
+    (
+        f.blocks.len(),
+        f.blocks.iter().map(|b| b.insts.len() + 1).sum(),
+    )
 }
 
 pub fn extern_params(vals: &[i64], types: &[Oid]) -> Vec<ParamExternData> {
-    vals.iter().zip(types).map(|(&v, &t)| ParamExternData { value: Datum::from_i64(v), isnull: false, pflags: 0, ptype: t }).collect()
+    vals.iter()
+        .zip(types)
+        .map(|(&v, &t)| ParamExternData {
+            value: Datum::from_i64(v),
+            isnull: false,
+            pflags: 0,
+            ptype: t,
+        })
+        .collect()
 }
 
 pub fn arc(p: Program) -> Arc<Program> {
     Arc::new(p)
 }
 
-pub fn decompose_fx<'p>(arena: &Arena, fx: &'p corpus::Fixture<'p>) -> Result<PipelineGraph<'p>, gravity_decompose::Refusal> {
-    NOTNULL.with(|n| *n.borrow_mut() = fx.facts.atts.iter().filter(|(_, _, f)| f.notnull).map(|(r, a, _)| (*r, *a)).collect());
+pub fn decompose_fx<'p>(
+    arena: &Arena,
+    fx: &'p corpus::Fixture<'p>,
+) -> Result<PipelineGraph<'p>, gravity_decompose::Refusal> {
+    NOTNULL.with(|n| {
+        *n.borrow_mut() = fx
+            .facts
+            .atts
+            .iter()
+            .filter(|(_, _, f)| f.notnull)
+            .map(|(r, a, _)| (*r, *a))
+            .collect()
+    });
     gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
 }
 
 pub fn text_datum_bytes(d: u64) -> Vec<u8> {
     // SAFETY: the datum is a varlena the rig or the dictionary owns.
-    unsafe { datum::varlena::VarlenaRef::from_ptr(d as *const u8) }.data().to_vec()
+    unsafe { datum::varlena::VarlenaRef::from_ptr(d as *const u8) }
+        .data()
+        .to_vec()
 }
 
 pub fn program_text(l: &Lowered) -> String {
@@ -652,5 +1029,9 @@ pub fn bool_type() -> Oid {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

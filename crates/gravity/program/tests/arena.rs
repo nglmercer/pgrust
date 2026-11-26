@@ -20,12 +20,25 @@ fn exercise(bytes: usize) {
     assert!(t.iter().all(|&b| b == 0));
     assert!(a.try_alloc(16).is_none(), "exhausted past the capacity");
     a.zero(8, 8);
-    assert_eq!(arena.bytes(24), &[0xab; 8].iter().chain([0u8; 8].iter()).chain([0xab; 8].iter()).copied().collect::<Vec<_>>()[..]);
+    assert_eq!(
+        arena.bytes(24),
+        &[0xab; 8]
+            .iter()
+            .chain([0u8; 8].iter())
+            .chain([0xab; 8].iter())
+            .copied()
+            .collect::<Vec<_>>()[..]
+    );
     a.reset_to(m0);
     assert_eq!(a.used(), 0);
     let q = a.alloc(24);
     assert_eq!(q, p);
-    assert!(unsafe { core::slice::from_raw_parts(q, 24) }.iter().all(|&b| b == 0), "reset_to re-zeroes");
+    assert!(
+        unsafe { core::slice::from_raw_parts(q, 24) }
+            .iter()
+            .all(|&b| b == 0),
+        "reset_to re-zeroes"
+    );
 }
 
 #[test]
@@ -48,7 +61,10 @@ fn a_mapped_arena_is_built_without_touching_its_pages() {
     let arenas: Vec<Arena> = (0..8).map(|_| Arena::new(64 << 20)).collect();
     let faults = minor_faults() - f0;
     assert_eq!(arenas.iter().map(|a| a.handle().used()).sum::<usize>(), 0);
-    assert!(faults < 8 * 8, "8 x 64 MiB arenas faulted {faults} pages in: they were touched, not mapped");
+    assert!(
+        faults < 8 * 8,
+        "8 x 64 MiB arenas faulted {faults} pages in: they were touched, not mapped"
+    );
 }
 
 /// The calling thread's minor page faults so far (`getrusage(RUSAGE_THREAD)`; the whole process elsewhere).
@@ -80,7 +96,12 @@ fn a_boxed_block_is_written_through_the_boxs_own_pointer() {
     a.zero(8, 8);
     assert_eq!(&arena.bytes(24)[8..16], &[0; 8]);
     a.reset_to(m0);
-    assert!(unsafe { core::slice::from_raw_parts(a.alloc(24), 24) }.iter().all(|&b| b == 0), "reset_to re-zeroes");
+    assert!(
+        unsafe { core::slice::from_raw_parts(a.alloc(24), 24) }
+            .iter()
+            .all(|&b| b == 0),
+        "reset_to re-zeroes"
+    );
 }
 
 /// D2487 / D3933: an arena collection growing past the capacity unwinds with a PgError (54000, the arena's message), so
@@ -96,12 +117,23 @@ fn an_arena_vec_past_the_capacity_raises_an_error_not_aborts() {
         }
     }));
     let payload = r.expect_err("past the capacity");
-    let e = payload.downcast_ref::<types_error::PgError>().expect("a PgError payload, not a plain panic");
+    let e = payload
+        .downcast_ref::<types_error::PgError>()
+        .expect("a PgError payload, not a plain panic");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-    assert!(e.message().contains("arena is exhausted"), "{}", e.message());
+    assert!(
+        e.message().contains("arena is exhausted"),
+        "{}",
+        e.message()
+    );
     let h = arena.handle();
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.alloc(8 << 10)));
-    assert!(r.expect_err("alloc past the capacity").downcast_ref::<types_error::PgError>().is_some(), "alloc too");
+    assert!(
+        r.expect_err("alloc past the capacity")
+            .downcast_ref::<types_error::PgError>()
+            .is_some(),
+        "alloc too"
+    );
 }
 
 /// D2487: a scope resets its arena when dropped, on an unwind too, so the statement after one that ran the arena out
@@ -177,13 +209,24 @@ fn a_reset_past_the_kept_prefix_reads_zero_and_the_arena_refills() {
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn a_refused_mapping_raises_53200_never_a_plain_panic() {
-    let payload = std::panic::catch_unwind(|| drop(Arena::new(1 << 60))).expect_err("a 1 EiB mapping is refused");
-    let e = payload.downcast_ref::<types_error::PgError>().expect("a PgError payload (an ERROR), not a plain panic");
+    let payload = std::panic::catch_unwind(|| drop(Arena::new(1 << 60)))
+        .expect_err("a 1 EiB mapping is refused");
+    let e = payload
+        .downcast_ref::<types_error::PgError>()
+        .expect("a PgError payload (an ERROR), not a plain panic");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_OUT_OF_MEMORY);
     assert_eq!(e.message(), "out of memory");
-    assert!(e.detail().is_some_and(|d| d.starts_with("Failed on request of size ")), "{:?}", e.detail());
+    assert!(
+        e.detail()
+            .is_some_and(|d| d.starts_with("Failed on request of size ")),
+        "{:?}",
+        e.detail()
+    );
     assert!(Arena::try_new(1 << 60).is_none());
-    assert!(Arena::try_new(usize::MAX).is_none(), "a size past usize is refused, not wrapped");
+    assert!(
+        Arena::try_new(usize::MAX).is_none(),
+        "a size past usize is refused, not wrapped"
+    );
 }
 
 /// D2845: a mapping the kernel refuses (an address-space rail, `RLIMIT_AS`) is `try_new`'s `None`, never a panic; the
@@ -196,10 +239,20 @@ fn a_refused_mapping_is_none_never_a_panic() {
         let pid = libc::fork();
         assert!(pid >= 0, "fork");
         if pid == 0 {
-            let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            let mut lim = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
             let code = if libc::getrlimit(libc::RLIMIT_AS, &mut lim) != 0 {
                 3
-            } else if libc::setrlimit(libc::RLIMIT_AS, &libc::rlimit { rlim_cur: 64 << 20, rlim_max: lim.rlim_max }) != 0 {
+            } else if libc::setrlimit(
+                libc::RLIMIT_AS,
+                &libc::rlimit {
+                    rlim_cur: 64 << 20,
+                    rlim_max: lim.rlim_max,
+                },
+            ) != 0
+            {
                 2
             } else {
                 let refused = Arena::try_new(1 << 30);
@@ -212,7 +265,14 @@ fn a_refused_mapping_is_none_never_a_panic() {
         let mut status = 0;
         assert_eq!(libc::waitpid(pid, &mut status, 0), pid);
         assert!(libc::WIFEXITED(status), "the child exits ({status:#x})");
-        assert_eq!(libc::WEXITSTATUS(status), 0, "1: a 1 GiB mapping past a 64 MiB rail was not refused; 2/3: the rail was not set");
+        assert_eq!(
+            libc::WEXITSTATUS(status),
+            0,
+            "1: a 1 GiB mapping past a 64 MiB rail was not refused; 2/3: the rail was not set"
+        );
     }
-    assert!(Arena::try_new(1 << 30).is_some(), "without the rail the mapping is made");
+    assert!(
+        Arena::try_new(1 << 30).is_some(),
+        "without the rail the mapping is made"
+    );
 }

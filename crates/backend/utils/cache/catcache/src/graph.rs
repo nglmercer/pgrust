@@ -5,7 +5,7 @@ use types_error::{PgError, PgResult, ERRCODE_DATATYPE_MISMATCH};
 use types_tuple::varatt;
 use types_tuple::{HeapTupleData, TupleDescData};
 
-use crate::compute::{compute_hash_value, hash_index, CatCKey, CCFastKind, NAMEDATALEN};
+use crate::compute::{compute_hash_value, hash_index, CCFastKind, CatCKey, NAMEDATALEN};
 use crate::{
     pack_ref, payload_alloc, payload_free, with_state, CatCInProgress, CatCTup, CatCache,
     CatCacheState, CATCACHE_MAXKEYS, NONE,
@@ -204,7 +204,10 @@ pub fn InitCatCache(
             let _ = st.caches.try_reserve(idx + 1 - st.caches.len());
             st.caches.resize_with(idx + 1, || None);
         }
-        assert!(st.caches[idx].is_none(), "catcache: cache id {id} registered twice");
+        assert!(
+            st.caches[idx].is_none(),
+            "catcache: cache id {id} registered twice"
+        );
         st.caches[idx] = Some(cache);
         catcache_seams::note_catalog_registered();
         Ok(())
@@ -278,7 +281,13 @@ pub(crate) fn remove_ct(st: &mut CatCacheState<'_>, cache_id: i32, slot: u32) {
         let cache = st.cache(cache_id);
         let ct = &cache.tuples[slot as usize];
         debug_assert_eq!(ct.refcount, 0);
-        (ct.c_list, ct.hash_value, ct.payload, ct.payload_len, ct.shared.is_some())
+        (
+            ct.c_list,
+            ct.hash_value,
+            ct.payload,
+            ct.payload_len,
+            ct.shared.is_some(),
+        )
     };
     if c_list != NONE {
         st.cache_mut(cache_id).tuples[slot as usize].dead = true;
@@ -346,7 +355,12 @@ fn bump_inval_epoch() {
 pub fn CatCacheInvalidate(cache_id: i32, hash_value: u32) {
     bump_inval_epoch();
     with_state(|st| {
-        if st.caches.get(cache_id as usize).map(|c| c.is_none()).unwrap_or(true) {
+        if st
+            .caches
+            .get(cache_id as usize)
+            .map(|c| c.is_none())
+            .unwrap_or(true)
+        {
             return;
         }
         invalidate_one(st, cache_id, hash_value);
@@ -491,11 +505,17 @@ pub(crate) unsafe fn varlena_payload(p: *const u8) -> (*const u8, usize) {
     let b = unsafe { *p };
     if b != 0x01 && (b & 0x01) == 0x01 {
         let total = ((b >> 1) & 0x7F) as usize;
-        (unsafe { p.add(1) }, total.saturating_sub(varatt::VARHDRSZ_SHORT))
+        (
+            unsafe { p.add(1) },
+            total.saturating_sub(varatt::VARHDRSZ_SHORT),
+        )
     } else {
         let word = unsafe { core::ptr::read_unaligned(p.cast::<u32>()) };
         let total = varatt::varsize_4b_word(word) as usize;
-        (unsafe { p.add(varatt::VARHDRSZ) }, total.saturating_sub(varatt::VARHDRSZ))
+        (
+            unsafe { p.add(varatt::VARHDRSZ) },
+            total.saturating_sub(varatt::VARHDRSZ),
+        )
     }
 }
 
@@ -596,7 +616,9 @@ pub(crate) fn tuple_key<'a>(
             CatCKey::Bytes(unsafe { core::slice::from_raw_parts(p, len) })
         }
         // SAFETY: as above.
-        CCFastKind::Text => CatCKey::Bytes(unsafe { text_key_bytes(d.as_usize() as *const u8, scratch) }?),
+        CCFastKind::Text => {
+            CatCKey::Bytes(unsafe { text_key_bytes(d.as_usize() as *const u8, scratch) }?)
+        }
         CCFastKind::OidVector => {
             // SAFETY: as above; oidvector is plain storage (4-byte header).
             // `oidvector_elements` validates dim1 against VARSIZE before the
@@ -617,7 +639,13 @@ pub(crate) fn compute_tuple_hash_value(
     let scratch = key_scratch(kinds, nkeys);
     let mut keys = [CatCKey::UNUSED; 4];
     for i in 0..nkeys as usize {
-        keys[i] = tuple_key(kinds[i], tuple, keyno[i], tupdesc, scratch.as_ref().map(|c| c.mcx()))?;
+        keys[i] = tuple_key(
+            kinds[i],
+            tuple,
+            keyno[i],
+            tupdesc,
+            scratch.as_ref().map(|c| c.mcx()),
+        )?;
     }
     Ok(compute_hash_value(kinds, nkeys, &keys))
 }
@@ -638,7 +666,13 @@ pub(crate) fn build_positive_payload<B>(
     let mut probes = [CatCKey::UNUSED; 4];
     let mut extra = 0usize;
     for i in 0..nkeys as usize {
-        probes[i] = tuple_key(kinds[i], ntp, keyno[i], tupdesc, scratch.as_ref().map(|c| c.mcx()))?;
+        probes[i] = tuple_key(
+            kinds[i],
+            ntp,
+            keyno[i],
+            tupdesc,
+            scratch.as_ref().map(|c| c.mcx()),
+        )?;
         if let CatCKey::Bytes(b) = probes[i] {
             let at = b.as_ptr() as usize;
             if at < src || at > src + t_len {
@@ -686,11 +720,16 @@ pub(crate) fn create_entry_positive(
     ntp: &HeapTupleData<'_>,
     hash_value: u32,
 ) -> PgResult<u32> {
-    debug_assert!(!ntp.has_external(), "caller flattens via create_entry_from_scan");
+    debug_assert!(
+        !ntp.has_external(),
+        "caller flattens via create_entry_from_scan"
+    );
     let mcx = st.mcx;
     let t_len = ntp.t_len;
     let cache = st.cache(cache_id);
-    let tupdesc = cache.cc_tupdesc.expect("catcache: entry created before phase-2 init");
+    let tupdesc = cache
+        .cc_tupdesc
+        .expect("catcache: entry created before phase-2 init");
     let (nkeys, kinds, keyno) = (cache.cc_nkeys, cache.cc_kind, cache.cc_keyno);
     let (buf, keys, payload_len) = build_positive_payload(
         &kinds,
@@ -817,7 +856,10 @@ pub(crate) fn create_entry_negative(
     let (nkeys, kinds) = (cache.cc_nkeys, cache.cc_kind);
     let mut byref_len = 0usize;
     for i in 0..nkeys as usize {
-        if matches!(kinds[i], CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector) {
+        if matches!(
+            kinds[i],
+            CCFastKind::Name | CCFastKind::Text | CCFastKind::OidVector
+        ) {
             byref_len += crate::stored_key_bytes(kinds[i], &probes[i]).len();
         }
     }
@@ -880,7 +922,9 @@ pub fn SetCatCacheTrimAtIdle(on: bool) {
 }
 
 pub(crate) fn trim_at_idle() -> bool {
-    TRIM_AT_IDLE.try_with(core::cell::Cell::get).unwrap_or(false)
+    TRIM_AT_IDLE
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(false)
 }
 
 pub fn TrimCatCacheAtIdle() {
@@ -960,7 +1004,11 @@ pub(crate) fn enforce_cap_at(
         }
     }
     let left = st.ch_ntup - st.ch_nlisted;
-    st.cap_retry_at = if left > cap { left + (left / 4).max(1) } else { 0 };
+    st.cap_retry_at = if left > cap {
+        left + (left / 4).max(1)
+    } else {
+        0
+    };
 }
 
 pub(crate) fn maybe_rehash(st: &mut CatCacheState<'_>, cache_id: i32) {
@@ -971,12 +1019,25 @@ pub(crate) fn maybe_rehash(st: &mut CatCacheState<'_>, cache_id: i32) {
     }
 }
 
-pub(crate) fn push_in_progress(st: &mut CatCacheState<'_>, cache_id: i32, hash_value: u32, list: bool) {
-    st.in_progress.push(CatCInProgress { cache_id, hash_value, list, dead: false });
+pub(crate) fn push_in_progress(
+    st: &mut CatCacheState<'_>,
+    cache_id: i32,
+    hash_value: u32,
+    list: bool,
+) {
+    st.in_progress.push(CatCInProgress {
+        cache_id,
+        hash_value,
+        list,
+        dead: false,
+    });
 }
 
 pub(crate) fn pop_in_progress(st: &mut CatCacheState<'_>) -> bool {
-    st.in_progress.pop().expect("catcache: empty in-progress stack").dead
+    st.in_progress
+        .pop()
+        .expect("catcache: empty in-progress stack")
+        .dead
 }
 
 #[cfg(test)]
@@ -1040,7 +1101,10 @@ mod oidvector_key_tests {
             // SAFETY: as above.
             let r = unsafe { oidvector_elements(img.as_ptr()) };
             let err = r.err().unwrap_or_else(|| panic!("{name}: accepted"));
-            assert!(err.message().contains("array is not a valid oidvector"), "{name}");
+            assert!(
+                err.message().contains("array is not a valid oidvector"),
+                "{name}"
+            );
         }
     }
 

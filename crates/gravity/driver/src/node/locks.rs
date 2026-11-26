@@ -10,14 +10,22 @@ pub(crate) struct LockSlot {
 }
 
 pub(crate) fn nlocks(program: &Program) -> usize {
-    if program.locks.is_empty() { usize::from(program.write.lock != LockKind::None) } else { program.locks.len() }
+    if program.locks.is_empty() {
+        usize::from(program.write.lock != LockKind::None)
+    } else {
+        program.locks.len()
+    }
 }
 
 /// WHERE CURRENT OF's curCtid of relation `rel` (execCurrentOf picks its one ExecRowMark first): a program's one lock
 /// answers for any relation (a family's leaf is checked by the caller), else the lock of `rel`, else the lock whose last
 /// locked row is in `rel` (a family lock's later leaf: its host's one row is PostgreSQL's one active child's curCtid).
 pub fn locked_in(locks: &[(Option<u32>, ScanPos)], rel: u32) -> ScanPos {
-    locks.iter().find(|l| l.0.is_none_or(|r| r == rel)).or_else(|| locks.iter().find(|l| l.1.rel == rel)).map_or(ScanPos::NONE, |l| l.1)
+    locks
+        .iter()
+        .find(|l| l.0.is_none_or(|r| r == rel))
+        .or_else(|| locks.iter().find(|l| l.1.rel == rel))
+        .map_or(ScanPos::NONE, |l| l.1)
 }
 
 impl Node {
@@ -35,6 +43,10 @@ impl Node {
 
     /// Each lock's (relation, `Locker::current`); the relation `None` for a program's one lock.
     pub fn lockeds(&self) -> Vec<(Option<u32>, ScanPos)> {
-        self.inner.lockers.iter().map(|l| (l.rel, l.host.current())).collect() // alloc: Cold
+        self.inner
+            .lockers
+            .iter()
+            .map(|l| (l.rel, l.host.current()))
+            .collect() // alloc: Cold
     }
 }

@@ -1,4 +1,4 @@
-#![allow(non_snake_case,non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 //! src/backend/storage/sync/sync.c — pending-fsync/unlink tracking for the
 //! checkpointer and standalone backends.
@@ -8,7 +8,9 @@ use core::cell::{Cell, RefCell};
 use ::elog::{elog, ereport, PCT_M};
 use ::mcx::{MemoryContext, PgHashMap, PgVec};
 use ::types_core::BackendType;
-use ::types_error::{ErrorLocation, PgError, PgResult, DEBUG1, ERRCODE_OUT_OF_MEMORY, ERROR, WARNING};
+use ::types_error::{
+    ErrorLocation, PgError, PgResult, DEBUG1, ERRCODE_OUT_OF_MEMORY, ERROR, WARNING,
+};
 use ::types_storage::sync::{FileTag, FileTagOpResult, SyncRequestHandler, SyncRequestType};
 
 type CycleCtr = u16;
@@ -156,8 +158,7 @@ pub fn InitSync() -> PgResult<()> {
         PENDING.with(|p| {
             let mut slot = p.borrow_mut();
             if slot.is_none() {
-                let cx: &'static MemoryContext =
-                    ::mcx::session_root("Pending ops context");
+                let cx: &'static MemoryContext = ::mcx::session_root("Pending ops context");
                 // LIFO: empty the droppy TLS slot before its context is freed.
                 ::mcx::register_session_cleanup(Box::new(|| {
                     PENDING.with(|p| drop(p.borrow_mut().take()));

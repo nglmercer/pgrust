@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
-use localtime::PgTzRef;
 use super::*;
+use localtime::PgTzRef;
 
 // PGRUST_TZDIR is read once (pg_tzdir's OnceLock), so the whole process
 // enumerates ONE tree: a scratch mirror of /usr/share/zoneinfo (one symlink
@@ -43,7 +43,9 @@ fn gmt_needs_no_filesystem_and_caches() {
     let gmt = pg_tzset(b"GMT").unwrap().expect("GMT always parses");
     assert_eq!(gmt.name(), b"GMT");
     assert_eq!(localtime::pg_get_timezone_offset(&gmt), Some(0));
-    let again = pg_tzset(b"gmt").unwrap().expect("case-insensitive cache hit");
+    let again = pg_tzset(b"gmt")
+        .unwrap()
+        .expect("case-insensitive cache hit");
     assert!(PgTzRef::ptr_eq(&gmt, &again), "same leaked entry");
 }
 
@@ -61,7 +63,9 @@ fn timezone_initialize_sets_globals() {
 #[test]
 fn tzset_loads_real_zone_case_insensitively() {
     setup();
-    let ny = pg_tzset(b"america/new_york").unwrap().expect("scan_directory_ci resolves case");
+    let ny = pg_tzset(b"america/new_york")
+        .unwrap()
+        .expect("scan_directory_ci resolves case");
     assert_eq!(ny.name(), b"America/New_York");
 
     let tm = localtime::pg_localtime(1_710_054_000, &ny).unwrap();
@@ -95,7 +99,10 @@ fn tzset_offset_builds_iso_abbreviation() {
 
     let east = pg_tzset_offset(-(4 * 3600 + 30 * 60)).unwrap().unwrap();
     assert_eq!(east.name(), b"<+04:30>-04:30");
-    assert_eq!(localtime::pg_get_timezone_offset(&east), Some(4 * 3600 + 30 * 60));
+    assert_eq!(
+        localtime::pg_get_timezone_offset(&east),
+        Some(4 * 3600 + 30 * 60)
+    );
 
     let odd = pg_tzset_offset(-(3600 + 61)).unwrap().unwrap();
     assert_eq!(odd.name(), b"<+01:01:01>-01:01:01");
@@ -109,7 +116,9 @@ fn tzset_offset_builds_iso_abbreviation() {
 fn tz_handles_outlive_the_resolving_thread_and_the_session_cache() {
     setup();
     let from_thread = std::thread::spawn(|| {
-        let tz = pg_tzset(b"America/Montevideo").unwrap().expect("zone loads");
+        let tz = pg_tzset(b"America/Montevideo")
+            .unwrap()
+            .expect("zone loads");
         assert_eq!(super::session_cache_len(), 1);
         tz
     })
@@ -119,13 +128,17 @@ fn tz_handles_outlive_the_resolving_thread_and_the_session_cache() {
     assert_eq!(tm.tm_zone, Some("-03"));
 
     // A handle taken before the release stays coherent; the cache empties.
-    let here = pg_tzset(b"America/Montevideo").unwrap().expect("zone loads");
+    let here = pg_tzset(b"America/Montevideo")
+        .unwrap()
+        .expect("zone loads");
     assert!(super::session_cache_len() >= 1);
     super::release_session_cache();
     assert_eq!(super::session_cache_len(), 0);
     let tm = localtime::pg_localtime(1_710_054_000, &here).unwrap();
     assert_eq!(tm.tm_zone, Some("-03"));
-    let again = pg_tzset(b"America/Montevideo").unwrap().expect("zone loads");
+    let again = pg_tzset(b"America/Montevideo")
+        .unwrap()
+        .expect("zone loads");
     assert!(!PgTzRef::ptr_eq(&here, &again));
     assert_eq!(again.name(), here.name());
 }
@@ -139,7 +152,9 @@ fn posix_zones_are_uncapped_and_released_with_the_session() {
     let mut keep = Vec::new();
     for i in 1..=5000 {
         let name = format!("<Z{i}>0");
-        let tz = pg_tzset(name.as_bytes()).unwrap().unwrap_or_else(|| panic!("{name} parses"));
+        let tz = pg_tzset(name.as_bytes())
+            .unwrap()
+            .unwrap_or_else(|| panic!("{name} parses"));
         assert_eq!(tz.name(), name.to_ascii_uppercase().as_bytes());
         if i % 1000 == 0 {
             keep.push(tz);
@@ -153,10 +168,17 @@ fn posix_zones_are_uncapped_and_released_with_the_session() {
     super::release_session_cache();
     assert_eq!(super::session_cache_len(), 0);
     for tz in &keep {
-        assert_eq!(PgTzRef::strong_count(tz), 1, "only our handle survives the session");
+        assert_eq!(
+            PgTzRef::strong_count(tz),
+            1,
+            "only our handle survives the session"
+        );
     }
     drop(keep);
-    assert!(weak.iter().all(|w| w.upgrade().is_none()), "released with the last holder");
+    assert!(
+        weak.iter().all(|w| w.upgrade().is_none()),
+        "released with the last holder"
+    );
 }
 
 #[test]
@@ -226,7 +248,10 @@ fn tzset_surfaces_allocate_dir_refusal_as_error() {
         err.message(),
         format!("exceeded maxAllocatedDescs (16) while trying to open directory \"{dir}\"")
     );
-    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INSUFFICIENT_RESOURCES);
+    assert_eq!(
+        err.sqlstate(),
+        ::types_error::ERRCODE_INSUFFICIENT_RESOURCES
+    );
 }
 
 // audit-18.6 b254 (pgtz.c:450 -> common/file_utils.c:592 get_dirent_type):
@@ -314,7 +339,11 @@ fn enumerate_classifies_by_readdir_type_before_stat() {
     let _ = std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o755));
     let _ = std::fs::remove_dir_all(&sub);
     std::fs::create_dir(&sub).unwrap();
-    std::fs::write(format!("{sub}/Zone"), std::fs::read("/usr/share/zoneinfo/UTC").unwrap()).unwrap();
+    std::fs::write(
+        format!("{sub}/Zone"),
+        std::fs::read("/usr/share/zoneinfo/UTC").unwrap(),
+    )
+    .unwrap();
     std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o444)).unwrap();
     let walked = walk_all();
     std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -324,11 +353,18 @@ fn enumerate_classifies_by_readdir_type_before_stat() {
 
 #[test]
 fn tzdir_is_the_share_tree_never_the_host_zoneinfo() {
-    assert_eq!(resolve_tzdir(Some("/sys/tz"), Some("/staged/tz".into())), "/sys/tz");
+    assert_eq!(
+        resolve_tzdir(Some("/sys/tz"), Some("/staged/tz".into())),
+        "/sys/tz"
+    );
     assert_eq!(resolve_tzdir(None, Some("/staged/tz".into())), "/staged/tz");
     let dir = resolve_tzdir(None, None);
     assert!(dir.ends_with("/timezone"), "{dir}");
-    for sys in ["/usr/share/zoneinfo", "/usr/lib/zoneinfo", "/usr/share/lib/zoneinfo"] {
+    for sys in [
+        "/usr/share/zoneinfo",
+        "/usr/lib/zoneinfo",
+        "/usr/share/lib/zoneinfo",
+    ] {
         assert_ne!(dir, sys);
     }
 }

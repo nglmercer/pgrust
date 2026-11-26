@@ -15,11 +15,13 @@ use core::cell::RefCell;
 
 use types_core::Oid;
 use types_error::PgResult;
-use types_nodes::plannodes::{PlannedStmt, Plan};
+use types_nodes::plannodes::{Plan, PlannedStmt};
 use types_nodes::{Node, NodeList, NodeTag};
 use types_portal::ParamListHandle;
 
-use gravity_program::cost::runtime::{GENP_CACHE_MAX as CACHE_MAX, GENP_MIN_SCAN_COST as MIN_SCAN_COST};
+use gravity_program::cost::runtime::{
+    GENP_CACHE_MAX as CACHE_MAX, GENP_MIN_SCAN_COST as MIN_SCAN_COST,
+};
 
 /// One re-estimated scan: its node, relation, range-table index and quals, the plan's rows, and the nodes above it that
 /// hand every row on (`(node, plan rows)`).
@@ -61,9 +63,16 @@ pub fn sites(pstmt: &'static PlannedStmt<'static>) -> Vec<Site> {
 }
 
 /// `n`'s sites into `out`; returns the sites (indexes into `out`) whose rows `n` hands on unchanged.
-fn walk<'m>(pstmt: &'static PlannedStmt<'static>, n: Node<'static>, out: &mut Vec<Site>, m: mcx::Mcx<'m>) -> mcx::PgVec<'m, usize> {
+fn walk<'m>(
+    pstmt: &'static PlannedStmt<'static>,
+    n: Node<'static>,
+    out: &mut Vec<Site>,
+    m: mcx::Mcx<'m>,
+) -> mcx::PgVec<'m, usize> {
     stack_depth_core::check_stack_depth_or_panic();
-    let Some(p) = n.as_plan() else { return mcx::PgVec::new_in(m) };
+    let Some(p) = n.as_plan() else {
+        return mcx::PgVec::new_in(m);
+    };
     let mut below = mcx::PgVec::new_in(m);
     for c in [p.lefttree, p.righttree].into_iter().flatten() {
         mcx::GrowIn::extend_in(&mut below, walk(pstmt, c, out, m));
@@ -93,8 +102,18 @@ fn walk<'m>(pstmt: &'static PlannedStmt<'static>, n: Node<'static>, out: &mut Ve
     // the nodes that hand on every row their one child gives (no qual of their own)
     let hands_on = p.qual.is_nil()
         && p.righttree.is_none()
-        && matches!(n.node_tag(), NodeTag::T_Hash | NodeTag::T_Sort | NodeTag::T_IncrementalSort | NodeTag::T_Material | NodeTag::T_Gather | NodeTag::T_GatherMerge)
-        || n.as_result().is_some_and(|r| r.resconstantqual.is_none() && p.qual.is_nil() && p.righttree.is_none());
+        && matches!(
+            n.node_tag(),
+            NodeTag::T_Hash
+                | NodeTag::T_Sort
+                | NodeTag::T_IncrementalSort
+                | NodeTag::T_Material
+                | NodeTag::T_Gather
+                | NodeTag::T_GatherMerge
+        )
+        || n.as_result().is_some_and(|r| {
+            r.resconstantqual.is_none() && p.qual.is_nil() && p.righttree.is_none()
+        });
     if !hands_on {
         return mcx::PgVec::new_in(m);
     }
@@ -104,17 +123,34 @@ fn walk<'m>(pstmt: &'static PlannedStmt<'static>, n: Node<'static>, out: &mut Ve
     below
 }
 
-fn seq_site(pstmt: &'static PlannedStmt<'static>, n: Node<'static>, p: &'static Plan<'static>) -> Option<Site> {
+fn seq_site(
+    pstmt: &'static PlannedStmt<'static>,
+    n: Node<'static>,
+    p: &'static Plan<'static>,
+) -> Option<Site> {
     let s = n.as_seq_scan()?;
-    if p.total_cost < MIN_SCAN_COST || p.qual.is_nil() || !p.qual.iter().any(gravity_decompose::params::reads_extern) {
+    if p.total_cost < MIN_SCAN_COST
+        || p.qual.is_nil()
+        || !p.qual.iter().any(gravity_decompose::params::reads_extern)
+    {
         return None;
     }
     let varno = s.scan.scanrelid;
-    let rte = pstmt.rtable.nth((varno as usize).checked_sub(1)?).as_range_tbl_entry()?;
+    let rte = pstmt
+        .rtable
+        .nth((varno as usize).checked_sub(1)?)
+        .as_range_tbl_entry()?;
     if rte.relid == 0 || rte.inh {
         return None;
     }
-    Some(Site { node: p.plan_node_id, relid: rte.relid, varno, quals: &p.qual, rows: p.plan_rows, ups: Vec::new() }) // alloc: Program
+    Some(Site {
+        node: p.plan_node_id,
+        relid: rte.relid,
+        varno,
+        quals: &p.qual,
+        rows: p.plan_rows,
+        ups: Vec::new(),
+    }) // alloc: Program
 }
 
 /// The custom plan's rows of each site under `params` (`None`: the seam declined the relation).
@@ -123,7 +159,13 @@ pub fn estimate_rows(sites: &[Site], params: ParamListHandle) -> PgResult<Vec<Op
     let mut out = Vec::with_capacity(sites.len()); // alloc: Program
     for s in sites {
         let quals: mcx::PgVec<'_, Node<'_>> = mcx::CollectIn::collect_in(s.quals.iter(), cx.mcx());
-        out.push(planner_seams::scan_restriction_rows::call(cx.mcx(), s.relid, s.varno, &quals, params)?); // alloc: Program
+        out.push(planner_seams::scan_restriction_rows::call(
+            cx.mcx(),
+            s.relid,
+            s.varno,
+            &quals,
+            params,
+        )?); // alloc: Program
     }
     Ok(out)
 }
@@ -131,7 +173,11 @@ pub fn estimate_rows(sites: &[Site], params: ParamListHandle) -> PgResult<Vec<Op
 /// The custom plan's rows of each site under `params`, as octaves of the plan's rows.
 pub fn estimate(sites: &[Site], params: ParamListHandle) -> PgResult<Box<[i8]>> {
     let rows = estimate_rows(sites, params)?;
-    Ok(sites.iter().zip(rows).map(|(s, r)| r.map_or(0, |r| octave(r, s.rows))).collect()) // alloc: Program
+    Ok(sites
+        .iter()
+        .zip(rows)
+        .map(|(s, r)| r.map_or(0, |r| octave(r, s.rows)))
+        .collect()) // alloc: Program
 }
 
 /// The node rows an admission under `octaves` lowers with: each moved site's rows and its hand-on nodes', scaled by the
@@ -166,7 +212,9 @@ pub fn params_fp(params: ParamListHandle) -> u64 {
                 continue;
             }
             let payload = match gravity_fn::typesem::storage::len_byval(p.ptype) {
-                Ok((-1, false)) => gravity_decompose::expr::varlena_payload(p.value.as_usize() as *const u8),
+                Ok((-1, false)) => {
+                    gravity_decompose::expr::varlena_payload(p.value.as_usize() as *const u8)
+                }
                 _ => None,
             };
             match payload {
@@ -189,7 +237,13 @@ impl Genp {
     /// This execution's octaves: cached per parameter values, else estimated and cached.
     pub fn now(&self, params: ParamListHandle) -> PgResult<Box<[i8]>> {
         let fp = params_fp(params);
-        if let Some(o) = self.cache.borrow().iter().find(|x| x.0 == fp).map(|x| x.1.clone()) {
+        if let Some(o) = self
+            .cache
+            .borrow()
+            .iter()
+            .find(|x| x.0 == fp)
+            .map(|x| x.1.clone())
+        {
             return Ok(o);
         }
         let o = estimate(&self.sites, params)?;

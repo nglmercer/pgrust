@@ -71,20 +71,38 @@ pub(crate) fn base_group(gx: &Gx<'_, '_>, g: &GroupDecl<'_>) -> bool {
 
 /// The consumed regions of pipeline `k`, an emit of group `g`, that hold `g`'s cascaded sets' groups, in their order:
 /// `None` where `g` is no cascade's base. A drain of the emit's array (`drain`) gathers nothing again: none.
-pub(crate) fn extras<'g>(gx: &Gx<'g, '_>, k: usize, g: &GroupDecl<'_>, drain: bool) -> Option<PgVec<'g, u64>> {
+pub(crate) fn extras<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    g: &GroupDecl<'_>,
+    drain: bool,
+) -> Option<PgVec<'g, u64>> {
     if drain || !base_group(gx, g) {
         return None;
     }
-    let Some(p) = gx.pipelines().get(k) else { shape(-1, "a cascaded grouping set's emit inside an inner (D4620)") };
+    let Some(p) = gx.pipelines().get(k) else {
+        shape(-1, "a cascaded grouping set's emit inside an inner (D4620)")
+    };
     let node = p.node_id;
     let mut v = PgVec::new_in(gx.mcx);
     for c in gx.graph.cascades.iter().filter(|c| c.base == g.producer) {
-        let at = gx.pipelines().consumed_at(k, c.slot).filter(|_| gx.life_of(k, c.slot) == Some(c.producer));
-        let Some(i) = at else { bug(node, "a cascade base's emit that does not read a cascaded set's group (D4620)") };
+        let at = gx
+            .pipelines()
+            .consumed_at(k, c.slot)
+            .filter(|_| gx.life_of(k, c.slot) == Some(c.producer));
+        let Some(i) = at else {
+            bug(
+                node,
+                "a cascade base's emit that does not read a cascaded set's group (D4620)",
+            )
+        };
         v.push_in(i as u64);
     }
     if v.len() > gravity_kernels::host_abi::EMIT_EXTRAS_MAX {
-        shape(node, "more cascaded grouping sets than the emit gathers (D4620)");
+        shape(
+            node,
+            "more cascaded grouping sets than the emit gathers (D4620)",
+        );
     }
     Some(v)
 }
@@ -98,9 +116,17 @@ struct Src {
 pub(crate) fn make_source<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let node = gx.pipelines()[k].node_id;
-    let Some(c) = at(gx, k) else { bug(node, "a cascaded grouping set's source with no cascade (D4620)") };
+    let Some(c) = at(gx, k) else {
+        bug(
+            node,
+            "a cascaded grouping set's source with no cascade (D4620)",
+        )
+    };
     if !matches!(gx.pipelines()[k].source, Source::Breaker { .. }) {
-        bug(node, "a cascaded grouping set's source that is not its parent's breaker (D4620)");
+        bug(
+            node,
+            "a cascaded grouping set's source that is not its parent's breaker (D4620)",
+        );
     }
     // the parents' records are sealed before this pipeline runs: its claims are their owner runs, the base producer's
     // claims site nominal (no row is read through it); a producer with none keeps the one call on the leader
@@ -119,14 +145,39 @@ impl SourceMech for Src {
         let (done, l_go) = (b.icmp(IntCond::Sge, at, env.one), b.create_block(&[]));
         b.cond_br(done, (l_eof, &[env.zero]), (l_go, &[]));
         b.switch_to(l_go);
-        Win { cursor: at, end: env.one, facts: WinConds::default() }
+        Win {
+            cursor: at,
+            end: env.one,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: gravity_ir::Value, carry: Carry<'e>, next: gravity_ir::Value) -> RowVals<'e> {
-        RowVals { row: Row::new_in(env.mcx), vals: PgVec::new_in(env.mcx), cols: PgVec::new_in(env.mcx), carry, next, at: j }
+    fn row<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: gravity_ir::Value,
+        carry: Carry<'e>,
+        next: gravity_ir::Value,
+    ) -> RowVals<'e> {
+        RowVals {
+            row: Row::new_in(env.mcx),
+            vals: PgVec::new_in(env.mcx),
+            cols: PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
 
-    fn write_back(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, cur: gravity_ir::Value, _out: gravity_ir::Value) {
+    fn write_back(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        cur: gravity_ir::Value,
+        _out: gravity_ir::Value,
+    ) {
         write_pos(b, env, cur);
     }
 
@@ -141,9 +192,22 @@ impl SourceMech for Src {
         match self.site {
             Some(s) => {
                 fires::fire("gsets.cascade.wide"); // shapecheck fire signal (D4620): a cascaded set folds its parent's runs by claims
-                Pipeline { parallel: Parallel::Eligible, driving_site: s as i16, predicted_rows: self.rows, claims: ClaimKind::OwnerRuns, cascade: true, ..d }
+                Pipeline {
+                    parallel: Parallel::Eligible,
+                    driving_site: s as i16,
+                    predicted_rows: self.rows,
+                    claims: ClaimKind::OwnerRuns,
+                    cascade: true,
+                    ..d
+                }
             }
-            None => Pipeline { parallel: Parallel::Ineligible { site: d.driving_site, reason: Why::NoDrivingSite }, ..d },
+            None => Pipeline {
+                parallel: Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason: Why::NoDrivingSite,
+                },
+                ..d
+            },
         }
     }
 }
@@ -159,26 +223,61 @@ struct End<'g> {
 pub(crate) fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     let gx = px.gx;
     let node = gx.pipelines()[k].node_id;
-    let Some(c) = at(gx, k) else { bug(node, "a cascaded grouping set's end with no cascade (D4620)") };
-    let Some(g) = gx.group_of(c.base) else { bug(node, "a cascaded grouping set whose base declares no group (D4620)") };
+    let Some(c) = at(gx, k) else {
+        bug(
+            node,
+            "a cascaded grouping set's end with no cascade (D4620)",
+        )
+    };
+    let Some(g) = gx.group_of(c.base) else {
+        bug(
+            node,
+            "a cascaded grouping set whose base declares no group (D4620)",
+        )
+    };
     let rec = GroupRec::new(px, g);
     // decompose declares the cascade over a record the owners merge alone (`gsets_tag::map`): no hosted state, no
     // order-keyed extreme, the tag a one-word integer key 0
-    let tagged = matches!(g.keys.first().map(|kd| kd.kind), Some(KeyKind::I32 | KeyKind::I64)) && rec.wpk.first() == Some(&1);
-    if rec.handle.is_some() || rec.layout.slot_kinds().contains(&gravity_abi::breaker::SlotKind::AggState) || rec.layout.flags & gravity_abi::breaker::LAYOUT_KEY_TIES != 0 || rec.dep.is_some() || !tagged {
-        shape(node, "a cascaded grouping set over a record the owners' merge does not take (D4620)");
+    let tagged = matches!(
+        g.keys.first().map(|kd| kd.kind),
+        Some(KeyKind::I32 | KeyKind::I64)
+    ) && rec.wpk.first() == Some(&1);
+    if rec.handle.is_some()
+        || rec
+            .layout
+            .slot_kinds()
+            .contains(&gravity_abi::breaker::SlotKind::AggState)
+        || rec.layout.flags & gravity_abi::breaker::LAYOUT_KEY_TIES != 0
+        || rec.dep.is_some()
+        || !tagged
+    {
+        shape(
+            node,
+            "a cascaded grouping set over a record the owners' merge does not take (D4620)",
+        );
     }
     let nk = rec.layout.nkeys();
-    let (mut and, mut or) = (mcx::pg_vec![in px.mcx(); u64::MAX; nk], mcx::pg_vec![in px.mcx(); 0u64; nk]);
+    let (mut and, mut or) = (
+        mcx::pg_vec![in px.mcx(); u64::MAX; nk],
+        mcx::pg_vec![in px.mcx(); 0u64; nk],
+    );
     let tw = rec.key_words(0).0;
     (and[tw], or[tw]) = (0, c.tag as u32 as u64);
     let mut reps: PgVec<'_, u64> = PgVec::new_in(px.mcx());
     for &i in c.nulls.iter() {
         let i = i as usize;
         let (first, n) = rec.key_words(i);
-        let Some((fw, bit)) = rec.null_flag(i) else { bug(node, "a cascaded set's NULL key in a record without flags (D4620)") };
+        let Some((fw, bit)) = rec.null_flag(i) else {
+            bug(
+                node,
+                "a cascaded set's NULL key in a record without flags (D4620)",
+            )
+        };
         if first + n > nk || fw >= nk {
-            bug(node, "a cascaded set's NULL key past the record's key words (D4620)");
+            bug(
+                node,
+                "a cascaded set's NULL key past the record's key words (D4620)",
+            );
         }
         for w in first..first + n {
             (and[w], or[w]) = (0, 0);
@@ -191,15 +290,38 @@ pub(crate) fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn E
     let mut desc: PgVec<'g, u64> = PgVec::new_in(px.mcx());
     desc.extend_in([c.parents.len() as u64, tw as u64, reps.len() as u64]);
     for p in c.parents.iter() {
-        let Some(i) = gx.pipelines().consumed_at(k, p.slot) else { bug(node, "a cascaded set's parent its pipeline does not read (D4620)") };
+        let Some(i) = gx.pipelines().consumed_at(k, p.slot) else {
+            bug(
+                node,
+                "a cascaded set's parent its pipeline does not read (D4620)",
+            )
+        };
         desc.extend_in([i as u64, p.tag as u32 as u64]);
     }
     desc.extend_in(and.iter().copied());
     desc.extend_in(or.iter().copied());
     desc.extend_in(reps.iter().copied());
-    debug_assert_eq!(desc.len(), gravity_kernels::host_abi::cascade_desc_words(c.parents.len(), nk, reps.len()));
+    debug_assert_eq!(
+        desc.len(),
+        gravity_kernels::host_abi::cascade_desc_words(c.parents.len(), nk, reps.len())
+    );
     // the base's record, hashed; the key copies its records name are the base's (no compact reclaims them here)
-    let mut t = TableDecl { image_words: nk as u16, record_bytes: rec.layout.size() - 8 * nk as u32, expect: None, depth: Depth::TOP, life: LifeId(k as u16), layout: rec.layout, state_off: 0, key: KeyShape { code: None, dense: None, domain: Domain::Unknown }, facts: 0, copies: 0 };
+    let mut t = TableDecl {
+        image_words: nk as u16,
+        record_bytes: rec.layout.size() - 8 * nk as u32,
+        expect: None,
+        depth: Depth::TOP,
+        life: LifeId(k as u16),
+        layout: rec.layout,
+        state_off: 0,
+        key: KeyShape {
+            code: None,
+            dense: None,
+            domain: Domain::Unknown,
+        },
+        facts: 0,
+        copies: 0,
+    };
     t.facts = crate::table::size::declare_facts(px, k, &t, 0);
     let resident = (0..rec.reps.len()).any(|i| crate::table::emit_key::copies(&rec, i));
     fires::fire("gsets.cascade.end"); // shapecheck fire signal (D4620): a cascaded set's table of its parent's records
@@ -221,7 +343,13 @@ impl EndMech for End<'_> {
 
     /// The claim's row: its share of the parent folded into the table (`agg_cascade`), the bypass word read again (the fold
     /// may have switched the table to its partitions).
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        x: &Exits,
+    ) -> Carry<'e> {
         let st = crate::table::bypass::state(b, env, &self.t);
         let slot = b.declare_stack_slot(8 * self.desc.len() as u32, 8);
         let d = b.stack_addr(slot);
@@ -229,8 +357,15 @@ impl EndMech for End<'_> {
             let v = b.const_raw(Type::I64, w);
             b.store(d, 8 * i as i32, v);
         }
-        let h = crate::table::bypass::host(b, "agg_cascade", &[Type::Ptr, Type::Ptr, Type::Ptr], gravity_abi::host_words!(gravity_kernels::host_abi::agg_cascade(ctx, st, desc)));
-        let r = b.call_host(h, &[env.ctx, st, d], Some(Type::I64)).expect("agg_cascade returns a status");
+        let h = crate::table::bypass::host(
+            b,
+            "agg_cascade",
+            &[Type::Ptr, Type::Ptr, Type::Ptr],
+            gravity_abi::host_words!(gravity_kernels::host_abi::agg_cascade(ctx, st, desc)),
+        );
+        let r = b
+            .call_host(h, &[env.ctx, st, d], Some(Type::I64))
+            .expect("agg_cascade returns a status");
         crate::table::bypass::fail_on(b, env, x, r);
         crate::table::bypass::sync_bypass(b, st);
         Carry::new(b.int_bin(IntBinOp::Add, row.carry.out, env.one), env.mcx)

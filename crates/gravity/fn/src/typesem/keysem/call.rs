@@ -72,7 +72,8 @@ fn sweep() {
     let bound = BOUND.try_with(|h| {
         h.try_borrow_mut()
             .map(|mut v| {
-                let (running, idle): (Vec<Slot>, Vec<Slot>) = core::mem::take(&mut *v).into_iter().partition(Slot::busy); // alloc: Cold
+                let (running, idle): (Vec<Slot>, Vec<Slot>) =
+                    core::mem::take(&mut *v).into_iter().partition(Slot::busy); // alloc: Cold
                 running.iter().for_each(Slot::mark_stale);
                 *v = running;
                 idle
@@ -92,7 +93,14 @@ fn sweep() {
 /// thread-local's return at odd offsets (a store-forwarding stall per call), together 1.14-1.17x on a LANGUAGE internal
 /// comparator and an enum key.
 #[inline]
-fn call<T>(proc: u32, coll: u32, use_: Use, a: u64, b: u64, read: impl FnOnce(crate::NullableDatum) -> Result<T, Box<PgError>>) -> Result<T, Box<PgError>> {
+fn call<T>(
+    proc: u32,
+    coll: u32,
+    use_: Use,
+    a: u64,
+    b: u64,
+    read: impl FnOnce(crate::NullableDatum) -> Result<T, Box<PgError>>,
+) -> Result<T, Box<PgError>> {
     let Some(mut run) = BOUND.with(|h| find(&mut h.borrow_mut(), proc, coll, use_)) else {
         return first_call(proc, coll, use_, a, b, read);
     };
@@ -113,7 +121,14 @@ fn call<T>(proc: u32, coll: u32, use_: Use, a: u64, b: u64, read: impl FnOnce(cr
 /// its bindings hold nothing and stand.
 #[cold]
 #[inline(never)]
-fn first_call<T>(proc: u32, coll: u32, use_: Use, a: u64, b: u64, read: impl FnOnce(crate::NullableDatum) -> Result<T, Box<PgError>>) -> Result<T, Box<PgError>> {
+fn first_call<T>(
+    proc: u32,
+    coll: u32,
+    use_: Use,
+    a: u64,
+    b: u64,
+    read: impl FnOnce(crate::NullableDatum) -> Result<T, Box<PgError>>,
+) -> Result<T, Box<PgError>> {
     let (first, held) = gravity_deps::Held::fill(|| -> Result<_, Box<PgError>> {
         let mut run = bind(proc, coll, use_)?;
         let r = call_run(&mut run, a, b);
@@ -136,7 +151,8 @@ fn call_run(run: &mut Running, a: u64, b: u64) -> Result<crate::NullableDatum, B
         Some([0, _]) | None => (a, b),
         Some(_) => (b, a),
     };
-    run.f().call_site(&[Datum::from_u64(x), Datum::from_u64(y)], &[false, false])
+    run.f()
+        .call_site(&[Datum::from_u64(x), Datum::from_u64(y)], &[false, false])
 }
 
 /// An idle binding of `(proc, coll, use_)` whose recorded reads stand (`Bound::held`; and, for an alias, under the current
@@ -144,15 +160,26 @@ fn call_run(run: &mut Running, a: u64, b: u64) -> Result<crate::NullableDatum, B
 /// afresh); a running one is never touched (D3375 N7: its call ends first, then the next find drops it).
 #[inline]
 fn find(h: &mut Vec<Slot>, proc: u32, coll: u32, use_: Use) -> Option<Running> {
-    let i = h.iter().position(|s| s.idle().is_some_and(|e| e.proc == proc && e.coll == coll && e.use_ == use_ && !e.stale &&e.alias.is_none_or(|a|a.current())))?;
-    if !h[i].idle().is_some_and(|e| e.held.as_ref().is_none_or(gravity_deps::Held::stands)) {
+    let i = h.iter().position(|s| {
+        s.idle().is_some_and(|e| {
+            e.proc == proc
+                && e.coll == coll
+                && e.use_ == use_
+                && !e.stale
+                && e.alias.is_none_or(|a| a.current())
+        })
+    })?;
+    if !h[i]
+        .idle()
+        .is_some_and(|e| e.held.as_ref().is_none_or(gravity_deps::Held::stands))
+    {
         drop(h.swap_remove(i));
         return None;
     }
     let s = &mut h[i];
     let e = s.idle_mut().expect("gravity: the binding found idle");
     e.calls += 1;
-    if e.calls.is_multiple_of( WINDOW) {
+    if e.calls.is_multiple_of(WINDOW) {
         e.f.reset_window();
     }
     Some(s.run())
@@ -163,19 +190,35 @@ fn find(h: &mut Vec<Slot>, proc: u32, coll: u32, use_: Use) -> Option<Running> {
 /// current (the user or the search path moved) leaves the table here.
 #[cold]
 fn bind(proc: u32, coll: u32, use_: Use) -> Result<Running, Box<PgError>> {
-    let alias = if use_ == Use::Order && coll == 0 { alias::read(proc) } else { None };
+    let alias = if use_ == Use::Order && coll == 0 {
+        alias::read(proc)
+    } else {
+        None
+    };
     BOUND.with(|h| {
         let mut h = h.borrow_mut();
-        h.retain(|s|s.idle().is_none_or(|e| e.alias.is_none_or(|a|a.current())));
+        h.retain(|s| s.idle().is_none_or(|e| e.alias.is_none_or(|a| a.current())));
         let Some(f) = FmgrCall::bind_resolved(alias.map_or(proc, |(b, _)| b), 2, coll) else {
-            return Err(Box::new(PgError::error(match use_ { // alloc: Cold
+            return Err(Box::new(PgError::error(match use_ {
+                // alloc: Cold
                 Use::Order => "gravity: a comparator no lowering resolved",
                 Use::Equal => "gravity: an equality no lowering resolved",
             })));
         };
         let f = if use_ == Use::Order { f.untracked() } else { f };
         let alias = alias.map(|(_, a)| a);
-        h.push(Slot::new(Bound { proc, coll, use_, calls: 1, busy: false, stale: false, held: None, f, seen: std::collections::HashSet::new(), alias })); // alloc: Cold
+        h.push(Slot::new(Bound {
+            proc,
+            coll,
+            use_,
+            calls: 1,
+            busy: false,
+            stale: false,
+            held: None,
+            f,
+            seen: std::collections::HashSet::new(),
+            alias,
+        })); // alloc: Cold
         sweep_at_session_end();
         let i = h.len() - 1;
         Ok(h[i].run())
@@ -186,7 +229,9 @@ fn bind(proc: u32, coll: u32, use_: Use) -> Result<Running, Box<PgError>> {
 /// once per compared pair. Off the hot path only (gravity_exec's `Backend::reporting` reads it while the report is on,
 /// never `call`).
 pub fn calling() -> bool {
-    BOUND.try_with(|h| h.try_borrow().is_ok_and(|v| v.iter().any(|s| s.busy()))).unwrap_or(false)
+    BOUND
+        .try_with(|h| h.try_borrow().is_ok_and(|v| v.iter().any(|s| s.busy())))
+        .unwrap_or(false)
 }
 
 /// Btree support function `proc` (a resolution id) over `a`, `b` under `coll`. `Err`: the bind or the call raised, or
@@ -195,7 +240,9 @@ pub fn calling() -> bool {
 pub fn order(proc: u32, coll: u32, a: u64, b: u64) -> Result<Ordering, Box<PgError>> {
     call(proc, coll, Use::Order, a, b, |r| match r {
         r if !r.isnull => Ok(r.value.as_i32().cmp(&0)),
-        _ => Err(Box::new(PgError::error("gravity: a btree comparator returned NULL"))), // alloc: Cold
+        _ => Err(Box::new(PgError::error(
+            "gravity: a btree comparator returned NULL",
+        ))), // alloc: Cold
     })
 }
 
@@ -203,7 +250,9 @@ pub fn order(proc: u32, coll: u32, a: u64, b: u64) -> Result<Ordering, Box<PgErr
 /// false or NULL (EEOP_QUAL reads a NULL as not equal). `Err`: the bind or the call raised.
 #[inline]
 pub fn equal(proc: u32, coll: u32, a: u64, b: u64) -> Result<bool, Box<PgError>> {
-    call(proc, coll, Use::Equal, a, b, |r| Ok(!r.isnull && r.value.as_bool()))
+    call(proc, coll, Use::Equal, a, b, |r| {
+        Ok(!r.isnull && r.value.as_bool())
+    })
 }
 
 /// How a sort key's two stored copies compare as bytes, read by the caller before any call.
@@ -224,7 +273,15 @@ pub enum Copies<'a> {
 /// calls the user's comparator, equal copies too, as PostgreSQL's sort does (it may raise on them; its caller may pass
 /// `Differ` without comparing).
 #[inline]
-pub fn order_pair(proc: u32, coll: u32, eqtie: bool, user: bool, copies: Copies<'_>, da: u64, db: u64) -> Result<Ordering, Box<PgError>> {
+pub fn order_pair(
+    proc: u32,
+    coll: u32,
+    eqtie: bool,
+    user: bool,
+    copies: Copies<'_>,
+    da: u64,
+    db: u64,
+) -> Result<Ordering, Box<PgError>> {
     if user {
         return order(proc, coll, da, db);
     }
@@ -249,13 +306,23 @@ fn order_seen(proc: u32, payload: &[u8], da: u64, db: u64) -> Result<Ordering, B
     if payload.len() > SEEN_BYTES {
         return order(proc, 0, da, db);
     }
-    let known = BOUND.with(|h| h.borrow().iter().filter_map(Slot::idle).any(|e| e.proc == proc && e.coll == 0 && e.use_ == Use::Order && e.seen.contains(payload)));
+    let known = BOUND.with(|h| {
+        h.borrow().iter().filter_map(Slot::idle).any(|e| {
+            e.proc == proc && e.coll == 0 && e.use_ == Use::Order && e.seen.contains(payload)
+        })
+    });
     if known {
         return Ok(Ordering::Equal);
     }
     let o = order(proc, 0, da, db)?;
     BOUND.with(|h| {
-        if let Some(e) = h.borrow_mut().iter_mut().filter_map(Slot::idle_mut).find(|e| e.proc == proc && e.coll == 0 && e.use_ == Use::Order).filter(|e| e.seen.len() < SEEN_VALUES) {
+        if let Some(e) = h
+            .borrow_mut()
+            .iter_mut()
+            .filter_map(Slot::idle_mut)
+            .find(|e| e.proc == proc && e.coll == 0 && e.use_ == Use::Order)
+            .filter(|e| e.seen.len() < SEEN_VALUES)
+        {
             e.seen.insert(payload.into()); // alloc: Exec
         }
     });
@@ -265,7 +332,12 @@ fn order_seen(proc: u32, payload: &[u8], da: u64, db: u64) -> Result<Ordering, B
 /// Empties every binding's `seen` values (`order_seen`'s): a sort's, a put's or a merge's comparator starts, so they never
 /// outlive the statement whose types they saw.
 pub fn forget_seen() {
-    BOUND.with(|h| h.borrow_mut().iter_mut().filter_map(Slot::idle_mut).for_each(|e| e.seen.clear()));
+    BOUND.with(|h| {
+        h.borrow_mut()
+            .iter_mut()
+            .filter_map(Slot::idle_mut)
+            .for_each(|e| e.seen.clear())
+    });
 }
 
 #[cfg(test)]
@@ -275,7 +347,18 @@ mod tests {
     /// btint4cmp (351), the fixture comparator of resolved.rs's tests: no catalog. OID-17 (overfit, keep): test-only.
     fn slot(id: u32, held: Option<gravity_deps::Held>) -> Slot {
         let f = FmgrCall::bind_resolved(id, 2, 0).expect("a resolved builtin binds");
-        Slot::new(Bound { proc: id, coll: 0, use_: Use::Order, calls: 0, busy: false, stale: false, held, f, seen: std::collections::HashSet::new(), alias: None })
+        Slot::new(Bound {
+            proc: id,
+            coll: 0,
+            use_: Use::Order,
+            calls: 0,
+            busy: false,
+            stale: false,
+            held,
+            f,
+            seen: std::collections::HashSet::new(),
+            alias: None,
+        })
     }
 
     /// D3375 N7 + C3: a call reaches its binding through `Running` while the table changes under it (its function's body
@@ -297,32 +380,62 @@ mod tests {
         let mut run = BOUND.with(|h| h.borrow_mut()[0].run());
         BOUND.with(|h| {
             let h = h.borrow();
-            assert!(h[0].idle().is_none() && h[1].idle().is_some(), "only the idle binding is handed out");
+            assert!(
+                h[0].idle().is_none() && h[1].idle().is_some(),
+                "only the idle binding is handed out"
+            );
         });
         gravity_deps::invalidate_rel_for_test(r);
         BOUND.with(|h| {
             let mut h = h.borrow_mut();
-            assert!(find(&mut h, id, 0, Use::Order).is_none(), "the idle binding's read moved");
-            assert_eq!(h.len(), 1, "the find dropped the idle binding and kept the running one");
+            assert!(
+                find(&mut h, id, 0, Use::Order).is_none(),
+                "the idle binding's read moved"
+            );
+            assert_eq!(
+                h.len(),
+                1,
+                "the find dropped the idle binding and kept the running one"
+            );
             assert!(h[0].busy() && h[0].runs(&run));
         });
         // `run` keeps the binding live and busy; this is its call
-        let r = run.f().call_site(&[Datum::from_u64(1), Datum::from_u64(2)], &[false, false]).expect("btint4cmp");
+        let r = run
+            .f()
+            .call_site(&[Datum::from_u64(1), Datum::from_u64(2)], &[false, false])
+            .expect("btint4cmp");
         assert!(r.value.as_i32() < 0);
         drop(run);
         BOUND.with(|h| {
             let mut h = h.borrow_mut();
-            assert!(h.len() == 1 && h[0].idle().is_some(), "its call ended: idle, still in the table");
-            assert!(find(&mut h, id, 0, Use::Order).is_none() && h.is_empty(), "the next find dropped it");
+            assert!(
+                h.len() == 1 && h[0].idle().is_some(),
+                "its call ended: idle, still in the table"
+            );
+            assert!(
+                find(&mut h, id, 0, Use::Order).is_none() && h.is_empty(),
+                "the next find dropped it"
+            );
         });
         // a fresh call binds anew, its first call recorded: one idle binding that stands
         assert_eq!(order(id, 0, 2, 1).expect("order"), Ordering::Greater);
         BOUND.with(|h| {
             let h = h.borrow();
-            assert!(h.len() == 1 && h[0].idle().is_some_and(|e| e.held.as_ref().is_some_and(gravity_deps::Held::stands)));
+            assert!(
+                h.len() == 1
+                    && h[0]
+                        .idle()
+                        .is_some_and(|e| e.held.as_ref().is_some_and(gravity_deps::Held::stands))
+            );
         });
         assert_eq!(order(id, 0, 1, 2).expect("order"), Ordering::Less);
-        BOUND.with(|h| assert_eq!(h.borrow().len(), 1, "the second call found the first's binding"));
+        BOUND.with(|h| {
+            assert_eq!(
+                h.borrow().len(),
+                1,
+                "the second call found the first's binding"
+            )
+        });
     }
 
     /// D3402: an alias binding calls its built-in over the permuted pair (btint4cmp bound as `SELECT btint4cmp($2, $1)`
@@ -333,7 +446,18 @@ mod tests {
         for (perm, want) in [([1u8, 0u8], Ordering::Greater), ([0, 1], Ordering::Less)] {
             let f = FmgrCall::bind_resolved(id, 2, 0).expect("a resolved builtin binds");
             let alias = Some(Alias::for_test(perm));
-            let mut s = Slot::new(Bound { proc: id, coll: 0, use_: Use::Order, calls: 0, busy: false, stale: false, held: None, f, seen: std::collections::HashSet::new(), alias });
+            let mut s = Slot::new(Bound {
+                proc: id,
+                coll: 0,
+                use_: Use::Order,
+                calls: 0,
+                busy: false,
+                stale: false,
+                held: None,
+                f,
+                seen: std::collections::HashSet::new(),
+                alias,
+            });
             let mut run = s.run();
             assert_eq!(run.perm(), Some(perm));
             let r = call_run(&mut run, 1, 2).expect("btint4cmp");
@@ -347,31 +471,104 @@ mod tests {
     /// collation and returning the comparator's type, and nothing else.
     #[test]
     fn one_call_reads_a_permuted_builtin_call_only() {
-        use types_nodes::primnodes::{CoercionForm, FuncExpr, OpExpr, Param, ParamKind, RelabelType};
+        use types_nodes::primnodes::{
+            CoercionForm, FuncExpr, OpExpr, Param, ParamKind, RelabelType,
+        };
         use types_nodes::{Node, NodeList};
         fn param(m: mcx::Mcx<'_>, id: i32) -> Node<'_> {
-            Node::mk(m, Param { paramkind: ParamKind::PARAM_EXTERN, paramid: id, paramtype: 20, paramtypmod: -1, location: -1, ..Default::default() }).unwrap()
+            Node::mk(
+                m,
+                Param {
+                    paramkind: ParamKind::PARAM_EXTERN,
+                    paramid: id,
+                    paramtype: 20,
+                    paramtypmod: -1,
+                    location: -1,
+                    ..Default::default()
+                },
+            )
+            .unwrap()
         }
         fn relabel<'m>(m: mcx::Mcx<'m>, n: Node<'m>) -> Node<'m> {
-            Node::mk(m, RelabelType { arg: n, resulttype: 20, resulttypmod: -1, resultcollid: 0, relabelformat: CoercionForm::COERCE_IMPLICIT_CAST, location: -1 }).unwrap()
+            Node::mk(
+                m,
+                RelabelType {
+                    arg: n,
+                    resulttype: 20,
+                    resulttypmod: -1,
+                    resultcollid: 0,
+                    relabelformat: CoercionForm::COERCE_IMPLICIT_CAST,
+                    location: -1,
+                },
+            )
+            .unwrap()
         }
         fn call<'m>(m: mcx::Mcx<'m>, args: &[Node<'m>], ret: u32, coll: u32) -> Node<'m> {
-            Node::mk(m, FuncExpr { funcid: 2189, funcresulttype: ret, inputcollid: coll, args: NodeList::from_slice(m, args).unwrap(), ..Default::default() }).unwrap()
+            Node::mk(
+                m,
+                FuncExpr {
+                    funcid: 2189,
+                    funcresulttype: ret,
+                    inputcollid: coll,
+                    args: NodeList::from_slice(m, args).unwrap(),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
         }
         let cx = mcx::MemoryContext::new_bump("keysem alias test");
         let m = cx.mcx();
         let param = |id: i32| param(m, id);
         let relabel = |n| relabel(m, n);
         let func = |args: &[_], ret: u32, coll: u32| call(m, args, ret, coll);
-        assert_eq!(alias::one_call(func(&[param(2), param(1)], 23, 0), 23), Some((2189, [1, 0])));
-        assert_eq!(alias::one_call(func(&[param(1), relabel(param(2))], 23, 0), 23), Some((2189, [0, 1])));
-        let op = Node::mk(m, OpExpr { opno: 413, opfuncid: 469, opresulttype: 23, args: NodeList::from_slice(m, &[param(2), param(1)]).unwrap(), ..Default::default() }).unwrap();
+        assert_eq!(
+            alias::one_call(func(&[param(2), param(1)], 23, 0), 23),
+            Some((2189, [1, 0]))
+        );
+        assert_eq!(
+            alias::one_call(func(&[param(1), relabel(param(2))], 23, 0), 23),
+            Some((2189, [0, 1]))
+        );
+        let op = Node::mk(
+            m,
+            OpExpr {
+                opno: 413,
+                opfuncid: 469,
+                opresulttype: 23,
+                args: NodeList::from_slice(m, &[param(2), param(1)]).unwrap(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(alias::one_call(op, 23), Some((469, [1, 0])));
-        assert_eq!(alias::one_call(func(&[param(1), param(1)], 23, 0), 23), None, "one argument twice");
-        assert_eq!(alias::one_call(func(&[param(2), param(1)], 16, 0), 23), None, "another result type");
-        assert_eq!(alias::one_call(func(&[param(2), param(1)], 23, 100), 23), None, "an input collation");
-        assert_eq!(alias::one_call(func(&[param(1)], 23, 0), 23), None, "one argument");
-        assert_eq!(alias::one_call(func(&[param(2), func(&[param(1), param(2)], 23, 0)], 23, 0), 23), None, "a nested call");
+        assert_eq!(
+            alias::one_call(func(&[param(1), param(1)], 23, 0), 23),
+            None,
+            "one argument twice"
+        );
+        assert_eq!(
+            alias::one_call(func(&[param(2), param(1)], 16, 0), 23),
+            None,
+            "another result type"
+        );
+        assert_eq!(
+            alias::one_call(func(&[param(2), param(1)], 23, 100), 23),
+            None,
+            "an input collation"
+        );
+        assert_eq!(
+            alias::one_call(func(&[param(1)], 23, 0), 23),
+            None,
+            "one argument"
+        );
+        assert_eq!(
+            alias::one_call(
+                func(&[param(2), func(&[param(1), param(2)], 23, 0)], 23, 0),
+                23
+            ),
+            None,
+            "a nested call"
+        );
         assert_eq!(alias::one_call(param(1), 23), None, "no call");
     }
 
@@ -392,7 +589,10 @@ mod tests {
         sweep();
         BOUND.with(|h| {
             let h = h.borrow();
-            assert!(h.len() == 1 && h[0].busy() && h[0].runs(&run), "the running binding stays");
+            assert!(
+                h.len() == 1 && h[0].busy() && h[0].runs(&run),
+                "the running binding stays"
+            );
         });
         drop(run);
         BOUND.with(|h| assert!(h.borrow().is_empty()));

@@ -37,7 +37,7 @@ use gravity_expr::nodes::bool::BoolNode;
 use gravity_expr::nodes::var::Var;
 use gravity_expr::{Compiled, ExprNode, Kids, NodeId, Source as VarSource};
 use gravity_program::{shred_kind, LaneId, SiteDesc};
-use mcx::{CollectIn, Mcx, PgVec, GrowIn};
+use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::list::NodeList;
 use types_nodes::primnodes::OUTER_VAR;
 use types_nodes::Node;
@@ -63,7 +63,8 @@ fn kind_of(funcid: u32) -> Option<u8> {
 
 /// The road on: percode.length not switched off and the per-value length form on.
 fn on() -> bool {
-    !strategy::off().has(crate::dict::percode_len::PERCODE_LENGTH) && crate::dict::face::PerValue::Length.on()
+    !strategy::off().has(crate::dict::percode_len::PERCODE_LENGTH)
+        && crate::dict::face::PerValue::Length.on()
 }
 
 /// L0-g: pipeline `k`'s length columns (`cols`: octet, character and emptiness) as length lanes of `site`; a column
@@ -93,8 +94,12 @@ pub(crate) fn engage(px: &Px<'_, '_>, k: usize, site: &mut SiteDesc) {
 /// Whether step `j` of pipeline `k` reads the scan's row (jsonb_nums.rs `row_step`).
 fn row_step(gx: &Gx<'_, '_>, k: usize, j: usize) -> bool {
     let ops = &gx.pipelines()[k].ops;
-    let lead = ops.iter().take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_))).count();
-    j <= ops.len() && (j <= lead || (j == lead + 1 && matches!(ops.get(lead), Some(Op::Project(_)))))
+    let lead = ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_)))
+        .count();
+    j <= ops.len()
+        && (j <= lead || (j == lead + 1 && matches!(ops.get(lead), Some(Op::Project(_)))))
 }
 
 /// `n` as a length call (`kind_of`) of a column of scan `scanrelid` (bare, or under a transparent relabel): its attno
@@ -117,7 +122,10 @@ fn empty_read(n: Node<'_>, scanrelid: i32) -> Option<i16> {
     };
     gravity_expr::percode::text_eq_body(f)?;
     let [a, b] = args.as_slice() else { return None };
-    let empty = b.as_const().and_then(gravity_decompose::expr::const_text_empty) == Some(true);
+    let empty = b
+        .as_const()
+        .and_then(gravity_decompose::expr::const_text_empty)
+        == Some(true);
     (empty && gravity_fn::typesem::expr::built_coll_bytes(coll)).then_some(())?;
     column(*a, scanrelid, None)
 }
@@ -125,35 +133,65 @@ fn empty_read(n: Node<'_>, scanrelid: i32) -> Option<i16> {
 /// R4: whether every read of column `attno` in `n` is a length read: an `octet_length` call of it (over the scan row, or
 /// with `proj` an `OUTER_VAR` through its entries) or, with `empty`, an emptiness test of it over the scan row. False for a
 /// whole-row read, a column of no row it knows (an `OUTER_VAR` with no `proj`), and a node `kids` does not know.
-fn lengths_only<'p>(n: Node<'p>, attno: i16, scanrelid: i32, proj: Option<&NodeList<'p>>, empty: bool) -> bool {
+fn lengths_only<'p>(
+    n: Node<'p>,
+    attno: i16,
+    scanrelid: i32,
+    proj: Option<&NodeList<'p>>,
+    empty: bool,
+) -> bool {
     crate::stack_check();
-    if call(n, scanrelid, proj).is_some_and(|(a, _)| a == attno) || (empty && empty_read(n, scanrelid) == Some(attno)) {
+    if call(n, scanrelid, proj).is_some_and(|(a, _)| a == attno)
+        || (empty && empty_read(n, scanrelid) == Some(attno))
+    {
         return true;
     }
-    let unplaced = |v: &types_nodes::primnodes::Var<'_>| v.varlevelsup == 0 && if v.varno == OUTER_VAR { proj.is_none() } else { v.varno != scanrelid || v.varattno <= 0 };
+    let unplaced = |v: &types_nodes::primnodes::Var<'_>| {
+        v.varlevelsup == 0
+            && if v.varno == OUTER_VAR {
+                proj.is_none()
+            } else {
+                v.varno != scanrelid || v.varattno <= 0
+            }
+    };
     if column(n, scanrelid, proj) == Some(attno) || n.as_var().is_some_and(unplaced) {
         return false;
     }
     let mut ok = true;
-    kids(n, &mut |x| ok &= lengths_only(x, attno, scanrelid, proj, empty)) && ok
+    kids(n, &mut |x| {
+        ok &= lengths_only(x, attno, scanrelid, proj, empty)
+    }) && ok
 }
 
 /// R4: of pipeline `k`'s length columns (`octet`, `empty`), those it reads for their lengths alone, each a column lane of
 /// `site`. Only the shapes `rewrite` covers every read of: leading filters and gates over the scan row, then a group
 /// reading the row (`row_step` past the ops) or fed by one projection (`feed`), whose bare entry of the column only the
 /// group's `octet_length` reads consume (passed on as no cell, step/project.rs).
-fn narrow<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, site: &SiteDesc, lens: &[(i16, u8)]) -> PgVec<'g, i16> {
+fn narrow<'g, 'p>(
+    mcx: Mcx<'g>,
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    site: &SiteDesc,
+    lens: &[(i16, u8)],
+) -> PgVec<'g, i16> {
     if !site.shreds.is_empty() {
         return PgVec::new_in(mcx);
     }
     let mut out: PgVec<'g, i16> = PgVec::new_in(mcx);
     for &(a, _) in lens {
-        if !out.contains(&a) && site.lanes().iter().any(|l| l.id == LaneId::Attr(a)) && lengths_only_reads(gx, k, a) {
+        if !out.contains(&a)
+            && site.lanes().iter().any(|l| l.id == LaneId::Attr(a))
+            && lengths_only_reads(gx, k, a)
+        {
             out.push_in(a);
         }
     }
     // a site keeps one column lane at least: a granule's rows are counted off a column's (decompose `driven`)
-    let cols = site.lanes().iter().filter(|l| matches!(l.id, LaneId::Attr(x) if x > 0)).count();
+    let cols = site
+        .lanes()
+        .iter()
+        .filter(|l| matches!(l.id, LaneId::Attr(x) if x > 0))
+        .count();
     if out.len() >= cols {
         out.clear();
     }
@@ -165,19 +203,40 @@ fn narrow<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, site: &SiteDesc, lens
 /// projection (`feed`) whose bare entry of the column only the group's length calls consume.
 fn lengths_only_reads(gx: &Gx<'_, '_>, k: usize, a: i16) -> bool {
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, .. } = &p.source else { return false };
+    let Source::Range { scanrelid, .. } = &p.source else {
+        return false;
+    };
     let sr = *scanrelid as i32;
-    let lead = p.ops.iter().take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_))).count();
+    let lead = p
+        .ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_)))
+        .count();
     let fed = feed(gx, k);
     if gx.group_at(k).is_none() || !(lead == p.ops.len() || fed.is_some()) {
         return false;
     }
-    let quals = p.ops[..lead].iter().all(|op| matches!(op, Op::Filter(q) | Op::Gate(q) if lengths_only(*q, a, sr, None, true)));
-    let entries = fed.is_none_or(|(_, list)| list.iter().map(|e| e.as_target_entry().map_or(e, |t| t.expr)).all(|x| column(x, sr, None) == Some(a) || lengths_only(x, a, sr, None, true)));
+    let quals = p.ops[..lead]
+        .iter()
+        .all(|op| matches!(op, Op::Filter(q) | Op::Gate(q) if lengths_only(*q, a, sr, None, true)));
+    let entries = fed.is_none_or(|(_, list)| {
+        list.iter()
+            .map(|e| e.as_target_entry().map_or(e, |t| t.expr))
+            .all(|x| column(x, sr, None) == Some(a) || lengths_only(x, a, sr, None, true))
+    });
     let proj = fed.map(|(_, list)| list);
     // the group's reads are length calls alone: `cols` declares no emptiness lane for a group's test
     let group = gx.group_at(k).into_iter().all(|g| {
-        g.keys.iter().all(|x| lengths_only(x.expr.node(), a, sr, proj, false)) && g.aggs.iter().all(|ag| ag.filter.iter().copied().chain([ag.node]).all(|n| lengths_only(n, a, sr, proj, false)))
+        g.keys
+            .iter()
+            .all(|x| lengths_only(x.expr.node(), a, sr, proj, false))
+            && g.aggs.iter().all(|ag| {
+                ag.filter
+                    .iter()
+                    .copied()
+                    .chain([ag.node])
+                    .all(|n| lengths_only(n, a, sr, proj, false))
+            })
     });
     quals && entries && group
 }
@@ -202,25 +261,39 @@ fn column<'p>(mut a: Node<'p>, scanrelid: i32, mut proj: Option<&NodeList<'p>>) 
             a = entry(proj.take()?, v.varattno)?;
             continue;
         }
-        return (v.varno == scanrelid && v.varlevelsup == 0 && v.varattno > 0).then_some(v.varattno);
+        return (v.varno == scanrelid && v.varlevelsup == 0 && v.varattno > 0)
+            .then_some(v.varattno);
     }
 }
 
 /// The projection feeding pipeline `k`'s group: its step and list (jsonb_fwd.rs `feed`'s rule).
 fn feed<'g, 'p>(gx: &Gx<'g, 'p>, k: usize) -> Option<(usize, &'g NodeList<'p>)> {
     let ops = &gx.pipelines()[k].ops;
-    let lead = ops.iter().take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_))).count();
-    let Some(Op::Project(list)) = ops.get(lead).filter(|_| lead + 1 == ops.len()) else { return None };
+    let lead = ops
+        .iter()
+        .take_while(|op| matches!(op, Op::Filter(_) | Op::Gate(_)))
+        .count();
+    let Some(Op::Project(list)) = ops.get(lead).filter(|_| lead + 1 == ops.len()) else {
+        return None;
+    };
     crate::table::emit_group::fed_group(gx, k, lead).map(|_| (lead, *list))
 }
 
 /// The `(column, lane kind)` length calls pipeline `k`'s group reads (its keys, its aggregates and their FILTERs), over
 /// the scan row or, with `proj`, over that feeding projection's entries.
-fn group_reads<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, scanrelid: i32, proj: Option<&NodeList<'p>>) -> PgVec<'g, (i16, u8)> {
+fn group_reads<'g, 'p>(
+    mcx: Mcx<'g>,
+    gx: &Gx<'_, 'p>,
+    k: usize,
+    scanrelid: i32,
+    proj: Option<&NodeList<'p>>,
+) -> PgVec<'g, (i16, u8)> {
     let mut found: PgVec<'g, (i16, u8)> = PgVec::new_in(mcx);
     let mut see = |n: Node<'p>| {
         walk(n, &mut |x| {
-            if let Some(r) = call(x, scanrelid, proj).filter(|r| !found.contains(r) && found.len() < MAX_LANES) {
+            if let Some(r) =
+                call(x, scanrelid, proj).filter(|r| !found.contains(r) && found.len() < MAX_LANES)
+            {
                 found.push_in(r);
             }
             true
@@ -229,14 +302,18 @@ fn group_reads<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, scanrelid: i32, 
     #[allow(for_loops_over_fallibles)]
     for g in gx.group_at(k) {
         g.keys.iter().for_each(|x| see(x.expr.node()));
-        g.aggs.iter().for_each(|a| a.filter.iter().copied().chain([a.node]).for_each(&mut see));
+        g.aggs
+            .iter()
+            .for_each(|a| a.filter.iter().copied().chain([a.node]).for_each(&mut see));
     }
     found
 }
 
 /// The site's `kind` length lane over column `attno`: its shred index.
 fn lane_of(site: &SiteDesc, attno: i16, kind: u8) -> Option<usize> {
-    site.shreds.iter().position(|d| d.kind == kind && site.out_attnos.get(d.lane as usize) == Some(&attno))
+    site.shreds
+        .iter()
+        .position(|d| d.kind == kind && site.out_attnos.get(d.lane as usize) == Some(&attno))
 }
 
 /// FED GROUP: the length lanes pipeline `k`'s group reads over its feed, which the projection at step `j` carries hidden
@@ -244,10 +321,22 @@ fn lane_of(site: &SiteDesc, attno: i16, kind: u8) -> Option<usize> {
 pub(crate) fn lane_cols<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgVec<'g, (i16, u32)> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let (Some((_, list)), Source::Range { scanrelid, .. }) = (feed(gx, k).filter(|&(at, _)| at == j && on()), &gx.pipelines()[k].source) else { return PgVec::new_in(mcx) };
+    let (Some((_, list)), Source::Range { scanrelid, .. }) = (
+        feed(gx, k).filter(|&(at, _)| at == j && on()),
+        &gx.pipelines()[k].source,
+    ) else {
+        return PgVec::new_in(mcx);
+    };
     let reads = group_reads(mcx, gx, k, *scanrelid as i32, Some(list));
-    let Some(site) = px.site_mut(k) else { return PgVec::new_in(mcx) };
-    reads.iter().filter_map(|&(a, kind)| lane_of(site, a, kind).map(|n| (SHRED_AT + n as i16, types_core::INT4OID))).collect_in(mcx)
+    let Some(site) = px.site_mut(k) else {
+        return PgVec::new_in(mcx);
+    };
+    reads
+        .iter()
+        .filter_map(|&(a, kind)| {
+            lane_of(site, a, kind).map(|n| (SHRED_AT + n as i16, types_core::INT4OID))
+        })
+        .collect_in(mcx)
 }
 
 /// Pipeline `k`'s length lanes `(column, kind)`, each over a column lane of the drafted `site`: the length calls a row
@@ -255,22 +344,36 @@ pub(crate) fn lane_cols<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgVec<'g
 /// of a column it reads a length of, in that order.
 fn cols<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, site: &SiteDesc) -> PgVec<'g, (i16, u8)> {
     let p = &gx.pipelines()[k];
-    let Source::Range { scanrelid, relid, .. } = &p.source else { return PgVec::new_in(mcx) };
+    let Source::Range {
+        scanrelid, relid, ..
+    } = &p.source
+    else {
+        return PgVec::new_in(mcx);
+    };
     let sr = *scanrelid as i32;
     let mut found: PgVec<'g, (i16, u8)> = PgVec::new_in(mcx);
     let mut empty: PgVec<'g, i16> = PgVec::new_in(mcx);
     let mut see = |n: Node<'p>| {
         walk(n, &mut |x| {
-            if let Some(r) = call(x, sr, None).filter(|r| !found.contains(r) && found.len() < MAX_LANES) {
+            if let Some(r) =
+                call(x, sr, None).filter(|r| !found.contains(r) && found.len() < MAX_LANES)
+            {
                 found.push_in(r);
             }
-            if let Some(a) = empty_read(x, sr).filter(|a| !empty.contains(a) && empty.len() < MAX_LANES) {
+            if let Some(a) =
+                empty_read(x, sr).filter(|a| !empty.contains(a) && empty.len() < MAX_LANES)
+            {
                 empty.push_in(a);
             }
             true
         });
     };
-    for (j, op) in p.ops.iter().enumerate().take_while(|&(j, _)| row_step(gx, k, j)) {
+    for (j, op) in p
+        .ops
+        .iter()
+        .enumerate()
+        .take_while(|&(j, _)| row_step(gx, k, j))
+    {
         match op {
             Op::Filter(q) | Op::Gate(q) => see(*q),
             Op::Project(list) if j + 1 == p.ops.len() => list.iter().for_each(&mut see),
@@ -292,10 +395,20 @@ fn cols<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, site: &SiteDesc) -> PgV
     // over a dictionary column only row steps read where its entries are enough of its rows that a table's cost an
     // entry passes the lane's cost a row (cost::octet::lane_pays; a group's per-code fold keeps the table)
     let lane_pays = |a: i16| match (gx.facts.att_entries(*relid, a), gx.facts.rel_rows(*relid)) {
-        (Some(entries), Some(rows)) => !grouped.contains(&a) && gravity_program::cost::octet::lane_pays(entries, rows, gx.facts.width().unwrap_or(0)),
+        (Some(entries), Some(rows)) => {
+            !grouped.contains(&a)
+                && gravity_program::cost::octet::lane_pays(
+                    entries,
+                    rows,
+                    gx.facts.width().unwrap_or(0),
+                )
+        }
         _ => false,
     };
-    found.retain(|&(a, _)| site.lanes().iter().any(|l| l.id == LaneId::Attr(a)) && (!gx.facts.att_dict(*relid, a) || lane_pays(a)));
+    found.retain(|&(a, _)| {
+        site.lanes().iter().any(|l| l.id == LaneId::Attr(a))
+            && (!gx.facts.att_dict(*relid, a) || lane_pays(a))
+    });
     // an emptiness lane only beside one of the column's length lanes, whose one length decode a granule it shares (hosts
     // `decode_octet`): alone, the walk of a verbatim granule's entry headers costs more than the per-code test it
     // replaces once that test's tables are warm (a filter of `<> ''` tests alone runs about 4x slower hot)
@@ -310,35 +423,68 @@ fn cols<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, site: &SiteDesc) -> PgV
 /// an `Outer` column the feed forwards bare reads the lane's hidden column there (FED GROUP). Returns the plan nodes of
 /// `node` (by address) whose emptiness test the program no longer evaluates: their literals are not its needs (step/consts.rs
 /// `place`'s `skip`).
-pub(crate) fn rewrite<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), bare: bool, node: Node<'_>, c: &mut Compiled<'_>) -> PgVec<'g, usize> {
+pub(crate) fn rewrite<'g>(
+    px: &mut Px<'g, '_>,
+    (k, j): (usize, usize),
+    bare: bool,
+    node: Node<'_>,
+    c: &mut Compiled<'_>,
+) -> PgVec<'g, usize> {
     let gx = px.gx;
     let mcx = gx.mcx;
     if k >= gx.pipelines().len() || !row_step(gx, k, j) || !on() {
         return PgVec::new_in(mcx);
     }
-    let Source::Range { scanrelid, .. } = &gx.pipelines()[k].source else { return PgVec::new_in(mcx) };
+    let Source::Range { scanrelid, .. } = &gx.pipelines()[k].source else {
+        return PgVec::new_in(mcx);
+    };
     let sr = *scanrelid as i32;
     let fed = feed(gx, k).filter(|_| bare && j == gx.pipelines()[k].ops.len());
     let (carried, hidden) = match fed {
         Some((at, list)) => {
             let jsonb = crate::ops::scan::pgrc::strategies::jsonb_fwd::lane_cols(px, k, at).len();
-            let hidden = list.len() + crate::table::emit_group::hidden_reps(gx, k, at).len() + crate::table::emit_group::image_keys(gx, k, at).len() + jsonb;
+            let hidden = list.len()
+                + crate::table::emit_group::hidden_reps(gx, k, at).len()
+                + crate::table::emit_group::image_keys(gx, k, at).len()
+                + jsonb;
             (lane_cols(px, k, at), hidden)
         }
         None => (PgVec::new_in(mcx), 0),
     };
-    let Some(site) = px.site_mut(k) else { return PgVec::new_in(mcx) };
-    if !site.shreds.iter().any(|d| matches!(d.kind, shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH)) {
+    let Some(site) = px.site_mut(k) else {
+        return PgVec::new_in(mcx);
+    };
+    if !site.shreds.iter().any(|d| {
+        matches!(
+            d.kind,
+            shred_kind::OCTET_LENGTH | shred_kind::NONEMPTY | shred_kind::CHAR_LENGTH
+        )
+    }) {
         return PgVec::new_in(mcx);
     }
     let mut tested: PgVec<'_, i16> = PgVec::new_in(mcx);
     for i in 0..c.prog.nodes.len() {
-        let island = c.prog.islands.iter().any(|s| (s.first.0 as usize..=s.root.0 as usize).contains(&i));
+        let island = c
+            .prog
+            .islands
+            .iter()
+            .any(|s| (s.first.0 as usize..=s.root.0 as usize).contains(&i));
         // R2: an emptiness test over a scan column with an emptiness lane reads the lane (`= ''` its NOT)
-        if let Some((arg, ne)) = gravity_expr::percode::empty_test(&c.prog, NodeId(i as u32)).filter(|_| !island) {
-            let Some((VarSource::Scan, attno)) = operand(c, arg) else { continue };
-            let Some(n) = lane_of(site, attno, shred_kind::NONEMPTY) else { continue };
-            let lane = Var { src: VarSource::Scan, attno: SHRED_AT + n as i16, typ: types_core::BOOLOID, desc: 0 };
+        if let Some((arg, ne)) =
+            gravity_expr::percode::empty_test(&c.prog, NodeId(i as u32)).filter(|_| !island)
+        {
+            let Some((VarSource::Scan, attno)) = operand(c, arg) else {
+                continue;
+            };
+            let Some(n) = lane_of(site, attno, shred_kind::NONEMPTY) else {
+                continue;
+            };
+            let lane = Var {
+                src: VarSource::Scan,
+                attno: SHRED_AT + n as i16,
+                typ: types_core::BOOLOID,
+                desc: 0,
+            };
             retarget(c, arg, lane);
             let var = ExprNode::Var(lane);
             if ne {
@@ -348,7 +494,10 @@ pub(crate) fn rewrite<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), bare: boo
                 let (lane, ks) = (NodeId(p.nodes.len() as u32), p.kids.len() as u32);
                 p.nodes.push_in(var);
                 p.kids.push_in(lane);
-                p.nodes[i] = ExprNode::Bool(BoolNode { op: types_nodes::primnodes::BoolExprType::NOT_EXPR, args: Kids { start: ks, len: 1 } });
+                p.nodes[i] = ExprNode::Bool(BoolNode {
+                    op: types_nodes::primnodes::BoolExprType::NOT_EXPR,
+                    args: Kids { start: ks, len: 1 },
+                });
             }
             if !tested.contains(&attno) {
                 tested.push_in(attno);
@@ -356,20 +505,43 @@ pub(crate) fn rewrite<'g>(px: &mut Px<'g, '_>, (k, j): (usize, usize), bare: boo
             fires::fire("octet.empty"); // shapecheck fire signal (D3038 R2)
             continue;
         }
-        let ExprNode::Func(f) = &c.prog.nodes[i] else { continue };
+        let ExprNode::Func(f) = &c.prog.nodes[i] else {
+            continue;
+        };
         let call = &c.prog.sites[f.site.0 as usize];
-        let Some(kind) = kind_of(call.funcid).filter(|_| !island && call.args.len == 1) else { continue };
+        let Some(kind) = kind_of(call.funcid).filter(|_| !island && call.args.len == 1) else {
+            continue;
+        };
         let arg = c.prog.kids[call.args.start as usize];
         let var = match operand(c, arg) {
             Some((VarSource::Scan, attno)) => {
-                let Some(n) = lane_of(site, attno, kind) else { continue };
-                Var { src: VarSource::Scan, attno: SHRED_AT + n as i16, typ: types_core::INT4OID, desc: 0 }
+                let Some(n) = lane_of(site, attno, kind) else {
+                    continue;
+                };
+                Var {
+                    src: VarSource::Scan,
+                    attno: SHRED_AT + n as i16,
+                    typ: types_core::INT4OID,
+                    desc: 0,
+                }
             }
             Some((VarSource::Outer, r)) => {
                 let Some((_, list)) = fed else { continue };
-                let Some(n) = entry(list, r).and_then(|e| column(e, sr, None)).and_then(|a| lane_of(site, a, kind)) else { continue };
-                let Some(h) = carried.iter().position(|&(a, _)| a == SHRED_AT + n as i16) else { continue };
-                Var { src: VarSource::Outer, attno: (hidden + 1 + h) as i16, typ: types_core::INT4OID, desc: 0 }
+                let Some(n) = entry(list, r)
+                    .and_then(|e| column(e, sr, None))
+                    .and_then(|a| lane_of(site, a, kind))
+                else {
+                    continue;
+                };
+                let Some(h) = carried.iter().position(|&(a, _)| a == SHRED_AT + n as i16) else {
+                    continue;
+                };
+                Var {
+                    src: VarSource::Outer,
+                    attno: (hidden + 1 + h) as i16,
+                    typ: types_core::INT4OID,
+                    desc: 0,
+                }
             }
             _ => continue,
         };
@@ -412,8 +584,12 @@ fn retarget(c: &mut Compiled<'_>, mut id: NodeId, lane: Var) {
 fn operand(c: &Compiled<'_>, mut id: NodeId) -> Option<(VarSource, i16)> {
     loop {
         match &c.prog.nodes[id.0 as usize] {
-            ExprNode::Var(v) if v.src == VarSource::Scan && v.attno > 0 && v.attno < SHRED_AT => return Some((VarSource::Scan, v.attno)),
-            ExprNode::Var(v) if v.src == VarSource::Outer && v.attno > 0 => return Some((VarSource::Outer, v.attno)),
+            ExprNode::Var(v) if v.src == VarSource::Scan && v.attno > 0 && v.attno < SHRED_AT => {
+                return Some((VarSource::Scan, v.attno))
+            }
+            ExprNode::Var(v) if v.src == VarSource::Outer && v.attno > 0 => {
+                return Some((VarSource::Outer, v.attno))
+            }
             ExprNode::Relabel(r) if r.transparent() => id = r.arg,
             _ => return None,
         }

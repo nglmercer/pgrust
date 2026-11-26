@@ -5,23 +5,32 @@ use std::collections::HashMap;
 
 use gravity_abi::breaker::ADAPT_FACTOR;
 use gravity_driver::Exec;
-use gravity_hosts::ops::scan::pgrc::granule_source;
 use gravity_hosts::ops::agg::hosts as m1;
+use gravity_hosts::ops::scan::pgrc::granule_source;
 use gravity_program::cost::runtime::{dense_span_pays, OBSERVED_CAP};
 use gravity_program::protos::{Fact, Proto, ProtoKind};
 use gravity_program::{LaneId, SiteKind};
 use types_error::PgResult;
 use types_storage::lock::NoLock;
 
-use crate::ops::{Live, Prepare, Protocol};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
-
+use crate::ops::scan::pgrc::verdicts::Verdicts;
 pub use crate::ops::scan::sites::{ADMIT, BIND};
 use crate::ops::sort::topn::proto::{BuildSide, RtFilter, TwoPass, TwoPassFloor};
-use crate::ops::scan::pgrc::verdicts::Verdicts;
 /// Width first: a later protocol may read `cx.widths`.
-pub const PROTOCOLS: &[&dyn Protocol] = &[&Width, &OrderedSink, &Verdicts, &TwoPass, &TwoPassFloor, &BuildSide, &RtFilter, &Facts, &Observe];
+pub const PROTOCOLS: &[&dyn Protocol] = &[
+    &Width,
+    &OrderedSink,
+    &Verdicts,
+    &TwoPass,
+    &TwoPassFloor,
+    &BuildSide,
+    &RtFilter,
+    &Facts,
+    &Observe,
+];
 
 /// `width.work` / `width.write`: the pipeline's width from this execution's bind facts (`knobs::width::pipeline_width`,
 /// M1-DRIVER; `arg` bit 63 = leader-only).
@@ -35,7 +44,11 @@ impl Protocol for Width {
         let w = crate::inputs::knobs::width::pipeline_width(cx, p)?;
         match cx.widths.get_mut(p.pipeline as usize) {
             Some(slot) => *slot = w,
-            None => return Err(glue::internal("gravity: width.work on a pipeline the program does not have")),
+            None => {
+                return Err(glue::internal(
+                    "gravity: width.work on a pipeline the program does not have",
+                ))
+            }
         }
         Ok(None)
     }
@@ -69,39 +82,67 @@ impl Protocol for Facts {
         ProtoKind::Facts
     }
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        let (base, n, k) = (p.words.base as usize, p.words.n as usize, p.pipeline as usize);
+        let (base, n, k) = (
+            p.words.base as usize,
+            p.words.n as usize,
+            p.pipeline as usize,
+        );
         if p.arg.count_ones() as usize != n || base + n > cx.words.len().min(cx.nulls.len()) {
-            return Err(glue::internal("gravity: facts whose words do not match its bits"));
+            return Err(glue::internal(
+                "gravity: facts whose words do not match its bits",
+            ));
         }
         // D3024 (b): a build drain's driving site is nominal (its probe's: the drain reads its build's records, no row
         // of that relation), so its table's facts are a site-less reader's, as before the drain ran wide
-        let site = usize::try_from(p.site).ok().or_else(|| cx.program.pipelines.get(k).filter(|q| !matches!(q.claims, gravity_program::ClaimKind::BuildRecords { .. })).and_then(|q| usize::try_from(q.driving_site).ok()));
+        let site = usize::try_from(p.site).ok().or_else(|| {
+            cx.program
+                .pipelines
+                .get(k)
+                .filter(|q| !matches!(q.claims, gravity_program::ClaimKind::BuildRecords { .. }))
+                .and_then(|q| usize::try_from(q.driving_site).ok())
+        });
         let lane = (p.site >= 0).then_some(p.slot as usize);
         let observed = observed(cx.program.key.0, k);
         let width = cx.widths.get(k).copied().unwrap_or(1);
-        let (rows, dense) = match site.and_then(|s| Some((s, cx.admitted.registry.granule_recipe(s)?))) {
-            Some((s, r)) => {
-                let rel = table::table_open(cx.mcx, r.rel, NoLock)?;
-                // NEW-72: the zone predicates as this execution binds them (`site_zone`; none when a bound one has no value)
-                let zone = crate::ops::scan::pgrc::verdicts::site_zone(cx.program, s, &cx.words[..], &cx.nulls[..]).unwrap_or_default();
-                let facts = granule_source::resolve(&rel, Some(cx.snap)).and_then(|l| m1::site_facts(&rel, &l, r, &zone, lane));
-                rel.close(NoLock)?;
-                facts?
-            }
-            None if p.arg >> Fact::DenseLo as u8 & 1 != 0 => {
-                // SRC-38: the statistics' span pays only over the rows that reach the table (KEYED-22's rule): the rows
-                // `observe` remembered at a later execution, else this statement's planner rows after the scan's filters
-                // (`admit::bound`; 0 for a serial walk: no domain until a run is observed). A filtered GROUP BY that folds
-                // few rows into a wide column's span stays hashed.
-                let reach = observed.map_or_else(|| crate::admit::bound(cx.admitted, k).map_or(0, |q| q.predicted_rows), |(_, folded, _)| folded);
-                let range = site.zip(lane).map_or(Ok(None), |(s, l)| stats_range(cx, s, l))?.filter(|&(lo, hi)| dense_span_pays(hi.abs_diff(lo).saturating_add(1), reach, width));
-                if range.is_some() {
-                    fires::fire("dense.heap_stats"); // shapecheck: a heap key's dense domain from its statistics (SRC-38)
+        let (rows, dense) =
+            match site.and_then(|s| Some((s, cx.admitted.registry.granule_recipe(s)?))) {
+                Some((s, r)) => {
+                    let rel = table::table_open(cx.mcx, r.rel, NoLock)?;
+                    // NEW-72: the zone predicates as this execution binds them (`site_zone`; none when a bound one has no value)
+                    let zone = crate::ops::scan::pgrc::verdicts::site_zone(
+                        cx.program,
+                        s,
+                        &cx.words[..],
+                        &cx.nulls[..],
+                    )
+                    .unwrap_or_default();
+                    let facts = granule_source::resolve(&rel, Some(cx.snap))
+                        .and_then(|l| m1::site_facts(&rel, &l, r, &zone, lane));
+                    rel.close(NoLock)?;
+                    facts?
                 }
-                (0, range)
-            }
-            None => (0, None),
-        };
+                None if p.arg >> Fact::DenseLo as u8 & 1 != 0 => {
+                    // SRC-38: the statistics' span pays only over the rows that reach the table (KEYED-22's rule): the rows
+                    // `observe` remembered at a later execution, else this statement's planner rows after the scan's filters
+                    // (`admit::bound`; 0 for a serial walk: no domain until a run is observed). A filtered GROUP BY that folds
+                    // few rows into a wide column's span stays hashed.
+                    let reach = observed.map_or_else(
+                        || crate::admit::bound(cx.admitted, k).map_or(0, |q| q.predicted_rows),
+                        |(_, folded, _)| folded,
+                    );
+                    let range = site
+                        .zip(lane)
+                        .map_or(Ok(None), |(s, l)| stats_range(cx, s, l))?
+                        .filter(|&(lo, hi)| {
+                            dense_span_pays(hi.abs_diff(lo).saturating_add(1), reach, width)
+                        });
+                    if range.is_some() {
+                        fires::fire("dense.heap_stats"); // shapecheck: a heap key's dense domain from its statistics (SRC-38)
+                    }
+                    (0, range)
+                }
+                None => (0, None),
+            };
         // SRC-38 slice 2: no exact or statistics domain: the key range the table's owners folded at this statement's last
         // execution (`OwnerDesc::observe_key`) under the same `memo_key` (the statement words: a literal-free program's
         // filters differ by their words, so `k >= 4950` never opens at `k >= 0`'s range or the reverse; and the driving
@@ -110,13 +151,17 @@ impl Protocol for Facts {
         // (stats_range's sparse cap). A range, never a bound: a key past it takes the dense table's overflow, and this
         // run's owners observe the range again.
         let now = match (dense, observed) {
-            (None, Some((_, _, Some(_)))) if p.arg >> Fact::DenseLo as u8 & 1 != 0 => Some(memo_key(cx, k)?),
+            (None, Some((_, _, Some(_)))) if p.arg >> Fact::DenseLo as u8 & 1 != 0 => {
+                Some(memo_key(cx, k)?)
+            }
             _ => None,
         };
         let dense = match (dense, observed) {
             (None, Some((groups, folded, Some((lo, hi, memo))))) if now == Some(memo) => {
                 let span = hi.abs_diff(lo).saturating_add(1);
-                let range = (dense_span_pays(span, folded, width) && (hi.abs_diff(lo) as f64) < ADAPT_FACTOR as f64 * groups.max(1) as f64).then_some((lo, hi));
+                let range = (dense_span_pays(span, folded, width)
+                    && (hi.abs_diff(lo) as f64) < ADAPT_FACTOR as f64 * groups.max(1) as f64)
+                    .then_some((lo, hi));
                 if range.is_some() {
                     fires::fire("dense.observed"); // shapecheck: a key's dense domain from its last execution's range (SRC-38)
                 }
@@ -125,7 +170,11 @@ impl Protocol for Facts {
             (d, _) => d,
         };
         let span = dense.map(|(lo, hi)| hi.abs_diff(lo).saturating_add(1));
-        for (i, f) in Fact::ALL.into_iter().filter(|&f| p.arg >> f as u8 & 1 != 0).enumerate() {
+        for (i, f) in Fact::ALL
+            .into_iter()
+            .filter(|&f| p.arg >> f as u8 & 1 != 0)
+            .enumerate()
+        {
             cx.words[base + i] = match f {
                 Fact::DenseLo => dense.map_or(1, |d| d.0) as u64,
                 Fact::DenseHi => dense.map_or(0, |d| d.1) as u64,
@@ -137,7 +186,11 @@ impl Protocol for Facts {
                     (Some((groups, ..)), _) => groups,
                     (None, span) => span.map_or(rows, |n| n.min(rows)),
                 },
-                f => return Err(glue::internal(&format!("gravity: Fact::{f:?} is not built at M1"))), // alloc: Cold
+                f => {
+                    return Err(glue::internal(&format!(
+                        "gravity: Fact::{f:?} is not built at M1"
+                    )))
+                } // alloc: Cold
             };
             cx.nulls[base + i] = 0;
         }
@@ -183,16 +236,31 @@ impl LateSize {
         if sited {
             return skip("relation");
         }
-        let Some(q) = cx.program.pipelines.get(k) else { return skip("pipeline") };
-        let (&[slot], gravity_program::ClaimKind::Source) = (q.consumes, q.claims) else { return skip("consumes") };
+        let Some(q) = cx.program.pipelines.get(k) else {
+            return skip("pipeline");
+        };
+        let (&[slot], gravity_program::ClaimKind::Source) = (q.consumes, q.claims) else {
+            return skip("consumes");
+        };
         let ps = &cx.program.pipelines;
         let producer = match q.consumes_from.first() {
-            Some(l) => Some(l.0 as usize).filter(|&j| j < ps.len() && ps[j].produces() == Some(slot)),
+            Some(l) => {
+                Some(l.0 as usize).filter(|&j| j < ps.len() && ps[j].produces() == Some(slot))
+            }
             None => (0..k).rev().find(|&j| ps[j].produces() == Some(slot)),
         };
-        let Some(producer) = producer else { return skip("producer") };
+        let Some(producer) = producer else {
+            return skip("producer");
+        };
         let word = p.words.base as usize;
-        Some(LateSize { pipeline: k, producer, slot, word, was: cx.words.get(word).copied().unwrap_or(0), count: core::cell::Cell::new(None) })
+        Some(LateSize {
+            pipeline: k,
+            producer,
+            slot,
+            word,
+            was: cx.words.get(word).copied().unwrap_or(0),
+            count: core::cell::Cell::new(None),
+        })
     }
 }
 
@@ -201,12 +269,20 @@ impl Live for LateSize {
         crate::ops::ask::AFTER | crate::ops::ask::LATE
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         if pipeline == self.producer {
-            let count = gravity_abi::breaker::Owned::counts(exec.node().slot_region(self.slot)).map(|(records, _)| records);
+            let count = gravity_abi::breaker::Owned::counts(exec.node().slot_region(self.slot))
+                .map(|(records, _)| records);
             self.count.set(count);
             if count.is_none() && crate::phases::on() {
-                eprintln!("EXACT kind=final-skip pipeline={} why=no-owned-count producer={}", self.pipeline, self.producer);
+                eprintln!(
+                    "EXACT kind=final-skip pipeline={} why=no-owned-count producer={}",
+                    self.pipeline, self.producer
+                );
             }
             // B4b: the table's share at its open reads the count as its rows (driver `Node::share`), not the 8 MiB floor
             if let Some(n) = count.filter(|&n| n > 0) {
@@ -217,11 +293,24 @@ impl Live for LateSize {
     }
 
     fn late_words(&self, pipeline: usize, out: &mut gravity_parallel::LateWords) -> PgResult<()> {
-        let Some(count) = self.count.get().filter(|&n| n > 0 && pipeline == self.pipeline) else { return Ok(()) };
-        let size = if self.was == 0 { count } else { self.was.min(count) };
+        let Some(count) = self
+            .count
+            .get()
+            .filter(|&n| n > 0 && pipeline == self.pipeline)
+        else {
+            return Ok(());
+        };
+        let size = if self.was == 0 {
+            count
+        } else {
+            self.was.min(count)
+        };
         fires::fire("exact.late_size"); // shapecheck: a slot-fed table sized from its producer's counted records (exactsize B4)
         if crate::phases::on() {
-            eprintln!("EXACT kind=final pipeline={} producer={} count={count} was={} size={size}", self.pipeline, self.producer, self.was);
+            eprintln!(
+                "EXACT kind=final pipeline={} producer={} count={count} was={} size={size}",
+                self.pipeline, self.producer, self.was
+            );
         }
         out.with_vec(|v| v.push((self.word, size, 0))); // alloc: Exec charged out
         Ok(())
@@ -235,16 +324,35 @@ impl Live for LateSize {
 /// plain rerun (D597), never a wrong row. None without statistics or a distinct estimate, or when the span passes the
 /// distinct values by `ADAPT_FACTOR` (a sparse column).
 fn stats_range(cx: &Prepare<'_>, site: usize, lane: usize) -> PgResult<Option<(i64, i64)>> {
-    let Some(d) = cx.program.sites.get(site).filter(|d| d.relation != 0 && matches!(d.kind, SiteKind::RangeSource { .. } | SiteKind::IndexSource { .. })) else { return Ok(None) };
+    let Some(d) = cx.program.sites.get(site).filter(|d| {
+        d.relation != 0
+            && matches!(
+                d.kind,
+                SiteKind::RangeSource { .. } | SiteKind::IndexSource { .. }
+            )
+    }) else {
+        return Ok(None);
+    };
     let attno = match d.lanes().get(lane).map(|l| l.id) {
         Some(LaneId::Attr(a)) if a > 0 => a,
         _ => return Ok(None),
     };
-    let Some(stats) = syscache_seams::lookup_pg_statistic_bundle::call(cx.mcx, d.relation, attno, false)? else { return Ok(None) };
+    let Some(stats) =
+        syscache_seams::lookup_pg_statistic_bundle::call(cx.mcx, d.relation, attno, false)?
+    else {
+        return Ok(None);
+    };
     let mut range: Option<(i64, i64)> = None;
-    for s in stats.slots.iter().filter(|s| s.kind == STATISTIC_KIND_MCV || s.kind == STATISTIC_KIND_HISTOGRAM) {
+    for s in stats
+        .slots
+        .iter()
+        .filter(|s| s.kind == STATISTIC_KIND_MCV || s.kind == STATISTIC_KIND_HISTOGRAM)
+    {
         let t = s.valuetype()?;
-        if !matches!(gravity_fn::typesem::storage::len_byval(t)?, (1 | 2 | 4 | 8, true)) {
+        if !matches!(
+            gravity_fn::typesem::storage::len_byval(t)?,
+            (1 | 2 | 4 | 8, true)
+        ) {
             return Ok(None);
         }
         for v in s.values()?.iter().map(|v| v.as_i64()) {
@@ -261,11 +369,18 @@ fn stats_range(cx: &Prepare<'_>, site: usize, lane: usize) -> PgResult<Option<(i
             gravity_deps::note_stats(d.relation);
             let t = rel.rd_rel.reltuples;
             rel.close(NoLock)?;
-            if t.is_finite() && t > 0.0 { -n as f64 * t as f64 } else { return Ok(None) }
+            if t.is_finite() && t > 0.0 {
+                -n as f64 * t as f64
+            } else {
+                return Ok(None);
+            }
         }
         _ => return Ok(None),
     };
-    Ok(range.filter(|&(lo, hi)| (hi.abs_diff(lo) as f64) < ADAPT_FACTOR as f64 * distinct.max(1.0)))
+    Ok(
+        range
+            .filter(|&(lo, hi)| (hi.abs_diff(lo) as f64) < ADAPT_FACTOR as f64 * distinct.max(1.0)),
+    )
 }
 
 /// pg_statistic.h's slot kinds.
@@ -300,15 +415,34 @@ impl Protocol for Observe {
         ProtoKind::Observe
     }
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
-        let owner = cx.program.pipelines.get(p.pipeline as usize).and_then(|q| q.owner);
+        let owner = cx
+            .program
+            .pipelines
+            .get(p.pipeline as usize)
+            .and_then(|q| q.owner);
         let pairs = owner.is_some_and(|d| d.pair != 0);
         if pairs && owner.is_some_and(|d| d.acc.nkeys() != 0) {
             return Ok(None);
         }
-        let site = cx.program.pipelines.get(p.pipeline as usize).and_then(|q| usize::try_from(q.driving_site).ok());
+        let site = cx
+            .program
+            .pipelines
+            .get(p.pipeline as usize)
+            .and_then(|q| usize::try_from(q.driving_site).ok());
         let observes = owner.is_some_and(|d| d.observe_key != gravity_program::OBSERVE_NONE);
-        let memo = if observes { memo_key(cx, p.pipeline as usize)? } else { 0 };
-        Ok(Some(Box::new(ObserveLive { key: cx.program.key.0, pipeline: p.pipeline as usize, slot: p.slot, site, pairs, memo }))) // alloc: Exec
+        let memo = if observes {
+            memo_key(cx, p.pipeline as usize)?
+        } else {
+            0
+        };
+        Ok(Some(Box::new(ObserveLive {
+            key: cx.program.key.0,
+            pipeline: p.pipeline as usize,
+            slot: p.slot,
+            site,
+            pairs,
+            memo,
+        }))) // alloc: Exec
     }
 }
 
@@ -317,12 +451,24 @@ impl Live for ObserveLive {
         crate::ops::ask::AFTER
     }
 
-    fn after_pipeline(&self, pipeline: usize, exec: &mut Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        exec: &mut Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         let region = exec.node().slot_region(self.slot);
-        let counts: fn(&[u8]) -> Option<(u64, Option<u64>)> = if self.pairs { gravity_abi::breaker::Owned::totals } else { gravity_abi::breaker::Owned::counts };
-        if let Some((records, groups)) = (pipeline == self.pipeline).then(|| counts(region)).flatten() {
+        let counts: fn(&[u8]) -> Option<(u64, Option<u64>)> = if self.pairs {
+            gravity_abi::breaker::Owned::totals
+        } else {
+            gravity_abi::breaker::Owned::counts
+        };
+        if let Some((records, groups)) = (pipeline == self.pipeline)
+            .then(|| counts(region))
+            .flatten()
+        {
             if let (true, Some(groups)) = (records > 0, groups.filter(|&g| g > 0)) {
-                let range = gravity_abi::breaker::Owned::key_range(region).map(|(lo, hi)| (lo, hi, self.memo));
+                let range = gravity_abi::breaker::Owned::key_range(region)
+                    .map(|(lo, hi)| (lo, hi, self.memo));
                 let rows = self.site.map_or(0, |s| exec.node().site_rows_out(s));
                 remember(self.key, pipeline, (groups, rows, range));
             }
@@ -337,7 +483,8 @@ static OBSERVED: pgsync::Mutex<Option<ObservedMap>> = pgsync::Mutex::new(None);
 
 /// `OBSERVED`'s holder, process-wide as the map: the program caches' (the process-wide tier's
 /// holder, admit `PROGRAM_CACHES`).
-const OBSERVED_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+const OBSERVED_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
 
 /// `OBSERVED`'s map and the charge of its table on `OBSERVED_OWNER` (R1: the charge rides in the struct whose bytes it
 /// counts; declared first, as `ChargedVec`'s, so its door-1 drop moves the bytes before the free), refit after each insert
@@ -350,7 +497,16 @@ struct ObservedMap {
 impl ObservedMap {
     fn new() -> ObservedMap {
         let o = OBSERVED_OWNER;
-        ObservedMap { charge: memledger::Charge::open(o, memledger::charge::release_of(o), memledger::Kind::Region, memledger::charge::Door::Heap, 0), map: HashMap::new() }
+        ObservedMap {
+            charge: memledger::Charge::open(
+                o,
+                memledger::charge::release_of(o),
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                0,
+            ),
+            map: HashMap::new(),
+        }
     }
 
     /// The table's bytes: its buckets (std's hashbrown: a power of two holding `capacity` at 7/8 load, at most 3 / 7 items
@@ -360,7 +516,11 @@ impl ObservedMap {
         if cap == 0 {
             return 0;
         }
-        let buckets = if cap < 8 { (cap + 1).next_power_of_two() } else { (cap * 8 / 7).next_power_of_two() };
+        let buckets = if cap < 8 {
+            (cap + 1).next_power_of_two()
+        } else {
+            (cap * 8 / 7).next_power_of_two()
+        };
         (buckets * (core::mem::size_of::<((u128, usize), Observed)>() + 1) + 16) as u64
     }
 
@@ -387,19 +547,51 @@ fn memo_key(cx: &Prepare<'_>, pipeline: usize) -> PgResult<u64> {
         }
     };
     if let Some(g) = cx.admitted.graph.as_ref() {
-        for (i, _w) in g.words.iter().enumerate().filter(|(_, w)| matches!(w, crate::admit::GraphWord::Const { .. } | crate::admit::GraphWord::Extern(_) | crate::admit::GraphWord::Expr(_) | crate::admit::GraphWord::Deferred)) {
-            let (v, n) = (cx.words.get(i).copied().unwrap_or(0), cx.nulls.get(i).copied().unwrap_or(1));
+        for (i, _w) in g.words.iter().enumerate().filter(|(_, w)| {
+            matches!(
+                w,
+                crate::admit::GraphWord::Const { .. }
+                    | crate::admit::GraphWord::Extern(_)
+                    | crate::admit::GraphWord::Expr(_)
+                    | crate::admit::GraphWord::Deferred
+            )
+        }) {
+            let (v, n) = (
+                cx.words.get(i).copied().unwrap_or(0),
+                cx.nulls.get(i).copied().unwrap_or(1),
+            );
             fold(&(i as u64).to_le_bytes());
             fold(&v.to_le_bytes());
             fold(&[n]);
         }
     }
-    let site = cx.program.pipelines.get(pipeline).and_then(|q| usize::try_from(q.driving_site).ok());
-    if let Some((s, d)) = site.and_then(|s| cx.program.sites.get(s).map(|d| (s, d))).filter(|(_, d)| d.relation != 0 && matches!(d.kind, SiteKind::RangeSource { .. } | SiteKind::IndexSource { .. })) {
+    let site = cx
+        .program
+        .pipelines
+        .get(pipeline)
+        .and_then(|q| usize::try_from(q.driving_site).ok());
+    if let Some((s, d)) = site
+        .and_then(|s| cx.program.sites.get(s).map(|d| (s, d)))
+        .filter(|(_, d)| {
+            d.relation != 0
+                && matches!(
+                    d.kind,
+                    SiteKind::RangeSource { .. } | SiteKind::IndexSource { .. }
+                )
+        })
+    {
         // D3585: a relation set's every relation; (D3663) the members its initial pruning keeps, which the words decide
         let kept = cx.initial.and_then(|x| x.set_kept(s));
-        let rels = if d.set.is_empty() { core::slice::from_ref(&d.relation) } else { &d.set[..] };
-        for (_, &relid) in rels.iter().enumerate().filter(|&(i, _)| kept.is_none_or(|v| crate::ops::append::prune::member(v, i))) {
+        let rels = if d.set.is_empty() {
+            core::slice::from_ref(&d.relation)
+        } else {
+            &d.set[..]
+        };
+        for (_, &relid) in rels
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| kept.is_none_or(|v| crate::ops::append::prune::member(v, i)))
+        {
             let rel = table::table_open(cx.mcx, relid, NoLock)?;
             let number = rel.rd_locator.get().relNumber;
             rel.close(NoLock)?;
@@ -416,7 +608,13 @@ fn observed(key: u128, pipeline: usize) -> Option<Observed> {
     if !crate::inputs::knobs::grant::feedback_enabled() {
         return None;
     }
-    let o = OBSERVED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.map.get(&(key, pipeline)).copied();
+    let o = OBSERVED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()?
+        .map
+        .get(&(key, pipeline))
+        .copied();
     note(Kind::Feedback, o.is_some() as u64);
     o
 }
@@ -443,7 +641,12 @@ mod tests {
 
     #[test]
     fn sizing_feedback_obeys_its_setting_in_every_condition_cache_mode() {
-        for mode in [ConditionCacheMode::Off, ConditionCacheMode::Granule, ConditionCacheMode::Rows, ConditionCacheMode::Full] {
+        for mode in [
+            ConditionCacheMode::Off,
+            ConditionCacheMode::Granule,
+            ConditionCacheMode::Rows,
+            ConditionCacheMode::Full,
+        ] {
             guc_tables::backing::set_pgrust_condition_cache(mode as i32);
             let key = (0x0b5e_12ed_u128 << 64 | 0x5717_c4ed) + mode as u128;
             set_feedback_for_test(Feedback::Off);
@@ -459,7 +662,11 @@ mod tests {
             assert_eq!(observed(key, 0), None, "disabled feedback was not read");
             remember(key, 0, (8, 80, None));
             set_feedback_for_test(Feedback::On);
-            assert_eq!(observed(key, 0), Some((7, 70, Some((1, 9, 3)))), "disabled feedback did not overwrite history");
+            assert_eq!(
+                observed(key, 0),
+                Some((7, 70, Some((1, 9, 3)))),
+                "disabled feedback did not overwrite history"
+            );
             remember(key, 0, (9, 90, None));
             assert_eq!(observed(key, 0), Some((9, 90, None)));
         }

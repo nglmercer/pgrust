@@ -46,7 +46,10 @@ const PROGRAM: &str = "(program
 
 /// The value block `b`'s instruction `i` defines (the parser renumbers values; blocks keep their order).
 fn def(p: &gravity_ir::Program, b: usize, i: usize) -> usize {
-    p.funcs[0].blocks[b].insts[i].result.expect("a value-defining instruction").index()
+    p.funcs[0].blocks[b].insts[i]
+        .result
+        .expect("a value-defining instruction")
+        .index()
 }
 
 #[test]
@@ -54,8 +57,14 @@ fn an_inner_loops_per_window_invariant_is_nominated() {
     let p = parse_program(PROGRAM, &|_| Some(0)).unwrap_or_else(|e| panic!("{e}"));
     let ctx = mcx::MemoryContext::new("v4r153-view");
     let view = FnView::build(ctx.mcx(), &p.funcs[0], &gravity_tpde::frontend::A64_IMM);
-    assert!(view.force_fixed[def(&p, 2, 0)], "base (defined per window, read every row) is nominated");
-    assert!(view.force_fixed[def(&p, 2, 1)], "mix (defined per window, read every row) is nominated");
+    assert!(
+        view.force_fixed[def(&p, 2, 0)],
+        "base (defined per window, read every row) is nominated"
+    );
+    assert!(
+        view.force_fixed[def(&p, 2, 1)],
+        "mix (defined per window, read every row) is nominated"
+    );
 }
 
 /// G4 (does not apply): a value defined per window and read once per window, after the row loop, is not an inner
@@ -65,8 +74,14 @@ fn a_per_window_value_read_once_per_window_is_not_nominated() {
     let p = parse_program(PROGRAM, &|_| Some(0)).unwrap_or_else(|e| panic!("{e}"));
     let ctx = mcx::MemoryContext::new("v4r153-view");
     let view = FnView::build(ctx.mcx(), &p.funcs[0], &gravity_tpde::frontend::A64_IMM);
-    assert!(!view.force_fixed[def(&p, 2, 3)], "late (read once per window) is left to TPDE's rule");
-    assert!(!view.force_fixed[def(&p, 4, 0)], "a row value is the row loop's own");
+    assert!(
+        !view.force_fixed[def(&p, 2, 3)],
+        "late (read once per window) is left to TPDE's rule"
+    );
+    assert!(
+        !view.force_fixed[def(&p, 4, 0)],
+        "a row value is the row loop's own"
+    );
 }
 
 #[test]

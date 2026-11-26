@@ -69,9 +69,10 @@ pub fn gen_explain_module(g: &mut Gen) -> Vec<StmtKind> {
     let mut opts: Vec<&'static str> = vec!["COSTS OFF", "SUMMARY OFF"];
 
     // Format decided first: the BUFFERS arm below is format-gated.
-    let fmt = g
-        .weights
-        .pick(g.rng, &["explain:fmt:text", "explain:fmt:json", "explain:fmt:yaml"]);
+    let fmt = g.weights.pick(
+        g.rng,
+        &["explain:fmt:text", "explain:fmt:json", "explain:fmt:yaml"],
+    );
 
     // ANALYZE at low weight: executes the (read-only) statement. TIMING
     // OFF kills per-node wall-clock; BUFFERS OFF overrides the PG 18
@@ -90,7 +91,8 @@ pub fn gen_explain_module(g: &mut Gen) -> Vec<StmtKind> {
         // pgrust=14 EXPLAIN rows from exactly that, on an identically
         // warmed stream. TEXT therefore always spells BUFFERS OFF.
         if fmt != "explain:fmt:text"
-            && g.weights.pick(g.rng, &["explain:buffers:on", "explain:buffers:off"])
+            && g.weights
+                .pick(g.rng, &["explain:buffers:on", "explain:buffers:off"])
                 == "explain:buffers:on"
         {
             g.fire("explain:buffers:on");
@@ -101,7 +103,9 @@ pub fn gen_explain_module(g: &mut Gen) -> Vec<StmtKind> {
         }
     }
 
-    if g.weights.pick(g.rng, &["explain:verbose", "explain:verbose:none"]) == "explain:verbose"
+    if g.weights
+        .pick(g.rng, &["explain:verbose", "explain:verbose:none"])
+        == "explain:verbose"
     {
         g.fire("explain:verbose");
         opts.push("VERBOSE");

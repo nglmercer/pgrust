@@ -23,7 +23,9 @@ impl Protocol for EmitRuns {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let base = p.words.base as usize;
         if p.words.n != 1 || base >= cx.words.len().min(cx.nulls.len()) {
-            return Err(glue::internal("gravity: runs.emit_runs without its handle word"));
+            return Err(glue::internal(
+                "gravity: runs.emit_runs without its handle word",
+            ));
         }
         let table = mcx::leak_in(mcx::alloc_in(cx.mcx, [0u64; RUNS_TABLE_WORDS])?);
         (cx.words[base], cx.nulls[base]) = (table.as_mut_ptr() as u64, 0);

@@ -1,20 +1,22 @@
 use core::mem::size_of;
 use std::rc::Rc;
 
-use gravity_driver::{box_locker, box_writer, ArenaBox, ArenaRef, Derive, Locker, SourceBox, Writer};
+use gravity_driver::{
+    box_locker, box_writer, ArenaBox, ArenaRef, Derive, Locker, SourceBox, Writer,
+};
 use gravity_program::{SiteDesc, WritePlan};
 
-use crate::ops::scan::pgrc::fetch_site::FetchRecipe;
-use crate::ops::scan::pgrc::granule_source::GranuleRecipe;
+use crate::ops::lockrows::lock::LockHost;
+use crate::ops::modifytable::trigger_stmt::MergeOps;
+use crate::ops::modifytable::write::WriteHost;
+use crate::ops::modifytable::write_check::CheckSpec;
+use crate::ops::modifytable::write_constraints::ModifiedCols;
+use crate::ops::modifytable::write_route::{MultiTargetHost, RouteHost};
 use crate::ops::scan::heap_source::RangeRecipe;
 use crate::ops::scan::index_source::SiteRecipe;
+use crate::ops::scan::pgrc::fetch_site::FetchRecipe;
+use crate::ops::scan::pgrc::granule_source::GranuleRecipe;
 use crate::recipe::{DeriveFn, HostRecipe};
-use crate::ops::lockrows::lock::LockHost;
-use crate::ops::modifytable::write::WriteHost;
-use crate::ops::modifytable::trigger_stmt::MergeOps;
-use crate::ops::modifytable::write_check::CheckSpec;
-use crate::ops::modifytable::write_route::{MultiTargetHost, RouteHost};
-use crate::ops::modifytable::write_constraints::ModifiedCols;
 pub mod agg;
 pub mod group;
 pub mod lockrows;
@@ -41,7 +43,21 @@ pub enum Recipe {
 
 /// Each rung's derive and its sources' largest size (lowerv3 design §7.4): one line per rung, written once; a rung that
 /// lands replaces its empty entry.
-const DERIVES: &[(DeriveFn, usize)] = &[(crate::ops::scan::pgrc::derive::derive, crate::ops::scan::pgrc::derive::SIZE), (crate::ops::scan::derive::derive, crate::ops::scan::derive::SIZE), (crate::ops::scan::pgrc::derive_fetch::derive, crate::ops::scan::pgrc::derive_fetch::SIZE), (crate::v4::derive, crate::v4::SIZE)];
+const DERIVES: &[(DeriveFn, usize)] = &[
+    (
+        crate::ops::scan::pgrc::derive::derive,
+        crate::ops::scan::pgrc::derive::SIZE,
+    ),
+    (
+        crate::ops::scan::derive::derive,
+        crate::ops::scan::derive::SIZE,
+    ),
+    (
+        crate::ops::scan::pgrc::derive_fetch::derive,
+        crate::ops::scan::pgrc::derive_fetch::SIZE,
+    ),
+    (crate::v4::derive, crate::v4::SIZE),
+];
 
 pub struct HostRegistry {
     /// D3253: this registry's identity (`Derive::identity`), unique in the process.
@@ -81,7 +97,20 @@ impl HostRegistry {
     pub fn new() -> HostRegistry {
         static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
         let id = NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        HostRegistry { id, recipes: Vec::new(), next: 0, modified: None, checks: None, merge: MergeOps::NONE, modified_by_rel: Vec::new(), beside: Vec::new(), sample_seeds: memledger::ChargedVec::none(), charge_owner: None, owner: None, rung_hint: 0 } // alloc: Program
+        HostRegistry {
+            id,
+            recipes: Vec::new(),
+            next: 0,
+            modified: None,
+            checks: None,
+            merge: MergeOps::NONE,
+            modified_by_rel: Vec::new(),
+            beside: Vec::new(),
+            sample_seeds: memledger::ChargedVec::none(),
+            charge_owner: None,
+            owner: None,
+            rung_hint: 0,
+        } // alloc: Program
     }
 
     /// D3438: the host state a Node built from this registry runs its program over (the program's own when unset).
@@ -101,7 +130,10 @@ impl HostRegistry {
     /// D1687: THIS statement's writing CTEs' modified columns, each by its relation (a writing CTE's own target) and its
     /// command (D3348: an INSERT and an UPDATE of one relation each find their own); D3623: and by its ModifyTable's plan
     /// node, which a writer naming its node finds first (two UPDATEs of one relation each find their own).
-    pub fn set_modified_by_rel(&mut self, cols: Vec<(u32, gravity_program::Cmd, i32, ModifiedCols)>) {
+    pub fn set_modified_by_rel(
+        &mut self,
+        cols: Vec<(u32, gravity_program::Cmd, i32, ModifiedCols)>,
+    ) {
         self.modified_by_rel = cols;
     }
 
@@ -147,7 +179,9 @@ impl HostRegistry {
             return s.clone();
         }
         // the list opens its charge at its first seed (a registry with no sample opens none)
-        if self.sample_seeds.is_empty() && self.sample_seeds.owner() != self.charge_owner.map(|o| o.0) {
+        if self.sample_seeds.is_empty()
+            && self.sample_seeds.owner() != self.charge_owner.map(|o| o.0)
+        {
             self.sample_seeds = crate::ops::scan::heap_source::charged_scratch(self.charge_owner);
         }
         let s = crate::ops::scan::tid_sample::new_seed(self.charge_owner);
@@ -259,7 +293,10 @@ impl HostRegistry {
     }
 
     /// Entry `i`'s bitmap morsel recipe (a rung recipe), whose claims the runner builds.
-    pub fn bitmap_morsel(&self, i: usize) -> Option<&crate::ops::scan::bitmap_morsel::BitmapMorselRecipe> {
+    pub fn bitmap_morsel(
+        &self,
+        i: usize,
+    ) -> Option<&crate::ops::scan::bitmap_morsel::BitmapMorselRecipe> {
         match self.recipes.get(i) {
             Some(Recipe::Rung(r)) => r.bitmap_morsel(),
             _ => None,
@@ -309,15 +346,27 @@ impl Derive for HostRegistry {
     /// D3128: the index recipes' counter cells (`SiteRecipe::cells`), folded in registry order.
     fn cells(&self) -> u64 {
         self.recipes.iter().fold(0, |h, r| match r {
-            Recipe::Index(s) | Recipe::Bitmap(s, _) => (h ^ s.cells()).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+            Recipe::Index(s) | Recipe::Bitmap(s, _) => {
+                (h ^ s.cells()).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            }
             _ => h,
         })
     }
 
     fn size_hint(&self, desc: &SiteDesc) -> usize {
         // sortmerge T2: a merged site's source reserves its live windows' room at its build (merged.rs `footprint`)
-        let merged = if desc.is_merged() { crate::ops::scan::pgrc::merged::footprint(desc) } else { 0 };
-        DERIVES.iter().map(|d| d.1).max().unwrap_or(0).max(self.rung_hint).max(merged)
+        let merged = if desc.is_merged() {
+            crate::ops::scan::pgrc::merged::footprint(desc)
+        } else {
+            0
+        };
+        DERIVES
+            .iter()
+            .map(|d| d.1)
+            .max()
+            .unwrap_or(0)
+            .max(self.rung_hint)
+            .max(merged)
     }
 
     fn derive_source(&mut self, desc: &SiteDesc, a: ArenaRef) -> SourceBox {
@@ -340,17 +389,31 @@ impl Derive for HostRegistry {
         assert!(!self.recipes.is_empty(), "gravity: derive without recipes");
         let i = self.next % self.recipes.len();
         let attrs = crate::ops::scan::index_probe::lanes_served(desc);
-        if let Some(src) = self.worker_probe(i).filter(|_| desc.worker_probe() && attrs).map(|p| crate::ops::scan::index_probe::derive(p, i, a)) {
+        if let Some(src) = self
+            .worker_probe(i)
+            .filter(|_| desc.worker_probe() && attrs)
+            .map(|p| crate::ops::scan::index_probe::derive(p, i, a))
+        {
             self.next += 1;
             return src;
         }
         // a leaves site's worker: its share of the run's leaf walk (index_leaves.rs)
-        if let Some(src) = self.leaf_site(i).and_then(|r| r.leaves()).filter(|_| desc.leaves() && attrs).map(|l| crate::ops::scan::index_leaves::derive(l, i, a)) {
+        if let Some(src) = self
+            .leaf_site(i)
+            .and_then(|r| r.leaves())
+            .filter(|_| desc.leaves() && attrs)
+            .map(|l| crate::ops::scan::index_leaves::derive(l, i, a))
+        {
             self.next += 1;
             return src;
         }
         // a ranges site's worker: its claims' ranges (index_ranges.rs)
-        if let Some(src) = self.range_site(i).and_then(|r| r.ranges()).filter(|_| desc.ranges() && attrs).map(|g| crate::ops::scan::index_ranges::derive(g, i, a)) {
+        if let Some(src) = self
+            .range_site(i)
+            .and_then(|r| r.ranges())
+            .filter(|_| desc.ranges() && attrs)
+            .map(|g| crate::ops::scan::index_ranges::derive(g, i, a))
+        {
             self.next += 1;
             return src;
         }
@@ -358,35 +421,85 @@ impl Derive for HostRegistry {
     }
 
     fn writer_size_hint(&self) -> usize {
-        size_of::<WriteHost>().max(size_of::<RouteHost>()).max(size_of::<MultiTargetHost>())
+        size_of::<WriteHost>()
+            .max(size_of::<RouteHost>())
+            .max(size_of::<MultiTargetHost>())
     }
 
     fn derive_writer(&mut self, plan: &WritePlan, a: ArenaRef) -> ArenaBox<dyn Writer> {
         self.next = 0;
         // V4R-498: a MERGE whose only writes are NOT MATCHED INSERTs routes them as an INSERT (its statement triggers MERGE's)
-        let merge_ins = plan.cmd == gravity_program::Cmd::Merge && !self.merge.update && !self.merge.delete;
+        let merge_ins =
+            plan.cmd == gravity_program::Cmd::Merge && !self.merge.update && !self.merge.delete;
         if plan.route.is_some() && (plan.cmd == gravity_program::Cmd::Insert || merge_ins) {
-            return box_writer(RouteHost::new(plan).with_modified(self.modified).with_checks(self.checks.clone()).with_merge(self.merge), a);
+            return box_writer(
+                RouteHost::new(plan)
+                    .with_modified(self.modified)
+                    .with_checks(self.checks.clone())
+                    .with_merge(self.merge),
+                a,
+            );
         }
         // H-e (b): several result relations (the route's leaves; a pruned single-leaf write has none: WriteHost's under_root);
         // W6-MERGE-ROUTE-MATCHED: a MERGE that updates or deletes (its INSERT-only form took RouteHost above)
-        if plan.route.as_ref().is_some_and(|r| !r.leaves.is_empty()) && matches!(plan.cmd, gravity_program::Cmd::Update | gravity_program::Cmd::Delete | gravity_program::Cmd::Merge) {
-            return box_writer(MultiTargetHost::new(plan).with_modified(self.modified).with_checks(self.checks.clone()).with_merge(self.merge), a);
+        if plan.route.as_ref().is_some_and(|r| !r.leaves.is_empty())
+            && matches!(
+                plan.cmd,
+                gravity_program::Cmd::Update
+                    | gravity_program::Cmd::Delete
+                    | gravity_program::Cmd::Merge
+            )
+        {
+            return box_writer(
+                MultiTargetHost::new(plan)
+                    .with_modified(self.modified)
+                    .with_checks(self.checks.clone())
+                    .with_merge(self.merge),
+                a,
+            );
         }
-        box_writer(WriteHost::new(plan).with_modified(self.modified).with_checks(self.checks.clone()).with_merge(self.merge), a)
+        box_writer(
+            WriteHost::new(plan)
+                .with_modified(self.modified)
+                .with_checks(self.checks.clone())
+                .with_merge(self.merge),
+            a,
+        )
     }
 
     /// D1687: a writing CTE's writer reads its own result relation's modified columns (ExecConstraints' DETAIL).
     /// D3623: its own ModifyTable's when it names its plan node, else the one of its relation and command.
-    fn derive_writer_beside(&mut self, plan: &WritePlan, node: i32, a: ArenaRef) -> ArenaBox<dyn Writer> {
+    fn derive_writer_beside(
+        &mut self,
+        plan: &WritePlan,
+        node: i32,
+        a: ArenaRef,
+    ) -> ArenaBox<dyn Writer> {
         let rel = plan.route.as_ref().map_or(plan.target_rel, |r| r.root);
-        let mine = self.modified_by_rel.iter().find(|e| node != 0 && e.2 == node);
-        let own = mine.or_else(|| self.modified_by_rel.iter().find(|(r, c, _, _)| *r == rel && *c == plan.cmd)).map(|e| e.3);
+        let mine = self
+            .modified_by_rel
+            .iter()
+            .find(|e| node != 0 && e.2 == node);
+        let own = mine
+            .or_else(|| {
+                self.modified_by_rel
+                    .iter()
+                    .find(|(r, c, _, _)| *r == rel && *c == plan.cmd)
+            })
+            .map(|e| e.3);
         let main = core::mem::replace(&mut self.modified, own);
         // its own check options and, a MERGE, its own subcommands, when the statement gave them (`set_beside`)
-        let facts = self.beside.iter().find(|f| f.0 == rel).map(|f| (f.1.clone(), f.2));
-        let checks = facts.as_ref().map(|f| core::mem::replace(&mut self.checks, f.0.clone()));
-        let merge = facts.filter(|_| plan.cmd == gravity_program::Cmd::Merge).map(|f| core::mem::replace(&mut self.merge, f.1));
+        let facts = self
+            .beside
+            .iter()
+            .find(|f| f.0 == rel)
+            .map(|f| (f.1.clone(), f.2));
+        let checks = facts
+            .as_ref()
+            .map(|f| core::mem::replace(&mut self.checks, f.0.clone()));
+        let merge = facts
+            .filter(|_| plan.cmd == gravity_program::Cmd::Merge)
+            .map(|f| core::mem::replace(&mut self.merge, f.1));
         let w = self.derive_writer(plan, a);
         self.modified = main;
         if let Some(c) = checks {
@@ -426,18 +539,28 @@ mod memsig_t4_tests {
             let s0 = c(session);
             let mut idle = super::HostRegistry::new();
             idle.charge_to(Some((stmt, Kind::Region)));
-            assert_eq!((c(stmt), c(session) - s0, idle.sample_seeds.owner()), (0, 0, None), "no sample: no charge opened");
+            assert_eq!(
+                (c(stmt), c(session) - s0, idle.sample_seeds.owner()),
+                (0, 0, None),
+                "no sample: no charge opened"
+            );
             let mut reg = super::HostRegistry::new();
             reg.charge_to(Some((stmt, Kind::Region)));
             let seed = reg.sample_seed(7);
-            assert!(std::rc::Rc::ptr_eq(&seed, &reg.sample_seed(7)), "one seed per plan node");
+            assert!(
+                std::rc::Rc::ptr_eq(&seed, &reg.sample_seed(7)),
+                "one seed per plan node"
+            );
             let held = c(session) - s0;
             assert!(held > 0, "the seed's block and the list are the session's");
             assert_eq!(c(stmt), 0, "none on the statement");
             memledger::statement_end();
             assert_eq!(c(session) - s0, held, "the statement's end moves nothing");
             drop(reg);
-            assert!(c(session) - s0 > 0 && c(session) - s0 < held, "the list left with the registry, the seed stays with its Rc");
+            assert!(
+                c(session) - s0 > 0 && c(session) - s0 < held,
+                "the list left with the registry, the seed stays with its Rc"
+            );
             drop(seed);
             assert_eq!(c(session), s0, "the seed's bytes leave with its last Rc");
             drop(idle);

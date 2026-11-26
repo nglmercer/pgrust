@@ -8,9 +8,9 @@ use gravity_program::protos::{Proto, ProtoKind};
 use gravity_program::Program;
 use types_error::PgResult;
 
-use crate::ops::{Live, Prepare, Protocol};
 use crate::admit::{Admit, Bind};
 use crate::glue;
+use crate::ops::{Live, Prepare, Protocol};
 
 pub const ADMIT: &[Admit] = &[];
 pub const BIND: &[Bind] = &[];
@@ -28,7 +28,11 @@ impl Protocol for Follows {
     }
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         check(p, cx.program)?;
-        Ok(Some(Box::new(Ran { drain: p.pipeline as usize, probe: p.peer as usize, ended: Cell::new(false) }))) // alloc: Exec
+        Ok(Some(Box::new(Ran {
+            drain: p.pipeline as usize,
+            probe: p.peer as usize,
+            ended: Cell::new(false),
+        }))) // alloc: Exec
     }
 }
 
@@ -39,11 +43,15 @@ impl Protocol for Follows {
 fn check(p: &Proto, program: &Program) -> PgResult<()> {
     let (d, q) = (p.pipeline as usize, p.peer as usize);
     if d >= program.pipelines.len() || q >= d {
-        return Err(glue::internal("gravity: join.follows: a drain that does not run after its probe"));
+        return Err(glue::internal(
+            "gravity: join.follows: a drain that does not run after its probe",
+        ));
     }
     let (ld, lq) = (program.pipelines[d].lazy_for, program.pipelines[q].lazy_for);
     if (ld >= 0 || lq >= 0) && ld != lq {
-        return Err(glue::internal("gravity: join.follows: a lazy build as a drain or its probe (it runs out of order)"));
+        return Err(glue::internal(
+            "gravity: join.follows: a lazy build as a drain or its probe (it runs out of order)",
+        ));
     }
     Ok(())
 }
@@ -61,8 +69,14 @@ impl Ran {
         if pipeline == self.probe {
             self.ended.set(true);
         }
-        let msg = || format!("gravity: join.follows: pipeline {} ran before its probe {} ended", self.drain, self.probe); // alloc: Cold
-        (pipeline == self.drain && !self.ended.get()).then(|| Err(gravity_driver::Error::host(msg())))
+        let msg = || {
+            format!(
+                "gravity: join.follows: pipeline {} ran before its probe {} ended",
+                self.drain, self.probe
+            )
+        }; // alloc: Cold
+        (pipeline == self.drain && !self.ended.get())
+            .then(|| Err(gravity_driver::Error::host(msg())))
     }
 }
 
@@ -71,7 +85,11 @@ impl Live for Ran {
         crate::ops::ask::AFTER
     }
 
-    fn after_pipeline(&self, pipeline: usize, _exec: &mut gravity_driver::Exec) -> Option<gravity_driver::Result<()>> {
+    fn after_pipeline(
+        &self,
+        pipeline: usize,
+        _exec: &mut gravity_driver::Exec,
+    ) -> Option<gravity_driver::Result<()>> {
         self.after(pipeline)
     }
 }
@@ -98,13 +116,29 @@ mod tests {
     fn program(follows: Option<Proto>, lazy: (i16, i16)) -> Program {
         let st = Arena::new(1 << 16);
         let sites = [SiteDesc::range_source(st.handle(), 7, &[1])];
-        let layout = Layout { nsites: 1, out_natts: 0, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 };
-        let build = Pipeline::eligible(0, End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64)), 10);
+        let layout = Layout {
+            nsites: 1,
+            out_natts: 0,
+            out_rows: 1,
+            scratch_bytes: 0,
+            exec_bytes: 0,
+        };
+        let build = Pipeline::eligible(
+            0,
+            End::Breaker(Breaker::sized(BreakerKind::HashBuild, 64)),
+            10,
+        );
         let mut probe = Pipeline::eligible(0, End::Sink, 10).consuming(&[0]);
         probe.lazy_for = lazy.0;
         let mut drain = Pipeline::serial(-1, End::Sink, Reason::NoDrivingSite).consuming(&[0]);
         drain.lazy_for = lazy.1;
-        let p = Program::with_pipelines(layout, &sites, &[], WritePlan::SELECT, [build, probe, drain].map(|p| (p, Code::hand(noop))));
+        let p = Program::with_pipelines(
+            layout,
+            &sites,
+            &[],
+            WritePlan::SELECT,
+            [build, probe, drain].map(|p| (p, Code::hand(noop))),
+        );
         p.with_v4(V4Descs::new(follows.into_iter().collect()))
     }
 
@@ -115,9 +149,23 @@ mod tests {
     /// The order edge rides the producer order: the drain's producers are the build (its slot) and the probe.
     #[test]
     fn the_producer_order_yields_the_probe() {
-        assert_eq!(program(None, (-1, -1)).producers_of(2).collect::<Vec<_>>(), vec![0]); // alloc: Cold
-        assert_eq!(program(Some(follows(2, 1)), (-1, -1)).producers_of(2).collect::<Vec<_>>(), vec![0, 1]); // alloc: Cold
-        assert_eq!(program(Some(follows(2, 1)), (-1, -1)).producers_of(1).collect::<Vec<_>>(), vec![0], "the probe follows nothing"); // alloc: Cold
+        assert_eq!(
+            program(None, (-1, -1)).producers_of(2).collect::<Vec<_>>(),
+            vec![0]
+        ); // alloc: Cold
+        assert_eq!(
+            program(Some(follows(2, 1)), (-1, -1))
+                .producers_of(2)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        ); // alloc: Cold
+        assert_eq!(
+            program(Some(follows(2, 1)), (-1, -1))
+                .producers_of(1)
+                .collect::<Vec<_>>(),
+            vec![0],
+            "the probe follows nothing"
+        ); // alloc: Cold
     }
 
     /// A declaration no scheduler can honour is refused at prepare: a probe at or after its drain, a drain past the
@@ -131,7 +179,11 @@ mod tests {
             assert!(format!("{e:?}").contains("join.follows"), "{e:?}"); // alloc: Cold
         }
         for lazy in [(2, -1), (-1, 3), (3, 4)] {
-            assert!(format!("{:?}", check(&follows(2, 1), &program(None, lazy)).expect_err("lazy")).contains("lazy build")); // alloc: Cold
+            assert!(format!(
+                "{:?}",
+                check(&follows(2, 1), &program(None, lazy)).expect_err("lazy")
+            )
+            .contains("lazy build")); // alloc: Cold
         }
     }
 
@@ -145,12 +197,23 @@ mod tests {
     /// own after-pipeline steps run).
     #[test]
     fn a_drain_before_its_probe_is_named() {
-        let ran = Ran { drain: 2, probe: 1, ended: Cell::new(false) };
+        let ran = Ran {
+            drain: 2,
+            probe: 1,
+            ended: Cell::new(false),
+        };
         match ran.after(2) {
-            Some(Err(gravity_driver::Error::Host(m))) => assert!(m.contains("join.follows: pipeline 2 ran before its probe 1 ended"), "{m}"),
+            Some(Err(gravity_driver::Error::Host(m))) => assert!(
+                m.contains("join.follows: pipeline 2 ran before its probe 1 ended"),
+                "{m}"
+            ),
             other => panic!("{:?}", other.map(|r| r.is_ok())),
         }
-        let ran = Ran { drain: 2, probe: 1, ended: Cell::new(false) };
+        let ran = Ran {
+            drain: 2,
+            probe: 1,
+            ended: Cell::new(false),
+        };
         assert!((0..3).all(|p| ran.after(p).is_none()));
     }
 

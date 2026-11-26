@@ -7,16 +7,18 @@ use types_nodes::plannodes::{CteScan, PlannedStmt, SubqueryScan};
 use types_nodes::primnodes::{SubLinkType, SubPlan, OUTER_VAR};
 use types_nodes::{Node, NodeTag};
 
+use crate::admit::Refusal;
 use crate::expr;
 use crate::graph::{InitPlan, Op, PipelineNode, Source};
 use crate::ledger::Kind;
 use crate::ops;
-use crate::admit::Refusal;
+use crate::ops::shared::record_row::record_row;
 use crate::ops::shared::sort::column_kind_of_expr;
 use crate::ops::shared::sort::{keys_layout, ROW_LAYOUT};
+use crate::ops::shared::subplan::{
+    agg_kids, refers, walk_cond, walk_ret, SubForm, SubLink, SubPlanDesc, SubSite,
+};
 use crate::walk::{Builder, Open, STMT_NODE};
-use crate::ops::shared::subplan::{agg_kids, refers, walk_cond, walk_ret, SubForm, SubLink, SubPlanDesc, SubSite};
-use crate::ops::shared::record_row::record_row;
 
 pub const fn link_of(t: SubLinkType) -> SubLink {
     match t {
@@ -32,8 +34,19 @@ pub const fn link_of(t: SubLinkType) -> SubLink {
 }
 
 fn root_of<'p>(b: &Builder<'p, '_>, plan_id: i32, k: Kind, id: i32) -> Result<Node<'p>, Refusal> {
-    let n = (plan_id as usize).checked_sub(1).filter(|&n| n < b.stmt.subplans.len()).ok_or(Refusal::shape(k, id, "a subplan id outside the statement's subplans"))?;
-    b.stmt.subplans.nth(n).filter(|n| n.as_plan().is_some()).ok_or(Refusal::shape(k, id, "a subplan without a plan tree"))
+    let n = (plan_id as usize)
+        .checked_sub(1)
+        .filter(|&n| n < b.stmt.subplans.len())
+        .ok_or(Refusal::shape(
+            k,
+            id,
+            "a subplan id outside the statement's subplans",
+        ))?;
+    b.stmt
+        .subplans
+        .nth(n)
+        .filter(|n| n.as_plan().is_some())
+        .ok_or(Refusal::shape(k, id, "a subplan without a plan tree"))
 }
 
 fn first_param(l: &IntList<'_>) -> i32 {
@@ -47,7 +60,11 @@ fn first_param(l: &IntList<'_>) -> i32 {
 pub fn map_stmt(b: &mut Builder<'_, '_>) -> Result<(), Refusal> {
     for n in b.stmt.subplans.iter().flatten() {
         if n.as_plan().is_none() {
-            return Err(Refusal::shape(Kind::SubPlan, STMT_NODE, "a subplans entry that is not a plan node"));
+            return Err(Refusal::shape(
+                Kind::SubPlan,
+                STMT_NODE,
+                "a subplans entry that is not a plan node",
+            ));
         }
     }
     Ok(())
@@ -59,29 +76,70 @@ pub fn map_init_plans<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> R
     let plan = node.as_plan().unwrap();
     let id = plan.plan_node_id;
     for n in plan.initPlan.iter() {
-        let s = n.as_sub_plan().ok_or(Refusal::shape(k, id, "an initPlan entry that is not a SubPlan"))?;
+        let s = n.as_sub_plan().ok_or(Refusal::shape(
+            k,
+            id,
+            "an initPlan entry that is not a SubPlan",
+        ))?;
         if !s.parParam.is_nil() || !s.args.is_nil() {
-            return Err(Refusal::shape(Kind::SubPlan, id, "an InitPlan with parameters"));
+            return Err(Refusal::shape(
+                Kind::SubPlan,
+                id,
+                "an InitPlan with parameters",
+            ));
         }
         let link = link_of(s.subLinkType);
         let root = root_of(b, s.plan_id, Kind::SubPlan, id)?;
         match link {
             SubLink::Cte => {
                 let cols = crate::facts::demand::cte::cte_cols(b, s.plan_id);
-                b.graph.cte_reads.push(crate::facts::demand::cte::CteRead { plan_id: s.plan_id, cols });
+                b.graph.cte_reads.push(crate::facts::demand::cte::CteRead {
+                    plan_id: s.plan_id,
+                    cols,
+                });
                 let open = b.plan(root)?;
                 let open = crate::ops::shared::union::settle(&mut b.graph, open);
                 let slot = match reprojects(b, &open) || read_on_demand(b, s.plan_id) {
-                    true => crate::ops::shared::breaker::close(b, open, BreakerKind::Materialize, ROW_LAYOUT, Budget::Share, Spill::Runs, Kind::CteScan, id)?,
+                    true => crate::ops::shared::breaker::close(
+                        b,
+                        open,
+                        BreakerKind::Materialize,
+                        ROW_LAYOUT,
+                        Budget::Share,
+                        Spill::Runs,
+                        Kind::CteScan,
+                        id,
+                    )?,
                     false => crate::ops::shared::breaker::spool(b, open, Kind::CteScan, id)?,
                 };
-                let producer = b.graph.breakers.iter().rev().find(|d| d.breaker.slot == slot).map_or(0, |d| d.producer);
+                let producer = b
+                    .graph
+                    .breakers
+                    .iter()
+                    .rev()
+                    .find(|d| d.breaker.slot == slot)
+                    .map_or(0, |d| d.producer);
                 b.ctes.push((s.plan_id, slot));
                 let f = crate::rerun::of_subplan(b.stmt, b.facts, b.arena, s);
-                let i = InitPlan { plan_id: s.plan_id, pipeline: producer, link, param: first_param(&s.setParam), params: &s.setParam, slot: Some(slot), volatility: f.volatility, raise_free: f.raise_free, parallel_safe: f.parallel == crate::effects::Parallel::Safe, attach: id };
+                let i = InitPlan {
+                    plan_id: s.plan_id,
+                    pipeline: producer,
+                    link,
+                    param: first_param(&s.setParam),
+                    params: &s.setParam,
+                    slot: Some(slot),
+                    volatility: f.volatility,
+                    raise_free: f.raise_free,
+                    parallel_safe: f.parallel == crate::effects::Parallel::Safe,
+                    attach: id,
+                };
                 // D1934: the CTE whose CteScan is the statement's first fetch, with the exact licence of its plan's run
                 // from there (`Proof::first_fetch`; denied for a plan that acts)
-                if let Some(l) = crate::effects::Proof::first_fetch(b.stmt, s.plan_id).and_then(|p| crate::effects::exact(crate::effects::Effects::of_init_plan(&i), p).ok()) {
+                if let Some(l) =
+                    crate::effects::Proof::first_fetch(b.stmt, s.plan_id).and_then(|p| {
+                        crate::effects::exact(crate::effects::Effects::of_init_plan(&i), p).ok()
+                    })
+                {
                     b.graph.first_cte = Some((s.plan_id, l));
                 }
                 b.graph.init_plans.push(i);
@@ -90,12 +148,27 @@ pub fn map_init_plans<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> R
                 let open = b.plan(root)?;
                 let open = crate::ops::shared::union::settle(&mut b.graph, open); // an InitPlan is one pipeline
                 if b.graph.pipelines.len() + 2 > gravity_program::limits::PIPELINES {
-                    return Err(Refusal::shape(Kind::SubPlan, id, "more than 65535 pipelines (the u16 pipeline id)"));
+                    return Err(Refusal::shape(
+                        Kind::SubPlan,
+                        id,
+                        "more than 65535 pipelines (the u16 pipeline id)",
+                    ));
                 }
                 let p = b.graph.pipelines.len() as u16;
                 b.graph.push(open);
                 let f = crate::rerun::of_subplan(b.stmt, b.facts, b.arena, s);
-                b.graph.init_plans.push(InitPlan { plan_id: s.plan_id, pipeline: p, link, param: first_param(&s.setParam), params: &s.setParam, slot: None, volatility: f.volatility, raise_free: f.raise_free, parallel_safe: f.parallel == crate::effects::Parallel::Safe, attach: id });
+                b.graph.init_plans.push(InitPlan {
+                    plan_id: s.plan_id,
+                    pipeline: p,
+                    link,
+                    param: first_param(&s.setParam),
+                    params: &s.setParam,
+                    slot: None,
+                    volatility: f.volatility,
+                    raise_free: f.raise_free,
+                    parallel_safe: f.parallel == crate::effects::Parallel::Safe,
+                    attach: id,
+                });
                 // PS1-05: its planner charge (graph `InitCharge::of`, a front hit's too)
                 if let Some(c) = crate::graph::InitCharge::of(s).cost {
                     b.graph.init_costs.push((s.plan_id, c));
@@ -144,7 +217,13 @@ fn recheck_site<'p>(stmt: &'p PlannedStmt<'p>) -> Option<Recheck<'p>> {
     while let Some(x) = n {
         let p = x.as_plan()?;
         if matches!(x.node_tag(), NodeTag::T_ModifyTable | NodeTag::T_LockRows) {
-            return Some(Recheck { id: p.plan_node_id, node: x, root: stmt.planTree?, sub: false, main: None });
+            return Some(Recheck {
+                id: p.plan_node_id,
+                node: x,
+                root: stmt.planTree?,
+                sub: false,
+                main: None,
+            });
         }
         n = p.lefttree;
     }
@@ -157,8 +236,20 @@ fn recheck_site<'p>(stmt: &'p PlannedStmt<'p>) -> Option<Recheck<'p>> {
     if writes > 0 || locks != 1 {
         return None;
     }
-    let found = |root: Node<'p>, sub: bool| crate::rerun::find_lock(root).and_then(|x| x.as_plan().map(|p| Recheck { id: p.plan_node_id, node: x, root, sub, main: stmt.planTree }));
-    stmt.planTree.and_then(|t| found(t, false)).or_else(|| stmt.subplans.iter().flatten().find_map(|r| found(r, true)))
+    let found = |root: Node<'p>, sub: bool| {
+        crate::rerun::find_lock(root).and_then(|x| {
+            x.as_plan().map(|p| Recheck {
+                id: p.plan_node_id,
+                node: x,
+                root,
+                sub,
+                main: stmt.planTree,
+            })
+        })
+    };
+    stmt.planTree
+        .and_then(|t| found(t, false))
+        .or_else(|| stmt.subplans.iter().flatten().find_map(|r| found(r, true)))
 }
 
 /// D2028 / D2112 phase B: whether an InitPlan attached at plan node `id` with setParams `set` is one PostgreSQL forces at
@@ -166,7 +257,11 @@ fn recheck_site<'p>(stmt: &'p PlannedStmt<'p>) -> Option<Recheck<'p>> {
 /// node's subplan `extParam` (EvalPlanQualStart / EvalPlanQualBegin run ExecSetParamPlanMulti over the subplan's extParam).
 fn recheck_reads(r: Option<&Recheck<'_>>, id: i32, set: &IntList<'_>) -> bool {
     let Some(r) = r else { return false };
-    let sub = r.node.as_plan().and_then(|p| p.lefttree).and_then(|c| c.as_plan());
+    let sub = r
+        .node
+        .as_plan()
+        .and_then(|p| p.lefttree)
+        .and_then(|c| c.as_plan());
     r.above(id) && sub.is_some_and(|s| set.iter().any(|v| s.extParam.is_member(v.to_owned())))
 }
 
@@ -177,7 +272,13 @@ fn recheck_reads(r: Option<&Recheck<'_>>, id: i32, set: &IntList<'_>) -> bool {
 /// the statement's tree than the recheck's node, runs again where the recheck reads it. One at the node or above it in the
 /// statement's tree only has its value copied (`recheck_reads`).
 fn recheck_fresh(r: Option<&Recheck<'_>>, id: i32) -> bool {
-    r.is_some_and(|r| if r.sub { !r.main.is_some_and(|m| crate::rerun::holds_node(m, id)) } else { !r.above(id) })
+    r.is_some_and(|r| {
+        if r.sub {
+            !r.main.is_some_and(|m| crate::rerun::holds_node(m, id))
+        } else {
+            !r.above(id)
+        }
+    })
 }
 
 /// D1497 (CT-2, V4R-474): whether `sort::spool` would read the CTE's `open` (a bare emit over a breaker: one Project, one
@@ -187,21 +288,52 @@ fn recheck_fresh(r: Option<&Recheck<'_>>, id: i32) -> bool {
 /// at its own place (a bare OUTER Var, attno == resno, the column's type, typmod and collation) is dropped; any other closes
 /// the CTE with a Materialize (nest.cte's store).
 fn reprojects(b: &Builder<'_, '_>, open: &Open<'_>) -> bool {
-    let (Source::Breaker { slot }, [Op::Project(tl)]) = (&open.source, &open.ops[..]) else { return false };
+    let (Source::Breaker { slot }, [Op::Project(tl)]) = (&open.source, &open.ops[..]) else {
+        return false;
+    };
     if open.desc.nconsumed() != 1 {
         return false;
     }
-    let row = crate::breakers::decl_of(&b.graph, *slot).and_then(|d| b.graph.pipelines[d.producer as usize].ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }));
+    let row = crate::breakers::decl_of(&b.graph, *slot).and_then(|d| {
+        b.graph.pipelines[d.producer as usize]
+            .ops
+            .iter()
+            .rev()
+            .find_map(|op| {
+                if let Op::Project(l) = op {
+                    Some(*l)
+                } else {
+                    None
+                }
+            })
+    });
     let Some(row) = row else { return true };
-    tl.len() > row.len() || !tl.iter().all(|e| {
-        let Some(te) = e.as_target_entry() else { return false };
-        if te.resjunk {
-            return true;
-        }
-        let (Some(v), Some(i)) = (te.expr.as_var(), (te.resno as usize).checked_sub(1).filter(|&i| i < row.len())) else { return false };
-        let Some(c) = row.nth(i).as_target_entry() else { return false };
-        v.varno == OUTER_VAR && v.varlevelsup == 0 && v.varattno == te.resno && crate::catalog::expr_type::type_of(c.expr) == Some(v.vartype) && crate::catalog::expr_type::typmod_of(c.expr) == v.vartypmod && crate::catalog::expr_type::collation_of(c.expr) == v.varcollid
-    })
+    tl.len() > row.len()
+        || !tl.iter().all(|e| {
+            let Some(te) = e.as_target_entry() else {
+                return false;
+            };
+            if te.resjunk {
+                return true;
+            }
+            let (Some(v), Some(i)) = (
+                te.expr.as_var(),
+                (te.resno as usize)
+                    .checked_sub(1)
+                    .filter(|&i| i < row.len()),
+            ) else {
+                return false;
+            };
+            let Some(c) = row.nth(i).as_target_entry() else {
+                return false;
+            };
+            v.varno == OUTER_VAR
+                && v.varlevelsup == 0
+                && v.varattno == te.resno
+                && crate::catalog::expr_type::type_of(c.expr) == Some(v.vartype)
+                && crate::catalog::expr_type::typmod_of(c.expr) == v.vartypmod
+                && crate::catalog::expr_type::collation_of(c.expr) == v.varcollid
+        })
 }
 
 /// D3373 (D3095's sorted form): CTE `plan_id` is read inside an InitPlan that is no CTE (a scalar subquery over it, run
@@ -220,19 +352,34 @@ fn reprojects(b: &Builder<'_, '_>, open: &Open<'_>) -> bool {
 /// itself) keep the shortcut: that set's members take the producers and nothing outside reads them.
 fn read_on_demand(b: &Builder<'_, '_>, plan_id: i32) -> bool {
     let stmt = b.stmt;
-    let scan = |x: Node<'_>| usize::from(x.node_tag() == NodeTag::T_CteScan && x.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id));
+    let scan = |x: Node<'_>| {
+        usize::from(
+            x.node_tag() == NodeTag::T_CteScan
+                && x.as_cte_scan().is_some_and(|c| c.ctePlanId == plan_id),
+        )
+    };
     // walked in place (decompose allocates nothing once warm, core_zero_alloc): each InitPlan is listed by one node only
     let (mut inside, mut all, mut ctes, mut in_ctes) = (0, 0, 0, 0);
     crate::rerun::each_plan_node(stmt, &mut |n| {
         all += scan(n);
         let Some(p) = n.as_plan() else { return };
-        for s in p.initPlan.iter().filter_map(|x| x.as_sub_plan()).filter(|s| link_of(s.subLinkType) != SubLink::Cte) {
+        for s in p
+            .initPlan
+            .iter()
+            .filter_map(|x| x.as_sub_plan())
+            .filter(|s| link_of(s.subLinkType) != SubLink::Cte)
+        {
             if let Some(r) = crate::rerun::subplan_root(stmt, s.plan_id) {
                 crate::rerun::each_node(r, &mut |x| inside += scan(x));
             }
         }
         // D1236: each other CTE whose plan reads it, and how many of its CteScans are in those plans
-        for s in p.initPlan.iter().filter_map(|x| x.as_sub_plan()).filter(|s| link_of(s.subLinkType) == SubLink::Cte && s.plan_id != plan_id) {
+        for s in p
+            .initPlan
+            .iter()
+            .filter_map(|x| x.as_sub_plan())
+            .filter(|s| link_of(s.subLinkType) == SubLink::Cte && s.plan_id != plan_id)
+        {
             if let Some(r) = crate::rerun::subplan_root(stmt, s.plan_id) {
                 let mut here = 0;
                 crate::rerun::each_node(r, &mut |x| here += scan(x));
@@ -243,7 +390,8 @@ fn read_on_demand(b: &Builder<'_, '_>, plan_id: i32) -> bool {
         // D3746: a hashed SubPlan's plan in the node's quals or target list, whose set lowerv4 may build LAZY, at its first
         // probe (on demand, as PG's ExecHashSubPlan builds it at the first call: ops/subplan/hashed.rs `lazy_build`)
         let mut hashed = |s: &SubPlan<'_>| {
-            if let Some(r) = crate::rerun::subplan_root(stmt, s.plan_id).filter(|_| s.useHashTable) {
+            if let Some(r) = crate::rerun::subplan_root(stmt, s.plan_id).filter(|_| s.useHashTable)
+            {
                 crate::rerun::each_node(r, &mut |x| inside += scan(x));
             }
         };
@@ -263,10 +411,15 @@ fn each_sub<'p>(n: Node<'p>, f: &mut dyn FnMut(&'p SubPlan<'p>)) {
     expr::kids(n, &mut |c| each_sub(c, f));
 }
 
-fn map_subquery_scan<'p>(b: &mut Builder<'p, '_>, sq: &'p SubqueryScan<'p>) -> Result<Open<'p>, Refusal> {
+fn map_subquery_scan<'p>(
+    b: &mut Builder<'p, '_>,
+    sq: &'p SubqueryScan<'p>,
+) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&sq.scan.plan, Kind::SubqueryScan);
     let id = plan.plan_node_id;
-    let root = sq.subplan.ok_or(Refusal::shape(k, id, "a SubqueryScan without a subplan"))?;
+    let root = sq
+        .subplan
+        .ok_or(Refusal::shape(k, id, "a SubqueryScan without a subplan"))?;
     record_row(b, &sq.scan, root);
     let mut open = b.plan(root)?;
     ops::filters(&mut open, &plan.qual);
@@ -278,7 +431,13 @@ fn map_subquery_scan<'p>(b: &mut Builder<'p, '_>, sq: &'p SubqueryScan<'p>) -> R
 fn map_cte_scan<'p>(b: &mut Builder<'p, '_>, cs: &'p CteScan<'p>) -> Result<Open<'p>, Refusal> {
     let (plan, k) = (&cs.scan.plan, Kind::CteScan);
     let id = plan.plan_node_id;
-    let slot = b.ctes.iter().rev().find(|(p, _)| *p == cs.ctePlanId).map(|(_, s)| *s).ok_or(Refusal::shape(k, id, "a CteScan before its CTE's InitPlan"))?;
+    let slot = b
+        .ctes
+        .iter()
+        .rev()
+        .find(|(p, _)| *p == cs.ctePlanId)
+        .map(|(_, s)| *s)
+        .ok_or(Refusal::shape(k, id, "a CteScan before its CTE's InitPlan"))?;
     if let Ok(root) = root_of(b, cs.ctePlanId, k, id) {
         record_row(b, &cs.scan, root);
     }
@@ -293,7 +452,11 @@ pub fn map<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind) -> Result<Open<
     match k {
         Kind::SubqueryScan => map_subquery_scan(b, node.as_subquery_scan().unwrap()),
         Kind::CteScan => map_cte_scan(b, node.as_cte_scan().unwrap()),
-        _ => Err(Refusal::shape(k, STMT_NODE, "a SubPlan is an expression node, not a plan node")),
+        _ => Err(Refusal::shape(
+            k,
+            STMT_NODE,
+            "a SubPlan is an expression node, not a plan node",
+        )),
     }
 }
 
@@ -326,8 +489,18 @@ fn reads(o: &Op<'_>, plan_id: i32, r: fn(Node<'_>, i32) -> bool) -> bool {
         Op::Filter(n) | Op::Gate(n) => r(*n, plan_id),
         Op::Project(l) => list(l),
         // D2013 slice 2: a nest's NestLoopParam holding a SubPlan hoisted out of its inner's keys (facts/hoist.rs)
-        Op::Join(j) => j.qual().is_some_and(list) || j.keys().is_some_and(list) || matches!(j, crate::join::JoinDesc::Nest { params, .. } if params.iter().any(|p| p.as_nest_loop_param().is_some_and(|n| r(n.paramval, plan_id)))),
-        Op::Window(w) => w.functions.iter().any(|f| f.func.args.iter().enumerate().any(|(a, n)| crate::ops::window_step_arg(f.func, a) && r(n, plan_id))),
+        Op::Join(j) => {
+            j.qual().is_some_and(list)
+                || j.keys().is_some_and(list)
+                || matches!(j, crate::join::JoinDesc::Nest { params, .. } if params.iter().any(|p| p.as_nest_loop_param().is_some_and(|n| r(n.paramval, plan_id))))
+        }
+        Op::Window(w) => w.functions.iter().any(|f| {
+            f.func
+                .args
+                .iter()
+                .enumerate()
+                .any(|(a, n)| crate::ops::window_step_arg(f.func, a) && r(n, plan_id))
+        }),
         Op::Write(d) => crate::ops::shared::modifytable::refers(d, plan_id),
         Op::Srf(s) if s.place == crate::ops::shared::srf::SrfPlace::TargetList => list(s.tlist),
         Op::Srf(s) => s.functions.iter().any(|f| r(f.node, plan_id)),
@@ -342,7 +515,9 @@ fn reader(ops: &[Op<'_>], plan_id: i32) -> Option<usize> {
 
 fn own_reader(open: &Open<'_>, plan_id: i32) -> Option<usize> {
     let m = (open.mark as usize).min(open.ops.len());
-    reader(&open.ops[m..], plan_id).map(|i| i + m).or_else(|| reader(&open.ops, plan_id))
+    reader(&open.ops[m..], plan_id)
+        .map(|i| i + m)
+        .or_else(|| reader(&open.ops, plan_id))
 }
 
 /// `refers` outside aggregate calls, for `unplaced`: an Aggref's arguments (a SubPlan among them) run on the aggregate's
@@ -367,7 +542,10 @@ fn evaluates(n: Node<'_>, plan_id: i32) -> bool {
 fn has_subplan_ret(node: Node<'_>) -> bool {
     let mut found = false;
     walk_ret(node, &mut |n| {
-        found |= matches!(n.node_tag(), NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan);
+        found |= matches!(
+            n.node_tag(),
+            NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan
+        );
         !found
     });
     found
@@ -397,12 +575,24 @@ pub fn unplaced(g: &crate::graph::PipelineGraph<'_>) -> Option<Refusal> {
     }
     fn check(p: &PipelineNode<'_>, placed: &[i32]) -> bool {
         crate::walk::stack_check(); // D3748
-        let before = |id: i32, r: usize| p.ops[..r].iter().any(|o| matches!(o, Op::SubPlan(d) if d.plan_id == id));
-        placed.iter().all(|&id| p.ops.iter().position(|o| reads(o, id, evaluates)).is_none_or(|r| before(id, r)))
-            && p.ops.iter().all(|op| match op {
-                Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) | Op::Join(crate::join::JoinDesc::Nest { inner, .. }) => check(inner, placed),
-                _ => true,
+        let before = |id: i32, r: usize| {
+            p.ops[..r]
+                .iter()
+                .any(|o| matches!(o, Op::SubPlan(d) if d.plan_id == id))
+        };
+        placed.iter().all(|&id| {
+            p.ops
+                .iter()
+                .position(|o| reads(o, id, evaluates))
+                .is_none_or(|r| before(id, r))
+        }) && p.ops.iter().all(|op| match op {
+            Op::SubPlan(SubPlanDesc {
+                form: SubForm::Nested { inner },
+                ..
             })
+            | Op::Join(crate::join::JoinDesc::Nest { inner, .. }) => check(inner, placed),
+            _ => true,
+        })
     }
     let mut placed: ArenaVec<i32> = ArenaVec::new_in(*g.pipelines.allocator()); // alloc: Cold
     for p in g.pipelines.iter() {
@@ -411,17 +601,39 @@ pub fn unplaced(g: &crate::graph::PipelineGraph<'_>) -> Option<Refusal> {
     if placed.is_empty() || g.pipelines.iter().all(|p| check(p, &placed)) {
         return None;
     }
-    Some(Refusal::shape(Kind::SubPlan, STMT_NODE, "a SubPlan read in a pipeline with no op of it before the read"))
+    Some(Refusal::shape(
+        Kind::SubPlan,
+        STMT_NODE,
+        "a SubPlan read in a pipeline with no op of it before the read",
+    ))
 }
 
 /// `op` into the pipeline that reads its result, before its first reader: `open`, else (a nested one) the latest closed
 /// pipeline that does (a right-driven hash join's probe the node already closed). That
 /// pipeline also reads the slots a nested inner reads (`inner`, its descriptor: `breakers::embed`); a closed one only
 /// lives filled before it (the program runs pipelines in order), else the statement refuses.
-fn place<'p>(b: &mut Builder<'p, '_>, open: &mut Open<'p>, plan_id: i32, op: Op<'p>, inner: Option<Pipeline>) {
+fn place<'p>(
+    b: &mut Builder<'p, '_>,
+    open: &mut Open<'p>,
+    plan_id: i32,
+    op: Op<'p>,
+    inner: Option<Pipeline>,
+) {
     let arena = b.arena;
-    let refused = |later: bool| Refusal::shape(Kind::SubPlan, crate::walk::STMT_NODE, if later { "a nested SubPlan's inner reads a slot filled after its reader's pipeline" } else { "a nested SubPlan's inner reads a slot its reader reads from another life" });
-    let into_open = |b: &mut Builder<'p, '_>, open: &mut Open<'p>| match inner.map(|d| crate::breakers::embed(arena, open.desc, &d, Some(&mut b.graph.reads))) {
+    let refused = |later: bool| {
+        Refusal::shape(
+            Kind::SubPlan,
+            crate::walk::STMT_NODE,
+            if later {
+                "a nested SubPlan's inner reads a slot filled after its reader's pipeline"
+            } else {
+                "a nested SubPlan's inner reads a slot its reader reads from another life"
+            },
+        )
+    };
+    let into_open = |b: &mut Builder<'p, '_>, open: &mut Open<'p>| match inner
+        .map(|d| crate::breakers::embed(arena, open.desc, &d, Some(&mut b.graph.reads)))
+    {
         Some(Err(_)) => {
             b.graph.fault.get_or_insert(refused(false));
         }
@@ -432,11 +644,31 @@ fn place<'p>(b: &mut Builder<'p, '_>, open: &mut Open<'p>, plan_id: i32, op: Op<
         into_open(b, open);
         return open.insert(i, op);
     }
-    let closed = if inner.is_some() { b.graph.pipelines.iter_mut().enumerate().rev().find_map(|(c, p)| reader(&p.ops, plan_id).map(|i| (c, p, i))) } else { None };
+    let closed = if inner.is_some() {
+        b.graph
+            .pipelines
+            .iter_mut()
+            .enumerate()
+            .rev()
+            .find_map(|(c, p)| reader(&p.ops, plan_id).map(|i| (c, p, i)))
+    } else {
+        None
+    };
     let fault = match closed {
         // one arm of a streamed union cannot take the inner for all of them
-        Some((_, p, i)) if p.ops[..i].iter().any(|o| matches!(o, Op::Append(crate::ops::shared::append::AppendDesc::Arm { .. }))) => {
-            Some(Refusal::shape(Kind::SubPlan, crate::walk::STMT_NODE, "a nested SubPlan read past a streamed union's arm marker"))
+        Some((_, p, i))
+            if p.ops[..i].iter().any(|o| {
+                matches!(
+                    o,
+                    Op::Append(crate::ops::shared::append::AppendDesc::Arm { .. })
+                )
+            }) =>
+        {
+            Some(Refusal::shape(
+                Kind::SubPlan,
+                crate::walk::STMT_NODE,
+                "a nested SubPlan read past a streamed union's arm marker",
+            ))
         }
         Some((c, p, i)) => {
             // a join reader evaluates its qual's SubPlan over the pair it hands the qual (lowerv4 `site::Lend::Reader`),
@@ -446,8 +678,16 @@ fn place<'p>(b: &mut Builder<'p, '_>, open: &mut Open<'p>, plan_id: i32, op: Op<
             let d = inner.as_ref().map_or(&[][..], |d| d.consumes);
             let lives = inner.as_ref().map_or(&[][..], |d| d.consumes_from);
             // a slot the SubPlan's own rerun set fills is filled on demand, when the op runs the set (`rerun::declare_rerun`)
-            let own = |l: u16| b.graph.reruns.iter().any(|r| r.plan_id == plan_id && r.pipelines.contains(&l));
-            let before = lives.len() == d.len() && lives.iter().all(|l| (l.0 as usize) < c || (at_join && l.0 as usize == c) || own(l.0));
+            let own = |l: u16| {
+                b.graph
+                    .reruns
+                    .iter()
+                    .any(|r| r.plan_id == plan_id && r.pipelines.contains(&l))
+            };
+            let before = lives.len() == d.len()
+                && lives
+                    .iter()
+                    .all(|l| (l.0 as usize) < c || (at_join && l.0 as usize == c) || own(l.0));
             match inner.map(|x| crate::breakers::embed(arena, p.desc, &x, None)) {
                 Some(Ok(e)) if before => {
                     p.desc = e;
@@ -504,11 +744,22 @@ const SHARED_STATE_KEPT_SEED: &str = "a SubPlan called by several plan nodes who
 pub(crate) fn own_lists<'p>(n: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     let Some(p) = n.as_plan() else { return };
     p.targetlist.iter().chain(p.qual.iter()).for_each(&mut *f);
-    n.as_result().and_then(|r| r.resconstantqual).into_iter().for_each(&mut *f);
-    let jq = n.as_nest_loop().map(|j| &j.join.joinqual).or_else(|| n.as_merge_join().map(|j| &j.join.joinqual)).or_else(|| n.as_hash_join().map(|j| &j.join.joinqual));
+    n.as_result()
+        .and_then(|r| r.resconstantqual)
+        .into_iter()
+        .for_each(&mut *f);
+    let jq = n
+        .as_nest_loop()
+        .map(|j| &j.join.joinqual)
+        .or_else(|| n.as_merge_join().map(|j| &j.join.joinqual))
+        .or_else(|| n.as_hash_join().map(|j| &j.join.joinqual));
     jq.into_iter().flat_map(|q| q.iter()).for_each(&mut *f);
     if let Some(v) = n.as_values_scan() {
-        v.values_lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).for_each(&mut *f);
+        v.values_lists
+            .iter()
+            .filter_map(|l| l.as_list())
+            .flat_map(|l| l.iter())
+            .for_each(&mut *f);
     }
     if let Some(mt) = n.as_modify_table() {
         crate::ops::shared::modifytable::expr_lists(mt, &mut |l| l.iter().for_each(&mut *f));
@@ -521,7 +772,10 @@ fn stops(b: &Builder<'_, '_>) -> bool {
     use crate::graph::Bound;
     let mut hit = false;
     crate::rerun::each_plan_node(b.stmt, &mut |x| {
-        hit |= x.as_limit().is_some_and(|l| !matches!(crate::ops::limit_bounds(l).0, Bound::All) && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c > 0));
+        hit |= x.as_limit().is_some_and(|l| {
+            !matches!(crate::ops::limit_bounds(l).0, Bound::All)
+                && !matches!(crate::ops::limit_bounds(l).0, Bound::Const(c) if c > 0)
+        });
     });
     hit
 }
@@ -533,7 +787,16 @@ fn stops(b: &Builder<'_, '_>) -> bool {
 /// outside the kept stores, a BERNOULLI / SYSTEM seed kept), every caller's table holds the first build's rows: the set is
 /// built once for the statement and each calling node probes it (`PipelineGraph::shared_sets`).
 fn one_set<'p>(b: &Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>) -> bool {
-    s.useHashTable && s.parParam.is_nil() && crate::effects::Effects::of_found(crate::rerun::of_rescan(b.stmt, b.facts, b.arena, root, &[])).same_rows
+    s.useHashTable
+        && s.parParam.is_nil()
+        && crate::effects::Effects::of_found(crate::rerun::of_rescan(
+            b.stmt,
+            b.facts,
+            b.arena,
+            root,
+            &[],
+        ))
+        .same_rows
 }
 
 /// D1920: more than one plan node of the statement calls SubPlan `plan_id`.
@@ -557,7 +820,9 @@ fn one_store<'p>(b: &Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>) -> boo
     }
     let cx = crate::effects::Cx::new(b.stmt, b.facts, b.arena);
     let mut acts = false;
-    own_lists(root, &mut |e| acts |= crate::effects::of_expr(&cx, e, &crate::effects::PLAIN).acts);
+    own_lists(root, &mut |e| {
+        acts |= crate::effects::of_expr(&cx, e, &crate::effects::PLAIN).acts
+    });
     !acts
 }
 
@@ -567,11 +832,21 @@ fn one_store<'p>(b: &Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>) -> boo
 /// read pointer reset at every re-open, the plan pulled a row at a time when it calls VOLATILE code): its fill is the
 /// root's child for a Material (the store is the Material's), the root itself for a Sort or a FunctionScan. Every calling
 /// node's inner reads that store and projects the stored row as the SubPlan's tuple.
-fn store_reader<'p>(b: &mut Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>, id: i32) -> Result<Open<'p>, Refusal> {
+fn store_reader<'p>(
+    b: &mut Builder<'p, '_>,
+    s: &'p SubPlan<'p>,
+    root: Node<'p>,
+    id: i32,
+) -> Result<Open<'p>, Refusal> {
     let refuse = || Refusal::shape(Kind::SubPlan, id, SHARED_STATE_KEPT_VOLATILE);
     let plan = root.as_plan().ok_or_else(refuse)?;
     let cols = crate::self_spool::identity(b, &plan.targetlist).ok_or_else(refuse)?;
-    let found = b.ctes.iter().rev().find(|&&(p, _)| p == s.plan_id).map(|&(_, slot)| slot);
+    let found = b
+        .ctes
+        .iter()
+        .rev()
+        .find(|&&(p, _)| p == s.plan_id)
+        .map(|&(_, slot)| slot);
     let slot = match found {
         Some(slot) => slot,
         None => {
@@ -581,12 +856,38 @@ fn store_reader<'p>(b: &mut Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>,
             };
             let open = b.plan(fill)?;
             let open = crate::ops::shared::union::settle(&mut b.graph, open);
-            let slot = crate::ops::shared::breaker::close(b, open, BreakerKind::Materialize, ROW_LAYOUT, Budget::Share, Spill::Runs, Kind::SubPlan, id)?;
-            let producer = b.graph.breakers.iter().rev().find(|d| d.breaker.slot == slot).map_or(0, |d| d.producer);
+            let slot = crate::ops::shared::breaker::close(
+                b,
+                open,
+                BreakerKind::Materialize,
+                ROW_LAYOUT,
+                Budget::Share,
+                Spill::Runs,
+                Kind::SubPlan,
+                id,
+            )?;
+            let producer = b
+                .graph
+                .breakers
+                .iter()
+                .rev()
+                .find(|d| d.breaker.slot == slot)
+                .map_or(0, |d| d.producer);
             b.closed_by(root);
             b.ctes.push((s.plan_id, slot));
             let f = crate::rerun::of_subplan(b.stmt, b.facts, b.arena, s);
-            b.graph.init_plans.push(InitPlan { plan_id: s.plan_id, pipeline: producer, link: SubLink::Cte, param: first_param(&s.setParam), params: &s.setParam, slot: Some(slot), volatility: f.volatility, raise_free: f.raise_free, parallel_safe: f.parallel == crate::effects::Parallel::Safe, attach: id });
+            b.graph.init_plans.push(InitPlan {
+                plan_id: s.plan_id,
+                pipeline: producer,
+                link: SubLink::Cte,
+                param: first_param(&s.setParam),
+                params: &s.setParam,
+                slot: Some(slot),
+                volatility: f.volatility,
+                raise_free: f.raise_free,
+                parallel_safe: f.parallel == crate::effects::Parallel::Safe,
+                attach: id,
+            });
             slot
         }
     };
@@ -600,38 +901,91 @@ fn store_reader<'p>(b: &mut Builder<'p, '_>, s: &'p SubPlan<'p>, root: Node<'p>,
 fn draws<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
     crate::walk::stack_check(); // D3748
     let Some(p) = n.as_plan() else { return true };
-    let sub = |s: &'p SubPlan<'p>| crate::rerun::subplan_root(b.stmt, s.plan_id).is_none_or(|r| draws(b, r));
+    let sub = |s: &'p SubPlan<'p>| {
+        crate::rerun::subplan_root(b.stmt, s.plan_id).is_none_or(|r| draws(b, r))
+    };
     // D1920: a heap BERNOULLI / SYSTEM sample's copies share its plan node's one seed (hosts HostRegistry::sample_seed), as
     // PostgreSQL's one PlanState does; another method's or a pgrc relation's source draws its own
-    let seeded = |s: &types_nodes::plannodes::SampleScan<'_>, t: &types_nodes::parsenodes::TableSampleClause<'_>| {
-        matches!(t.tsmhandler, crate::ops::shared::scan::TSM_BERNOULLI | crate::ops::shared::scan::TSM_SYSTEM)
-            && b.relation(s.scan.scanrelid, Kind::SampleScan, p.plan_node_id).is_ok_and(|r| r.am == crate::catalog::Am::Heap)
+    let seeded = |s: &types_nodes::plannodes::SampleScan<'_>,
+                  t: &types_nodes::parsenodes::TableSampleClause<'_>| {
+        matches!(
+            t.tsmhandler,
+            crate::ops::shared::scan::TSM_BERNOULLI | crate::ops::shared::scan::TSM_SYSTEM
+        ) && b
+            .relation(s.scan.scanrelid, Kind::SampleScan, p.plan_node_id)
+            .is_ok_and(|r| r.am == crate::catalog::Am::Heap)
     };
-    let mut hit = n.as_sample_scan().is_some_and(|s| s.tablesample.and_then(|t| t.as_table_sample_clause()).is_none_or(|t| t.repeatable.is_none() && !seeded(s, t)));
-    hit |= p.initPlan.iter().filter_map(|s| s.as_sub_plan()).any(|s| s.subLinkType == SubLinkType::CTE_SUBLINK && sub(s));
+    let mut hit = n.as_sample_scan().is_some_and(|s| {
+        s.tablesample
+            .and_then(|t| t.as_table_sample_clause())
+            .is_none_or(|t| t.repeatable.is_none() && !seeded(s, t))
+    });
+    hit |= p
+        .initPlan
+        .iter()
+        .filter_map(|s| s.as_sub_plan())
+        .any(|s| s.subLinkType == SubLinkType::CTE_SUBLINK && sub(s));
     own_lists(n, &mut |e| {
         expr::walk(e, &mut |x| {
             hit |= x.as_sub_plan().is_some_and(sub);
             !hit
         });
     });
-    let lists = [n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|a| &a.mergeplans), n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|a| &a.bitmapplans), n.as_agg().map(|a| &a.chain)];
-    let kids = p.lefttree.into_iter().chain(p.righttree).chain(n.as_subquery_scan().and_then(|s| s.subplan));
-    hit || kids.chain(lists.into_iter().flatten().flat_map(|l| l.iter())).any(|k| draws(b, k))
+    let lists = [
+        n.as_append().map(|a| &a.appendplans),
+        n.as_merge_append().map(|a| &a.mergeplans),
+        n.as_bitmap_and().map(|a| &a.bitmapplans),
+        n.as_bitmap_or().map(|a| &a.bitmapplans),
+        n.as_agg().map(|a| &a.chain),
+    ];
+    let kids = p
+        .lefttree
+        .into_iter()
+        .chain(p.righttree)
+        .chain(n.as_subquery_scan().and_then(|s| s.subplan));
+    hit || kids
+        .chain(lists.into_iter().flatten().flat_map(|l| l.iter()))
+        .any(|k| draws(b, k))
 }
 
-fn map_subplan<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, k: Kind, id: i32, open: Open<'p>) -> Result<Open<'p>, Refusal> {
+fn map_subplan<'p>(
+    b: &mut Builder<'p, '_>,
+    f: Found1<'p>,
+    k: Kind,
+    id: i32,
+    open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     map_subplan_held(b, f, k, id, open, None)
 }
 
 /// `map_subplan` for a SubPlan its place evaluates ahead of PostgreSQL's demand under licence `ahead`, carried on each of
 /// its ops (`SubPlanDesc::ahead`).
-fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i32, mut open: Open<'p>, ahead: Option<crate::effects::Licence>) -> Result<Open<'p>, Refusal> {
-    let Found1 { s, alternative, site, conditional } = f;
-    let s = if f.alternative { s } else { read_as(&open, s.plan_id).unwrap_or(s) };
+fn map_subplan_held<'p>(
+    b: &mut Builder<'p, '_>,
+    f: Found1<'p>,
+    _k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+    ahead: Option<crate::effects::Licence>,
+) -> Result<Open<'p>, Refusal> {
+    let Found1 {
+        s,
+        alternative,
+        site,
+        conditional,
+    } = f;
+    let s = if f.alternative {
+        s
+    } else {
+        read_as(&open, s.plan_id).unwrap_or(s)
+    };
     let link = link_of(s.subLinkType);
     if link == SubLink::Cte || (link != SubLink::MultiExpr && !s.setParam.is_nil()) {
-        return Err(Refusal::shape(Kind::SubPlan, id, "an InitPlan referenced as a per-row SubPlan"));
+        return Err(Refusal::shape(
+            Kind::SubPlan,
+            id,
+            "an InitPlan referenced as a per-row SubPlan",
+        ));
     }
     let root = root_of(b, s.plan_id, Kind::SubPlan, id)?;
     let (mut share, mut store) = (false, false);
@@ -641,7 +995,11 @@ fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i3
         // D1920's VOLATILE half: a plan whose root is the store its rescans keep is that one store for every calling node
         store = keeps && !share && one_store(b, s, root);
         if keeps && !share && !store {
-            return Err(Refusal::shape(Kind::SubPlan, id, SHARED_STATE_KEPT_VOLATILE));
+            return Err(Refusal::shape(
+                Kind::SubPlan,
+                id,
+                SHARED_STATE_KEPT_VOLATILE,
+            ));
         }
         if seeds && !share && !store {
             return Err(Refusal::shape(Kind::SubPlan, id, SHARED_STATE_KEPT_SEED));
@@ -649,18 +1007,63 @@ fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i3
     }
     let f = crate::rerun::of_subplan(b.stmt, b.facts, b.arena, s);
     let call = crate::rerun::of_subplan_stored(b.stmt, b.facts, b.arena, s);
-    let quiet_but_rows = crate::effects::found::sub_plan_quiet_but_rows(b.stmt, b.facts, b.arena, s, f);
-    let invariant = !s.useHashTable && crate::rerun::invariant(b.stmt, b.arena, root, crate::rerun::of_plan(b.stmt, b.facts, b.arena, root));
+    let quiet_but_rows =
+        crate::effects::found::sub_plan_quiet_but_rows(b.stmt, b.facts, b.arena, s, f);
+    let invariant = !s.useHashTable
+        && crate::rerun::invariant(
+            b.stmt,
+            b.arena,
+            root,
+            crate::rerun::of_plan(b.stmt, b.facts, b.arena, root),
+        );
     let stops = site == SubSite::AggArg && stops(b);
-    let desc = |form| SubPlanDesc { plan_id: s.plan_id, link, test: s.testexpr, args: &s.args, params: &s.parParam, sets: &s.setParam, ids: &s.paramIds, site, conditional, volatility: f.volatility, raise_free: f.raise_free, quiet_but_rows, invariant, unknown_eq_false: s.unknownEqFalse, alternative, set_spool: false, stops, ahead, call, form };
+    let desc = |form| SubPlanDesc {
+        plan_id: s.plan_id,
+        link,
+        test: s.testexpr,
+        args: &s.args,
+        params: &s.parParam,
+        sets: &s.setParam,
+        ids: &s.paramIds,
+        site,
+        conditional,
+        volatility: f.volatility,
+        raise_free: f.raise_free,
+        quiet_but_rows,
+        invariant,
+        unknown_eq_false: s.unknownEqFalse,
+        alternative,
+        set_spool: false,
+        stops,
+        ahead,
+        call,
+        form,
+    };
     if s.useHashTable {
         if !s.parParam.is_nil() {
-            return Err(Refusal::shape(Kind::SubPlan, id, "a hashed SubPlan with parameters"));
+            return Err(Refusal::shape(
+                Kind::SubPlan,
+                id,
+                "a hashed SubPlan with parameters",
+            ));
         }
         // D1920: a later calling node probes the set the first one built
-        if let Some(slot) = b.graph.shared_sets.iter().find(|&&(p, _)| p == s.plan_id).map(|&(_, slot)| slot).filter(|_| share) {
+        if let Some(slot) = b
+            .graph
+            .shared_sets
+            .iter()
+            .find(|&&(p, _)| p == s.plan_id)
+            .map(|&(_, slot)| slot)
+            .filter(|_| share)
+        {
             crate::ops::shared::breaker::consume(b, &mut open, slot);
-            place(b, &mut open, s.plan_id, Op::SubPlan(desc(SubForm::Hashed { slot })), None);
+            place(
+                b,
+                &mut open,
+                s.plan_id,
+                Op::SubPlan(desc(SubForm::Hashed { slot })),
+                None,
+            );
             b.graph.note(Kind::SubPlan);
             if alternative {
                 b.graph.note(Kind::AlternativeSubPlan);
@@ -669,21 +1072,43 @@ fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i3
         }
         let mut sub = b.plan(root)?;
         let tlist = &root.as_plan().unwrap().targetlist;
-        let kinds = tlist.iter().filter(|t| t.as_target_entry().is_some_and(|t| !t.resjunk)).map(|e| column_kind_of_expr(b.facts, e));
+        let kinds = tlist
+            .iter()
+            .filter(|t| t.as_target_entry().is_some_and(|t| !t.resjunk))
+            .map(|e| column_kind_of_expr(b.facts, e));
         let layout = keys_layout(b.arena, kinds);
         let rows = Builder::rows(root.as_plan().unwrap());
         sub.push(Op::SubPlan(desc(SubForm::Build)));
         let bits = crate::join::spill_bits(rows, layout.size());
-        let slot = crate::ops::shared::breaker::close(b, sub, BreakerKind::Distinct, layout, Budget::Share, Spill::Partitioned { bits }, Kind::SubPlan, id)?;
+        let slot = crate::ops::shared::breaker::close(
+            b,
+            sub,
+            BreakerKind::Distinct,
+            layout,
+            Budget::Share,
+            Spill::Partitioned { bits },
+            Kind::SubPlan,
+            id,
+        )?;
         b.closed_by(root);
         if share {
             b.graph.shared_sets.push((s.plan_id, slot));
         }
         crate::ops::shared::breaker::consume(b, &mut open, slot);
-        place(b, &mut open, s.plan_id, Op::SubPlan(desc(SubForm::Hashed { slot })), None);
+        place(
+            b,
+            &mut open,
+            s.plan_id,
+            Op::SubPlan(desc(SubForm::Hashed { slot })),
+            None,
+        );
     } else {
         // D1920: the store is mapped at the first calling node, before this caller's own pipelines (`p0`)
-        let read = if store { Some(store_reader(b, s, root, id)?) } else { None };
+        let read = if store {
+            Some(store_reader(b, s, root, id)?)
+        } else {
+            None
+        };
         let p0 = b.graph.pipelines.len();
         // D3646: a correlated plan's slots stay held while it is mapped (`breakers::hold_range`)
         let held = (!s.parParam.is_nil()).then(|| crate::breakers::hold_range(&mut b.graph, p0));
@@ -705,16 +1130,28 @@ fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i3
         // D3978: an inner over a breaker PG re-executes at every evaluation that no set refills (nest item 9's roads)
         if let crate::graph::Source::Breaker { slot } = &inner.source {
             let right = match inner.ops.first() {
-                Some(Op::SetOp(crate::ops::shared::setop::SetDesc::Set { right, .. })) => Some(*right),
+                Some(Op::SetOp(crate::ops::shared::setop::SetDesc::Set { right, .. })) => {
+                    Some(*right)
+                }
                 _ => None,
             };
-            let acts = crate::effects::Effects::of_found(crate::rerun::of_subplan(b.stmt, b.facts, b.arena, s)).acts;
+            let acts = crate::effects::Effects::of_found(crate::rerun::of_subplan(
+                b.stmt, b.facts, b.arena, s,
+            ))
+            .acts;
             crate::rerun::declare_breaker_rerun(b, p0, (id, s.plan_id), *slot, right, acts);
         }
-        b.nested_spans.push((s.plan_id, p0 as u16, b.graph.pipelines.len() as u16));
+        b.nested_spans
+            .push((s.plan_id, p0 as u16, b.graph.pipelines.len() as u16));
         let reads = inner.desc;
         let inner = ArenaBox::new_in(inner, b.arena);
-        place(b, &mut open, s.plan_id, Op::SubPlan(desc(SubForm::Nested { inner })), Some(reads));
+        place(
+            b,
+            &mut open,
+            s.plan_id,
+            Op::SubPlan(desc(SubForm::Nested { inner })),
+            Some(reads),
+        );
     }
     b.graph.note(Kind::SubPlan);
     if alternative {
@@ -726,15 +1163,41 @@ fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i3
 /// D2013 slice 2 (facts/hoist.rs): SubPlan `s`, hoisted out of nest `id`'s inner keys or pruning, mapped onto the nest's outer row
 /// `open` before the Nest op whose NestLoopParam reads it (`reads`); unconditional: facts/hoist.rs `plan` hoists it only where it
 /// runs for every outer row that reaches the Nest op; `ahead`, the licence of its value's evaluation there (`plan`).
-pub(crate) fn map_hoisted<'p>(b: &mut Builder<'p, '_>, s: &'p SubPlan<'p>, k: Kind, id: i32, open: Open<'p>, ahead: Option<crate::effects::Licence>) -> Result<Open<'p>, Refusal> {
-    map_subplan_held(b, Found1 { s, alternative: false, site: SubSite::Row, conditional: false }, k, id, open, ahead)
+pub(crate) fn map_hoisted<'p>(
+    b: &mut Builder<'p, '_>,
+    s: &'p SubPlan<'p>,
+    k: Kind,
+    id: i32,
+    open: Open<'p>,
+    ahead: Option<crate::effects::Licence>,
+) -> Result<Open<'p>, Refusal> {
+    map_subplan_held(
+        b,
+        Found1 {
+            s,
+            alternative: false,
+            site: SubSite::Row,
+            conditional: false,
+        },
+        k,
+        id,
+        open,
+        ahead,
+    )
 }
 
 /// The per-row SubPlans of a mapped node's target list and quals become `Op::SubPlan`s placed before
 /// the first op that reads them; one inside an aggregate's argument would run on the emit side of the
 /// aggregate's breaker, so it refuses.
-pub fn attach<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
-    let Some(plan) = node.as_plan() else { return Ok(open) };
+pub fn attach<'p>(
+    b: &mut Builder<'p, '_>,
+    node: Node<'p>,
+    k: Kind,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
+    let Some(plan) = node.as_plan() else {
+        return Ok(open);
+    };
     let id = plan.plan_node_id;
     let rows = crate::admit::plan_rows(plan);
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
@@ -743,21 +1206,72 @@ pub fn attach<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind, mut open: Op
     // a grouping-sets aggregate's lists are each arm's (`ops::list_subplans` from agg's map_sets, after the arm's filters)
     let per_set = node.as_agg().is_some_and(crate::ops::per_set);
     // a qual conjunct is its own filter op, in order (`ops::filters`): unconditional at its place (`conditional`'s doc)
-    for n in plan.targetlist.iter().chain(plan.qual.iter()).filter(|_| !per_set) {
-        scan(n, SubSite::Row, false, window, &mut found, &mut err, rows, k, id);
+    for n in plan
+        .targetlist
+        .iter()
+        .chain(plan.qual.iter())
+        .filter(|_| !per_set)
+    {
+        scan(
+            n,
+            SubSite::Row,
+            false,
+            window,
+            &mut found,
+            &mut err,
+            rows,
+            k,
+            id,
+        );
     }
     // a Result's one-time qual is an implicit-AND list (`expr::walk` has no List arm): each clause, a later one only when
     // the earlier ones held (`ExecQual` stops at the first false)
     if let Some(r) = node.as_result().and_then(|r| r.resconstantqual) {
         match r.as_list() {
-            Some(l) => l.iter().enumerate().for_each(|(i, c)| scan(c, SubSite::Row, i > 0, window, &mut found, &mut err, rows, k, id)),
-            None => scan(r, SubSite::Row, false, window, &mut found, &mut err, rows, k, id),
+            Some(l) => l.iter().enumerate().for_each(|(i, c)| {
+                scan(
+                    c,
+                    SubSite::Row,
+                    i > 0,
+                    window,
+                    &mut found,
+                    &mut err,
+                    rows,
+                    k,
+                    id,
+                )
+            }),
+            None => scan(
+                r,
+                SubSite::Row,
+                false,
+                window,
+                &mut found,
+                &mut err,
+                rows,
+                k,
+                id,
+            ),
         }
     }
     // a FROM function's arguments: the Srf op evaluates them once per (re)scan, before its first row (`reads`)
     if let Some(fs) = node.as_function_scan() {
-        for e in fs.functions.iter().filter_map(|f| f.as_range_tbl_function()?.funcexpr) {
-            scan(e, SubSite::Row, false, window, &mut found, &mut err, rows, k, id);
+        for e in fs
+            .functions
+            .iter()
+            .filter_map(|f| f.as_range_tbl_function()?.funcexpr)
+        {
+            scan(
+                e,
+                SubSite::Row,
+                false,
+                window,
+                &mut found,
+                &mut err,
+                rows,
+                k,
+                id,
+            );
         }
     }
     let joinqual = match node.node_tag() {
@@ -768,9 +1282,26 @@ pub fn attach<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind, mut open: Op
     };
     // the join op evaluates its qual per candidate pair and stops at the first false conjunct (`ExecQual`); a draining hash
     // join's probe took its own (`attach_probe`)
-    let drained = node.as_hash_join().is_some_and(|hj| crate::join::hash_drains(hj.join.jointype));
-    for (i, n) in joinqual.into_iter().filter(|_| !drained).flat_map(|q| q.iter()).enumerate() {
-        scan(n, SubSite::JoinQual, i > 0, window, &mut found, &mut err, rows, k, id);
+    let drained = node
+        .as_hash_join()
+        .is_some_and(|hj| crate::join::hash_drains(hj.join.jointype));
+    for (i, n) in joinqual
+        .into_iter()
+        .filter(|_| !drained)
+        .flat_map(|q| q.iter())
+        .enumerate()
+    {
+        scan(
+            n,
+            SubSite::JoinQual,
+            i > 0,
+            window,
+            &mut found,
+            &mut err,
+            rows,
+            k,
+            id,
+        );
     }
     // a hash join's outer keys, read by its probe (`attach_keys`; the Hash node's inner keys went on the build)
     if let Some(hj) = node.as_hash_join().filter(|_| !drained) {
@@ -783,14 +1314,34 @@ pub fn attach<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind, mut open: Op
     let mut write_hit = false;
     if let Some(mt) = node.as_modify_table() {
         let action = |l: &NodeList<'p>| {
-            let mut acts = mt.mergeActionLists.iter().filter_map(|x| x.as_list()).flat_map(|x| x.iter()).filter_map(|a| a.as_merge_action());
-            acts.any(|a| std::ptr::eq(&a.targetList, l) || a.qual.and_then(|q| q.as_list()).is_some_and(|q| std::ptr::eq(q, l)))
+            let mut acts = mt
+                .mergeActionLists
+                .iter()
+                .filter_map(|x| x.as_list())
+                .flat_map(|x| x.iter())
+                .filter_map(|a| a.as_merge_action());
+            acts.any(|a| {
+                std::ptr::eq(&a.targetList, l)
+                    || a.qual
+                        .and_then(|q| q.as_list())
+                        .is_some_and(|q| std::ptr::eq(q, l))
+            })
         };
         crate::ops::shared::modifytable::expr_lists(mt, &mut |l| {
             let cond = action(l);
             for n in l.iter() {
                 write_hit |= has_subplan_ret(n);
-                scan(n, SubSite::Row, cond, window, &mut found, &mut err, rows, k, id);
+                scan(
+                    n,
+                    SubSite::Row,
+                    cond,
+                    window,
+                    &mut found,
+                    &mut err,
+                    rows,
+                    k,
+                    id,
+                );
             }
         });
     }
@@ -800,7 +1351,9 @@ pub fn attach<'p>(b: &mut Builder<'p, '_>, node: Node<'p>, k: Kind, mut open: Op
     if write_hit {
         for op in open.ops.iter_mut() {
             if let Op::Write(d) = op {
-                d.members = d.members.with(crate::ops::shared::modifytable::Member::WriteSubPlan);
+                d.members = d
+                    .members
+                    .with(crate::ops::shared::modifytable::Member::WriteSubPlan);
             }
         }
     }
@@ -825,19 +1378,48 @@ type Found<'p> = ArenaVec<Found1<'p>>;
 /// The SubPlans of one expression, `cond` when the expression itself is reached only on some rows. A window function's
 /// arguments are declared here as `AggArg`; an aggregate's were declared on the input side by `attach_agg_arg` (agg.rs,
 /// before the fold), so its subtree is skipped.
-fn scan<'p>(n: Node<'p>, site: SubSite, cond: bool, window: bool, found: &mut Found<'p>, err: &mut Option<Refusal>, rows: f64, k: Kind, id: i32) {
+fn scan<'p>(
+    n: Node<'p>,
+    site: SubSite,
+    cond: bool,
+    window: bool,
+    found: &mut Found<'p>,
+    err: &mut Option<Refusal>,
+    rows: f64,
+    k: Kind,
+    id: i32,
+) {
     crate::walk::stack_check(); // D3748
     walk_cond(n, cond, &mut |x, cond| match x.node_tag() {
-        NodeTag::T_Aggref | NodeTag::T_WindowFunc if site == SubSite::Row && expr::has_subplan(x) => {
+        NodeTag::T_Aggref | NodeTag::T_WindowFunc
+            if site == SubSite::Row && expr::has_subplan(x) =>
+        {
             // a window function's D1415 step arguments run before the window op; its other arguments' and FILTER's are
             // the fill's (`attach_window_args`) or refuse by name
             match x.as_window_func() {
                 Some(w) if window => {
-                    for (_a, c) in w.args.iter().enumerate().filter(|&(a, _)| crate::ops::window_step_arg(w, a)) {
-                        scan(c, SubSite::AggArg, cond || w.aggfilter.is_some(), window, found, err, rows, k, id);
+                    for (_a, c) in w
+                        .args
+                        .iter()
+                        .enumerate()
+                        .filter(|&(a, _)| crate::ops::window_step_arg(w, a))
+                    {
+                        scan(
+                            c,
+                            SubSite::AggArg,
+                            cond || w.aggfilter.is_some(),
+                            window,
+                            found,
+                            err,
+                            rows,
+                            k,
+                            id,
+                        );
                     }
                 }
-                _ if window => agg_kids(x, cond, &mut |c, cond| scan(c, SubSite::AggArg, cond, window, found, err, rows, k, id)),
+                _ if window => agg_kids(x, cond, &mut |c, cond| {
+                    scan(c, SubSite::AggArg, cond, window, found, err, rows, k, id)
+                }),
                 _ => {}
             }
             false
@@ -849,11 +1431,29 @@ fn scan<'p>(n: Node<'p>, site: SubSite, cond: bool, window: bool, found: &mut Fo
 /// The SubPlans inside one aggregate call (its arguments, ORDER BY, direct arguments, FILTER) placed on the group's
 /// INPUT pipeline `open` after its projection, before the fold reads them (`SubSite::AggArg`; decision 80). The
 /// planner's hoisting into the input's projection is the steer; this is where they run.
-pub fn attach_agg_arg<'p>(b: &mut Builder<'p, '_>, aggref: Node<'p>, k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_agg_arg<'p>(
+    b: &mut Builder<'p, '_>,
+    aggref: Node<'p>,
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = open.desc.predicted_rows as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
-    agg_kids(aggref, false, &mut |c, cond| scan(c, SubSite::AggArg, cond, false, &mut found, &mut err, rows, k, id));
+    agg_kids(aggref, false, &mut |c, cond| {
+        scan(
+            c,
+            SubSite::AggArg,
+            cond,
+            false,
+            &mut found,
+            &mut err,
+            rows,
+            k,
+            id,
+        )
+    });
     if let Some(e) = err {
         return Err(e);
     }
@@ -873,7 +1473,13 @@ pub fn attach_agg_arg<'p>(b: &mut Builder<'p, '_>, aggref: Node<'p>, k: Kind, id
 /// at an empty table before its keys. PG also runs the hash clauses again on each candidate pair (ExecScanHashBucket),
 /// the key's SubPlan with them, where the probe decides by the key images: a SubPlan that calls a VOLATILE function
 /// refuses by name; any other gives that run's value again (its parameters are the row's).
-pub fn attach_keys<'p>(b: &mut Builder<'p, '_>, keys: &'p NodeList<'p>, k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_keys<'p>(
+    b: &mut Builder<'p, '_>,
+    keys: &'p NodeList<'p>,
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = open.desc.predicted_rows as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
@@ -891,12 +1497,28 @@ pub fn attach_keys<'p>(b: &mut Builder<'p, '_>, keys: &'p NodeList<'p>, k: Kind,
 /// its join qual's (`SubSite::JoinQual`, past the first conjunct conditional) and its outer keys' (`scan_keys`), placed on
 /// the probe pipeline `open` before the probe op: join.rs closes that pipeline into the drain's spool before the node's
 /// `attach` runs, which takes them for any other join.
-pub fn attach_probe<'p>(b: &mut Builder<'p, '_>, hj: &'p types_nodes::plannodes::HashJoin<'p>, k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_probe<'p>(
+    b: &mut Builder<'p, '_>,
+    hj: &'p types_nodes::plannodes::HashJoin<'p>,
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = open.desc.predicted_rows as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
     for (i, n) in hj.join.joinqual.iter().enumerate() {
-        scan(n, SubSite::JoinQual, i > 0, false, &mut found, &mut err, rows, k, id);
+        scan(
+            n,
+            SubSite::JoinQual,
+            i > 0,
+            false,
+            &mut found,
+            &mut err,
+            rows,
+            k,
+            id,
+        );
     }
     scan_keys(b, &hj.hashkeys, true, &mut found, &mut err, rows, k, id);
     if let Some(e) = err {
@@ -926,7 +1548,13 @@ pub fn attach_probe<'p>(b: &mut Builder<'p, '_>, hj: &'p types_nodes::plannodes:
 /// window stores before the statement ends (`read_at`, `frame_reads_every_row`): an error the fill raises there
 /// PostgreSQL raises too, at its own first such row or at another error of the statement before it (`DECISIONS.md` 4
 /// (D): where PostgreSQL raises, any genuine error passes).
-pub fn attach_window_args<'p>(b: &mut Builder<'p, '_>, funcs: &[Node<'p>], k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_window_args<'p>(
+    b: &mut Builder<'p, '_>,
+    funcs: &[Node<'p>],
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = open.desc.predicted_rows as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
@@ -940,9 +1568,24 @@ pub fn attach_window_args<'p>(b: &mut Builder<'p, '_>, funcs: &[Node<'p>], k: Ki
     let mut exact: ArenaVec<bool> = ArenaVec::new_in(arena);
     let once_each = read.is_some_and(|(r, w)| frame_reads_each_once(r, w));
     for w in funcs.iter().filter_map(|f| f.as_window_func()) {
-        let fill = w.args.iter().enumerate().filter(|&(a, _)| !crate::ops::window_step_arg(w, a)).map(|(_, n)| (n, w.aggfilter.is_some()));
+        let fill = w
+            .args
+            .iter()
+            .enumerate()
+            .filter(|&(a, _)| !crate::ops::window_step_arg(w, a))
+            .map(|(_, n)| (n, w.aggfilter.is_some()));
         for (n, cond) in fill.chain(w.aggfilter.map(|q| (q, false))) {
-            scan(n, SubSite::Row, cond, false, &mut found, &mut err, rows, k, id);
+            scan(
+                n,
+                SubSite::Row,
+                cond,
+                false,
+                &mut found,
+                &mut err,
+                rows,
+                k,
+                id,
+            );
             let v = every.is_some() && w.winagg && !cond;
             each.resize(found.len(), v);
             exact.resize(found.len(), once_each && w.winagg && w.aggfilter.is_none());
@@ -951,9 +1594,16 @@ pub fn attach_window_args<'p>(b: &mut Builder<'p, '_>, funcs: &[Node<'p>], k: Ki
     if let Some(e) = err {
         return Err(e);
     }
-    use crate::effects::{denying, denying_bounded, licence, of_statement, unobservable, whole_read, Cx, Departure, Effects};
-    let once = stmt.planTree.and_then(|r| fill_once(r, id, true)).unwrap_or(false);
-    let acts = |f: &Found1<'p>| Effects::of_found(crate::rerun::of_subplan(stmt, facts, arena, f.s)).acts;
+    use crate::effects::{
+        denying, denying_bounded, licence, of_statement, unobservable, whole_read, Cx, Departure,
+        Effects,
+    };
+    let once = stmt
+        .planTree
+        .and_then(|r| fill_once(r, id, true))
+        .unwrap_or(false);
+    let acts =
+        |f: &Found1<'p>| Effects::of_found(crate::rerun::of_subplan(stmt, facts, arena, f.s)).acts;
     let acting = found.iter().filter(|&f| acts(f)).count();
     for (i, f) in found.iter().enumerate() {
         let e = Effects::of_found(crate::rerun::of_subplan(stmt, facts, arena, f.s));
@@ -975,7 +1625,10 @@ pub fn attach_window_args<'p>(b: &mut Builder<'p, '_>, funcs: &[Node<'p>], k: Ki
         // every stored row's argument read by PostgreSQL too); a quiet SubPlan's, `unobservable` (evaluated once per
         // stored row where PostgreSQL evaluates it at every frame read of the row: fewer runs as well as ahead)
         let ahead = if e.may_raise {
-            let ask = e.and(Effects { acts: of_statement(&Cx::new(stmt, facts, arena)).acts, ..Effects::NONE });
+            let ask = e.and(Effects {
+                acts: of_statement(&Cx::new(stmt, facts, arena)).acts,
+                ..Effects::NONE
+            });
             match licence(ask, Departure::Ahead) {
                 Ok(l) => {
                     b.graph.licensed(&l);
@@ -985,7 +1638,14 @@ pub fn attach_window_args<'p>(b: &mut Builder<'p, '_>, funcs: &[Node<'p>], k: Ki
                     Some(l)
                 }
                 // D3374: the plan-order run over a read to its end, every stored row's argument read by PostgreSQL
-                Err(_) if each.get(i).copied().unwrap_or(false) && !ask.acts && denying() && !denying_bounded() => whole_read(e).ok(),
+                Err(_)
+                    if each.get(i).copied().unwrap_or(false)
+                        && !ask.acts
+                        && denying()
+                        && !denying_bounded() =>
+                {
+                    whole_read(e).ok()
+                }
                 Err(_) => continue,
             }
         } else {
@@ -1012,17 +1672,29 @@ enum Read {
 /// no run condition, a material, a gather, a lock, a write, a subquery scan, a nested loop's outer side, every MergeAppend
 /// arm and an Append's first arm read as they are read (an Append's later arm only when it is read to its end). Any other
 /// node, a nested loop's inner and either side of a hash or merge join (an empty side ends the join) may read nothing.
-fn read_at<'p>(n: Node<'p>, id: i32, r: Read) -> Option<(Read, &'p types_nodes::plannodes::WindowAgg<'p>)> {
+fn read_at<'p>(
+    n: Node<'p>,
+    id: i32,
+    r: Read,
+) -> Option<(Read, &'p types_nodes::plannodes::WindowAgg<'p>)> {
     crate::walk::stack_check(); // D3748
     use crate::ops::shared::agg::{AGG_HASHED, AGG_PLAIN};
     let p = n.as_plan()?;
     if p.plan_node_id == id {
         return n.as_window_agg().map(|w| (r, w));
     }
-    let (full, once) = (if r == Read::No { Read::No } else { Read::All }, if r == Read::No { Read::No } else { Read::Once });
+    let (full, once) = (
+        if r == Read::No { Read::No } else { Read::All },
+        if r == Read::No { Read::No } else { Read::Once },
+    );
     let left = match n.node_tag() {
         NodeTag::T_Sort => full,
-        NodeTag::T_Agg if n.as_agg().is_some_and(|a| matches!(a.aggstrategy, AGG_PLAIN | AGG_HASHED)) => full,
+        NodeTag::T_Agg
+            if n.as_agg()
+                .is_some_and(|a| matches!(a.aggstrategy, AGG_PLAIN | AGG_HASHED)) =>
+        {
+            full
+        }
         NodeTag::T_Limit => match n.as_limit().map(crate::ops::limit_bounds) {
             Some((crate::graph::Bound::All, _)) => r,
             Some((crate::graph::Bound::Const(c), _)) if c > 0 => once,
@@ -1030,7 +1702,16 @@ fn read_at<'p>(n: Node<'p>, id: i32, r: Read) -> Option<(Read, &'p types_nodes::
         },
         NodeTag::T_Result if n.as_result().is_some_and(|x| x.resconstantqual.is_none()) => r,
         NodeTag::T_WindowAgg if n.as_window_agg().is_some_and(|w| w.runCondition.is_nil()) => r,
-        NodeTag::T_ProjectSet | NodeTag::T_Unique | NodeTag::T_Agg | NodeTag::T_Group | NodeTag::T_Material | NodeTag::T_Gather | NodeTag::T_GatherMerge | NodeTag::T_LockRows | NodeTag::T_ModifyTable | NodeTag::T_NestLoop => r,
+        NodeTag::T_ProjectSet
+        | NodeTag::T_Unique
+        | NodeTag::T_Agg
+        | NodeTag::T_Group
+        | NodeTag::T_Material
+        | NodeTag::T_Gather
+        | NodeTag::T_GatherMerge
+        | NodeTag::T_LockRows
+        | NodeTag::T_ModifyTable
+        | NodeTag::T_NestLoop => r,
         _ => Read::No,
     };
     if let Some(x) = p.lefttree.and_then(|l| read_at(l, id, left)) {
@@ -1046,7 +1727,17 @@ fn read_at<'p>(n: Node<'p>, id: i32, r: Read) -> Option<(Read, &'p types_nodes::
         return m.mergeplans.iter().find_map(|c| read_at(c, id, r));
     }
     if let Some(a) = n.as_append() {
-        return a.appendplans.iter().enumerate().find_map(|(i, c)| read_at(c, id, if i == 0 || r == Read::All { r } else { Read::No }));
+        return a.appendplans.iter().enumerate().find_map(|(i, c)| {
+            read_at(
+                c,
+                id,
+                if i == 0 || r == Read::All {
+                    r
+                } else {
+                    Read::No
+                },
+            )
+        });
     }
     None
 }
@@ -1060,9 +1751,19 @@ fn read_at<'p>(n: Node<'p>, id: i32, r: Read) -> Option<(Read, &'p types_nodes::
 fn frame_reads_every_row(r: Read, w: &types_nodes::plannodes::WindowAgg<'_>) -> bool {
     use types_nodes::rawnodes::*;
     let f = w.frameOptions;
-    let current = f & (FRAMEOPTION_START_UNBOUNDED_FOLLOWING | FRAMEOPTION_START_OFFSET_FOLLOWING | FRAMEOPTION_END_UNBOUNDED_PRECEDING | FRAMEOPTION_END_OFFSET_PRECEDING | FRAMEOPTION_EXCLUSION) == 0;
-    let to_end = f & FRAMEOPTION_END_UNBOUNDED_FOLLOWING != 0 || (w.ordNumCols == 0 && f & FRAMEOPTION_ROWS == 0 && f & FRAMEOPTION_END_CURRENT_ROW != 0);
-    let whole = w.partNumCols == 0 && f & FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0 && f & FRAMEOPTION_EXCLUSION == 0 && to_end;
+    let current = f
+        & (FRAMEOPTION_START_UNBOUNDED_FOLLOWING
+            | FRAMEOPTION_START_OFFSET_FOLLOWING
+            | FRAMEOPTION_END_UNBOUNDED_PRECEDING
+            | FRAMEOPTION_END_OFFSET_PRECEDING
+            | FRAMEOPTION_EXCLUSION)
+        == 0;
+    let to_end = f & FRAMEOPTION_END_UNBOUNDED_FOLLOWING != 0
+        || (w.ordNumCols == 0 && f & FRAMEOPTION_ROWS == 0 && f & FRAMEOPTION_END_CURRENT_ROW != 0);
+    let whole = w.partNumCols == 0
+        && f & FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0
+        && f & FRAMEOPTION_EXCLUSION == 0
+        && to_end;
     w.runCondition.is_nil() && ((r == Read::All && current) || (r == Read::Once && whole))
 }
 
@@ -1074,7 +1775,9 @@ fn frame_reads_every_row(r: Read, w: &types_nodes::plannodes::WindowAgg<'_>) -> 
 /// it and evaluate the rows again).
 fn frame_reads_each_once(r: Read, w: &types_nodes::plannodes::WindowAgg<'_>) -> bool {
     use types_nodes::rawnodes::FRAMEOPTION_START_UNBOUNDED_PRECEDING;
-    r == Read::All && frame_reads_every_row(r, w) && w.frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0
+    r == Read::All
+        && frame_reads_every_row(r, w)
+        && w.frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING != 0
 }
 
 /// `attach_window_args`' bound on a raising argument SubPlan: whether WindowAgg `id`, found under `n` (`ok`: every node
@@ -1094,11 +1797,29 @@ fn fill_once(n: Node<'_>, id: i32, ok: bool) -> Option<bool> {
     }
     let pass = matches!(
         n.node_tag(),
-        NodeTag::T_Sort | NodeTag::T_IncrementalSort | NodeTag::T_Limit | NodeTag::T_Result | NodeTag::T_ProjectSet | NodeTag::T_Unique | NodeTag::T_Agg | NodeTag::T_Group | NodeTag::T_WindowAgg | NodeTag::T_Material | NodeTag::T_Gather | NodeTag::T_GatherMerge | NodeTag::T_Hash
+        NodeTag::T_Sort
+            | NodeTag::T_IncrementalSort
+            | NodeTag::T_Limit
+            | NodeTag::T_Result
+            | NodeTag::T_ProjectSet
+            | NodeTag::T_Unique
+            | NodeTag::T_Agg
+            | NodeTag::T_Group
+            | NodeTag::T_WindowAgg
+            | NodeTag::T_Material
+            | NodeTag::T_Gather
+            | NodeTag::T_GatherMerge
+            | NodeTag::T_Hash
     );
-    let join = matches!(n.node_tag(), NodeTag::T_NestLoop | NodeTag::T_HashJoin | NodeTag::T_MergeJoin);
+    let join = matches!(
+        n.node_tag(),
+        NodeTag::T_NestLoop | NodeTag::T_HashJoin | NodeTag::T_MergeJoin
+    );
     let inner_once = matches!(n.node_tag(), NodeTag::T_HashJoin | NodeTag::T_MergeJoin);
-    if let Some(r) = p.lefttree.and_then(|l| fill_once(l, id, ok && (pass || join))) {
+    if let Some(r) = p
+        .lefttree
+        .and_then(|l| fill_once(l, id, ok && (pass || join)))
+    {
         return Some(r);
     }
     if let Some(r) = p.righttree.and_then(|l| fill_once(l, id, ok && inner_once)) {
@@ -1111,7 +1832,11 @@ fn fill_once(n: Node<'_>, id: i32, ok: bool) -> Option<bool> {
         return m.mergeplans.iter().find_map(|c| fill_once(c, id, ok));
     }
     if let Some(a) = n.as_append() {
-        return a.appendplans.iter().enumerate().find_map(|(i, c)| fill_once(c, id, ok && i == 0));
+        return a
+            .appendplans
+            .iter()
+            .enumerate()
+            .find_map(|(i, c)| fill_once(c, id, ok && i == 0));
     }
     None
 }
@@ -1122,12 +1847,34 @@ const KEY_VOLATILE: &str = "a SubPlan in a hash join's key that calls a VOLATILE
 
 /// `attach_keys`' scan of key list `keys` (`outer`: the probe's).
 #[allow(clippy::too_many_arguments)]
-fn scan_keys<'p>(b: &Builder<'p, '_>, keys: &'p NodeList<'p>, outer: bool, found: &mut Found<'p>, err: &mut Option<Refusal>, rows: f64, k: Kind, id: i32) {
+fn scan_keys<'p>(
+    b: &Builder<'p, '_>,
+    keys: &'p NodeList<'p>,
+    outer: bool,
+    found: &mut Found<'p>,
+    err: &mut Option<Refusal>,
+    rows: f64,
+    k: Kind,
+    id: i32,
+) {
     let n0 = found.len();
     for (i, n) in keys.iter().enumerate() {
-        scan(n, SubSite::Row, outer || i > 0, false, found, err, rows, k, id);
+        scan(
+            n,
+            SubSite::Row,
+            outer || i > 0,
+            false,
+            found,
+            err,
+            rows,
+            k,
+            id,
+        );
     }
-    if found[n0..].iter().any(|f| crate::effects::Effects::of_found(crate::rerun::of_subplan(b.stmt, b.facts, b.arena, f.s)).acts) {
+    if found[n0..].iter().any(|f| {
+        crate::effects::Effects::of_found(crate::rerun::of_subplan(b.stmt, b.facts, b.arena, f.s))
+            .acts
+    }) {
         err.get_or_insert(Refusal::shape(k, id, KEY_VOLATILE));
     }
 }
@@ -1135,12 +1882,28 @@ fn scan_keys<'p>(b: &Builder<'p, '_>, keys: &'p NodeList<'p>, outer: bool, found
 /// The per-row SubPlans of one grouping set's arm lists (`lists`: its qual and target list, with that set's projection
 /// folded in), placed on the arm's emit `open` before the op that first reads each; aggregates' arguments were placed
 /// on the arm's input (`attach_agg_arg`).
-pub fn attach_lists<'p>(b: &mut Builder<'p, '_>, lists: &[&'p NodeList<'p>], k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_lists<'p>(
+    b: &mut Builder<'p, '_>,
+    lists: &[&'p NodeList<'p>],
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = open.desc.predicted_rows as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
     for n in lists.iter().flat_map(|l| l.iter()) {
-        scan(n, SubSite::Row, false, false, &mut found, &mut err, rows, k, id);
+        scan(
+            n,
+            SubSite::Row,
+            false,
+            false,
+            &mut found,
+            &mut err,
+            rows,
+            k,
+            id,
+        );
     }
     if let Some(e) = err {
         return Err(e);
@@ -1154,11 +1917,20 @@ pub fn attach_lists<'p>(b: &mut Builder<'p, '_>, lists: &[&'p NodeList<'p>], k: 
 /// The SubPlans inside a `VALUES` list's rows, placed first on the values pipeline (`SubSite::Values`: the source's
 /// row expressions read them; decision 80). D4449: a Const cell holds none, so only the other cells are scanned, and the
 /// walk counts them for the list's readers (`PipelineGraph::values_coded`).
-pub fn attach_values<'p>(b: &mut Builder<'p, '_>, lists: &'p NodeList<'p>, k: Kind, id: i32, mut open: Open<'p>) -> Result<Open<'p>, Refusal> {
+pub fn attach_values<'p>(
+    b: &mut Builder<'p, '_>,
+    lists: &'p NodeList<'p>,
+    k: Kind,
+    id: i32,
+    mut open: Open<'p>,
+) -> Result<Open<'p>, Refusal> {
     let rows = lists.len() as f64;
     let mut found: Found<'p> = ArenaVec::new_in(b.arena);
     let mut err = None;
-    let mut coded = crate::graph::ValuesCoded { coded_rows: 0, coded_cells: 0 };
+    let mut coded = crate::graph::ValuesCoded {
+        coded_rows: 0,
+        coded_cells: 0,
+    };
     for l in lists.iter() {
         let Some(row) = l.as_list() else {
             coded.coded_rows += 1;
@@ -1167,11 +1939,23 @@ pub fn attach_values<'p>(b: &mut Builder<'p, '_>, lists: &'p NodeList<'p>, k: Ki
         let cells = coded.coded_cells;
         for e in row.iter().filter(|e| e.as_const().is_none()) {
             coded.coded_cells += 1;
-            scan(e, SubSite::Values, false, false, &mut found, &mut err, rows, k, id);
+            scan(
+                e,
+                SubSite::Values,
+                false,
+                false,
+                &mut found,
+                &mut err,
+                rows,
+                k,
+                id,
+            );
         }
         coded.coded_rows += u32::from(coded.coded_cells != cells);
     }
-    b.graph.values.push((lists as *const NodeList<'p> as usize, coded));
+    b.graph
+        .values
+        .push((lists as *const NodeList<'p> as usize, coded));
     if let Some(e) = err {
         return Err(e);
     }
@@ -1183,10 +1967,27 @@ pub fn attach_values<'p>(b: &mut Builder<'p, '_>, lists: &'p NodeList<'p>, k: Ki
 
 /// One node of a scanned expression: a SubPlan (or the chosen alternative) is recorded once with the site it was first met
 /// at; it stays conditional only while every place it is met at is.
-fn visit<'p>(x: Node<'p>, site: SubSite, cond: bool, found: &mut Found<'p>, err: &mut Option<Refusal>, rows: f64, k: Kind, id: i32) -> bool {
-    let mut record = |s: &'p SubPlan<'p>, alternative: bool| match found.iter_mut().find(|f| f.s.plan_id == s.plan_id) {
+fn visit<'p>(
+    x: Node<'p>,
+    site: SubSite,
+    cond: bool,
+    found: &mut Found<'p>,
+    err: &mut Option<Refusal>,
+    rows: f64,
+    k: Kind,
+    id: i32,
+) -> bool {
+    let mut record = |s: &'p SubPlan<'p>, alternative: bool| match found
+        .iter_mut()
+        .find(|f| f.s.plan_id == s.plan_id)
+    {
         Some(f) => f.conditional &= cond,
-        None => found.push(Found1 { s, alternative, site, conditional: cond }),
+        None => found.push(Found1 {
+            s,
+            alternative,
+            site,
+            conditional: cond,
+        }),
     };
     match x.node_tag() {
         NodeTag::T_SubPlan => {
@@ -1196,7 +1997,13 @@ fn visit<'p>(x: Node<'p>, site: SubSite, cond: bool, found: &mut Found<'p>, err:
         NodeTag::T_AlternativeSubPlan => {
             match choose(&x.as_alternative_sub_plan().unwrap().subplans, rows) {
                 Some(s) => record(s, true),
-                None => *err = Some(Refusal::shape(k, id, "an AlternativeSubPlan without SubPlans")),
+                None => {
+                    *err = Some(Refusal::shape(
+                        k,
+                        id,
+                        "an AlternativeSubPlan without SubPlans",
+                    ))
+                }
             }
             false
         }
@@ -1224,7 +2031,18 @@ impl SubPlanDesc<'_> {
             SubForm::Build => "build",
             SubForm::Hashed { .. } => "hashed",
         };
-        write!(out, "  subplan {} {form} {:?}{}{}", self.plan_id, self.link, if self.unknown_eq_false { " unknown-eq-false" } else { "" }, if self.alternative { " alternative" } else { "" })?;
+        write!(
+            out,
+            "  subplan {} {form} {:?}{}{}",
+            self.plan_id,
+            self.link,
+            if self.unknown_eq_false {
+                " unknown-eq-false"
+            } else {
+                ""
+            },
+            if self.alternative { " alternative" } else { "" }
+        )?;
         if let SubForm::Hashed { slot } = self.form {
             write!(out, " slot={slot}")?;
         }

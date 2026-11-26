@@ -11,4 +11,14 @@ use crate::frame::frame::{EndMaker, SourceMaker};
 use crate::ops::Table;
 
 /// D3054: the grouping-set input spool's fill end and readers (gsets_spool.rs), rows 1 and 2.
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::KeyedGsets, &()), (KindId::KeyedGsets, &EndMaker(super::gsets_spool::make_end)), (KindId::KeyedGsets, &SourceMaker(super::gsets_spool::make_source))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::KeyedGsets, &()),
+        (KindId::KeyedGsets, &EndMaker(super::gsets_spool::make_end)),
+        (
+            KindId::KeyedGsets,
+            &SourceMaker(super::gsets_spool::make_source),
+        ),
+    ],
+    ..crate::ops::NONE
+};

@@ -10,17 +10,18 @@
 //! key by value or a text key (its held copy compared past its prefix word: runs/merge_pull_cmp.rs, V4R-458), another
 //! column by value or a varlena (its held copy: runs/merge_pull_copy.rs). Any arm count whose words fit. Budget 400 lines.
 //! Owner M3-MERGE.
-use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_abi::status::raise;
 use gravity_decompose::catalog::typefacts::TypeFacts;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::Op;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
-use gravity_abi::status::raise;
 use gravity_ir::{Block, ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 use gravity_kernels::host_abi::m11_run_held;
 use gravity_program::protos::ProtoKind;
 use gravity_program::{NumTypmod, Rep, Until};
 use mcx::{CollectIn, GrowIn, Mcx, PgBox, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
 use crate::face::end::EndMech;
 use crate::face::kinds::Face;
@@ -28,18 +29,17 @@ use crate::face::source::{SourceMech, WinConds};
 use crate::face::step::StepMech;
 use crate::frame::env::Env;
 use crate::frame::frame::{SourceMaker, StepMaker, Win};
+use crate::frame::iface::kind_impl;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::frame::iface::kind_impl;
 use crate::props::Merge;
-use crate::admit::refusal::Reason;
 
-use crate::rep::keylane::Key;
+use crate::face::runs::{Form, Shape};
 use crate::ops::append::merge_pull_copy::Buf;
 use crate::ops::append::merge_pull_heap::Heap;
-use crate::face::runs::{Form, Shape};
+use crate::rep::keylane::Key;
 
 fn bug(node: i32, payload: &'static str) -> ! {
     crate::refuse!(node, Reason::Bug { payload })
@@ -55,7 +55,13 @@ impl EndMech for Fused {
         b.switch_to(dead);
     }
 
-    fn lower<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         row.carry.copy_in(env.mcx)
     }
 }
@@ -73,26 +79,59 @@ pub(crate) fn empty<'g>(px: &Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech +
     let p = &gx.pipelines()[k];
     // a Sort arm's row is its full sort's target list
     if let gravity_decompose::Source::Breaker { slot } = p.source {
-        let Some(l) = gx.life_of(k, slot) else { bug(p.node_id, "a pull-form run arm with no producer") };
-        let cols = crate::frame::iface::sort_cols(px, l.0 as usize).iter().map(|n| {
-            let typ = n.as_target_entry().map_or(types_core::INT8OID, |te| gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr)));
-            match gravity_decompose::catalog::typefacts::facts_of(gx.facts, typ) {
-                Some(f) if f.byval => (typ, Rep::Word { bytes: f.typlen.clamp(1, 8) as u8 }),
-                Some(f) if f.typlen > 0 => (typ, Rep::FixedPtr { len: f.typlen as u16 }),
-                Some(_) => (typ, Rep::VarlenaPtr),
-                None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
-            }
-        }).collect_in(mcx);
+        let Some(l) = gx.life_of(k, slot) else {
+            bug(p.node_id, "a pull-form run arm with no producer")
+        };
+        let cols = crate::frame::iface::sort_cols(px, l.0 as usize)
+            .iter()
+            .map(|n| {
+                let typ = n.as_target_entry().map_or(types_core::INT8OID, |te| {
+                    gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| {
+                        gravity_decompose::catalog::expr_type::result_type(te.expr)
+                    })
+                });
+                match gravity_decompose::catalog::typefacts::facts_of(gx.facts, typ) {
+                    Some(f) if f.byval => (
+                        typ,
+                        Rep::Word {
+                            bytes: f.typlen.clamp(1, 8) as u8,
+                        },
+                    ),
+                    Some(f) if f.typlen > 0 => (
+                        typ,
+                        Rep::FixedPtr {
+                            len: f.typlen as u16,
+                        },
+                    ),
+                    Some(_) => (typ, Rep::VarlenaPtr),
+                    None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
+                }
+            })
+            .collect_in(mcx);
         return mcx::pg_box_dyn!(mcx, Empty { cols } => dyn SourceMech + 'g);
     }
-    let Some((_, relid, _)) = p.source.relation() else { bug(p.node_id, "a pull-form arm without its relation") };
+    let Some((_, relid, _)) = p.source.relation() else {
+        bug(p.node_id, "a pull-form arm without its relation")
+    };
     let natts = gx.facts.rel(relid).map_or(0, |r| r.natts.max(0) as usize);
-    let cols = (1..=natts as i16).map(|a| match gx.facts.att(relid, a) {
-        Some(f) if f.byval => (f.typid, Rep::Word { bytes: f.typlen.clamp(1, 8) as u8 }),
-        Some(f) if f.typlen > 0 => (f.typid, Rep::FixedPtr { len: f.typlen as u16 }),
-        Some(f) => (f.typid, Rep::VarlenaPtr),
-        None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
-    }).collect_in(mcx);
+    let cols = (1..=natts as i16)
+        .map(|a| match gx.facts.att(relid, a) {
+            Some(f) if f.byval => (
+                f.typid,
+                Rep::Word {
+                    bytes: f.typlen.clamp(1, 8) as u8,
+                },
+            ),
+            Some(f) if f.typlen > 0 => (
+                f.typid,
+                Rep::FixedPtr {
+                    len: f.typlen as u16,
+                },
+            ),
+            Some(f) => (f.typid, Rep::VarlenaPtr),
+            None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
+        })
+        .collect_in(mcx);
     mcx::pg_box_dyn!(mcx, Empty { cols } => dyn SourceMech + 'g)
 }
 
@@ -105,15 +144,53 @@ impl SourceMech for Empty<'_> {
         b.br(l_eof, &[env.zero]);
         let dead = b.create_block(&[]);
         b.switch_to(dead);
-        Win { cursor: env.zero, end: env.zero, facts: WinConds::default() }
+        Win {
+            cursor: env.zero,
+            end: env.zero,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
-        let cells = self.cols.iter().enumerate().map(|(c, &(typid, rep))| Cell { rep, typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe }).collect_in(env.mcx);
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        let life = CellLife {
+            until: Until::Row,
+            home: CellHome::FrameSlot,
+        };
+        let cells = self
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(c, &(typid, rep))| Cell {
+                rep,
+                typid,
+                num: NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            })
+            .collect_in(env.mcx);
         let t = b.bconst(true);
-        let vals = self.cols.iter().map(|_| (env.zero, Some(t))).collect_in(env.mcx);
-        RowVals { row: Row { cells }, cols: (0..self.cols.len() as u16).map(Some).collect_in(env.mcx), vals, carry, next, at: j }
+        let vals = self
+            .cols
+            .iter()
+            .map(|_| (env.zero, Some(t)))
+            .collect_in(env.mcx);
+        RowVals {
+            row: Row { cells },
+            cols: (0..self.cols.len() as u16).map(Some).collect_in(env.mcx),
+            vals,
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
@@ -160,19 +237,44 @@ pub(crate) struct Pull<'g> {
 }
 
 /// The reader `k` of merge `m` in the pull form, the merge row planned by runs/sort.rs over `cols` (the last arm's).
-pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, m: &Merge<'_>, cols: &types_nodes::list::NodeList<'_>) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn make<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    m: &Merge<'_>,
+    cols: &types_nodes::list::NodeList<'_>,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let mcx = px.mcx();
     let node = gx.pipelines()[k].node_id;
     let shape = Shape::plan(px, node, m.keys, None, cols);
     // V4R-458: a text key's var tail is compared over its held copy (runs/merge_pull_cmp.rs); no other tail is pulled
-    let var_tail = |k: &Key| k.tail == 0 || k.tail >> 8 & 0x7f == gravity_kernels::host_abi::VAR_WIDTH;
-    if !shape.keys.iter().all(var_tail) || shape.cols.iter().any(|c| !matches!(c.form, Form::Word | Form::Var { .. } | Form::Image { .. })) {
+    let var_tail =
+        |k: &Key| k.tail == 0 || k.tail >> 8 & 0x7f == gravity_kernels::host_abi::VAR_WIDTH;
+    if !shape.keys.iter().all(var_tail)
+        || shape
+            .cols
+            .iter()
+            .any(|c| !matches!(c.form, Form::Word | Form::Var { .. } | Form::Image { .. }))
+    {
         bug(node, "a pull-form merge whose row is not words, varlenas and fixed images (props merge_pull)");
     }
     // the columns whose held word is a copy: a varlena's, and a fixed-width by-reference image's (a name non-key column)
-    let vars = shape.cols.iter().enumerate().filter(|(_, c)| matches!(c.form, Form::Var { .. } | Form::Image { .. })).map(|(c, _)| c).collect_in(mcx);
-    let word = |px: &mut Px<'_, '_>, j: usize, i: usize| px.frame_word(WordKey::Open { face: Face::Runs, k, j: crate::frame::px::key_j(usize::MAX - 1 - j), i: i as u8 }) as i32 * 8;
+    let vars = shape
+        .cols
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| matches!(c.form, Form::Var { .. } | Form::Image { .. }))
+        .map(|(c, _)| c)
+        .collect_in(mcx);
+    let word = |px: &mut Px<'_, '_>, j: usize, i: usize| {
+        px.frame_word(WordKey::Open {
+            face: Face::Runs,
+            k,
+            j: crate::frame::px::key_j(usize::MAX - 1 - j),
+            i: i as u8,
+        }) as i32
+            * 8
+    };
     let n = shape.cols.len();
     let w_left = word(px, 0, 0);
     let w_out = (0..n).map(|c| word(px, 0, 1 + c)).collect_in(mcx);
@@ -185,18 +287,33 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, m: &Merge<'_>, cols: &type
     // every arm's words before any arm's source is made (which takes words of its own): one stride apart, so the heap reads
     // an arm's held row at a computed address (merge_pull_heap.rs)
     let per = 2 + 2 * n + 2 * shape.keys.len() + 2 * vars.len();
-    let aw = (0..m.arms.len()).map(|a| (0..per).map(|i| word(px, a + 1, i)).collect_in(mcx)).collect_in(mcx);
-    if aw.iter().enumerate().any(|(a, w)| w.iter().enumerate().any(|(i, &x)| x != aw[0][0] + 8 * (a * per + i) as i32)) {
-        bug(node, "a pull-form merge whose arms' words are not one stride apart");
+    let aw = (0..m.arms.len())
+        .map(|a| (0..per).map(|i| word(px, a + 1, i)).collect_in(mcx))
+        .collect_in(mcx);
+    if aw.iter().enumerate().any(|(a, w)| {
+        w.iter()
+            .enumerate()
+            .any(|(i, &x)| x != aw[0][0] + 8 * (a * per + i) as i32)
+    }) {
+        bug(
+            node,
+            "a pull-form merge whose arms' words are not one stride apart",
+        );
     }
     // a Sort arm's run slot is consumed by this reader past its own consumes, in arm order (merge_pull_runs.rs `rehome`)
     let mut runs = gx.pipelines()[k].desc.consumes.len();
     for (a, &q) in m.arms.iter().enumerate() {
         let p = &gx.pipelines()[q];
-        let feed = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or_else(|| bug(p.node_id, "a MergeAppend arm without its feed"));
+        let feed = p
+            .ops
+            .iter()
+            .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+            .unwrap_or_else(|| bug(p.node_id, "a MergeAppend arm without its feed"));
         let run = match p.source {
             gravity_decompose::Source::Breaker { slot } => {
-                let Some(l) = gx.life_of(q, slot) else { bug(p.node_id, "a pull-form run arm with no producer") };
+                let Some(l) = gx.life_of(q, slot) else {
+                    bug(p.node_id, "a pull-form run arm with no producer")
+                };
                 runs += 1;
                 Some((l.0 as usize, slot, runs - 1))
             }
@@ -205,76 +322,179 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, m: &Merge<'_>, cols: &type
         // the arm's source made again over the same relation and index: its draft is the arm's own, already numbered
         let (src, steps) = px.making(q, q, |px| {
             let src = match run {
-                Some((producer, slot, i)) => crate::frame::iface::sort_cursor(px, q, producer, slot, i),
-                None => (kind_impl::<SourceMaker>(&p.node_id, crate::graph::source_kind_of(&p.source, p.node_id)).0)(px, q),
+                Some((producer, slot, i)) => {
+                    crate::frame::iface::sort_cursor(px, q, producer, slot, i)
+                }
+                None => (kind_impl::<SourceMaker>(
+                    &p.node_id,
+                    crate::graph::source_kind_of(&p.source, p.node_id),
+                )
+                .0)(px, q),
             };
-            let steps: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..feed).map(|j| (kind_impl::<StepMaker>(&p.node_id, gx.step_need(q, j)).0)(px, q, j)).collect_in(mcx);
+            let steps: PgVec<'g, PgBox<'g, dyn StepMech + 'g>> = (0..feed)
+                .map(|j| (kind_impl::<StepMaker>(&p.node_id, gx.step_need(q, j)).0)(px, q, j))
+                .collect_in(mcx);
             (src, steps)
         });
         // D449: a Sort input that may raise holds its error until this reader first reads the run's end, PostgreSQL's
         // first pull of the arm (merge_admit.rs `merge_pull`: `held_fill`)
-        let held = run.filter(|&(producer, ..)| crate::effects::visible::merge::ops_can_raise(gx, &gx.pipelines()[producer].ops)).map(|(producer, _, i)| {
-            if !px.held_sort.contains(&producer) {
-                px.held_sort.push(producer); // alloc: Program
-            }
-            i as u64
-        });
+        let held = run
+            .filter(|&(producer, ..)| {
+                crate::effects::visible::merge::ops_can_raise(gx, &gx.pipelines()[producer].ops)
+            })
+            .map(|(producer, _, i)| {
+                if !px.held_sort.contains(&producer) {
+                    px.held_sort.push(producer); // alloc: Program
+                }
+                i as u64
+            });
         // the arm's own pipeline has no source (graph.rs maps a pull arm's source to this kind): the reader numbers its site
         let site = match run {
             Some(_) => None,
             None => {
-                let Some(draft) = px.take_site(q) else { bug(p.node_id, "a pull-form arm's source drafted no site") };
+                let Some(draft) = px.take_site(q) else {
+                    bug(p.node_id, "a pull-form arm's source drafted no site")
+                };
                 Some(px.add_site(draft))
             }
         };
-        let skip = prune.filter(|_| reopen.is_none()).map(|pr| (kind_impl::<crate::face::source::PruneImpl>(&node, crate::face::kinds::KindId::SrcPrune).0)(px, q, a as u16, m.arms.len() as u16, pr, node));
+        let skip = prune.filter(|_| reopen.is_none()).map(|pr| {
+            (kind_impl::<crate::face::source::PruneImpl>(
+                &node,
+                crate::face::kinds::KindId::SrcPrune,
+            )
+            .0)(px, q, a as u16, m.arms.len() as u16, pr, node)
+        });
         let w = &aw[a];
         let (w_need, w_alive) = (w[0], w[1]);
         let w_vals = mcx::to_vec_in(&w[2..2 + n], mcx);
         let w_nulls = mcx::to_vec_in(&w[2 + n..2 + 2 * n], mcx);
         let at = 2 + 2 * n + 2 * shape.keys.len();
         let w_pairs = mcx::to_vec_in(&w[2 + 2 * n..at], mcx);
-        let bufs = (0..vars.len()).map(|v| Buf { w_ptr: w[at + 2 * v], w_cap: w[at + 2 * v + 1] }).collect_in(mcx);
-        arms.push_in(Arm { src, steps, site, skip, w_need, w_alive, w_vals, w_nulls, w_pairs, bufs, held });
+        let bufs = (0..vars.len())
+            .map(|v| Buf {
+                w_ptr: w[at + 2 * v],
+                w_cap: w[at + 2 * v + 1],
+            })
+            .collect_in(mcx);
+        arms.push_in(Arm {
+            src,
+            steps,
+            site,
+            skip,
+            w_need,
+            w_alive,
+            w_vals,
+            w_nulls,
+            w_pairs,
+            bufs,
+            held,
+        });
     }
     // a late or rerun pruning lays the skip words as an image at a pipeline's start (exec prune_exec.rs, rerun/mod.rs):
     // the arms' own pipelines run nothing here, so their Prune protos name this reader, whose start takes the image too
     if prune.is_some() && reopen.is_none() {
         let reader = px.ident(k) as u16;
-        px.protos.iter_mut().filter(|q| q.kind == ProtoKind::Prune && m.arms.iter().any(|&a| a as u16 == q.pipeline)).for_each(|q| q.peer = reader);
+        px.protos
+            .iter_mut()
+            .filter(|q| {
+                q.kind == ProtoKind::Prune && m.arms.iter().any(|&a| a as u16 == q.pipeline)
+            })
+            .for_each(|q| q.peer = reader);
     }
     let tfs = shape.cols.iter().map(|c| c.tf).collect_in(mcx);
     // the heap's words follow the arms' (keyed past the last arm): its size, then one word per position, contiguous
     let first = m.arms.len() + 1;
     let size = word(px, first, 0);
     #[allow(clippy::double_parens, unused_parens)]
-    let hw = (0..m.arms.len()).map(|p| word(px, first + 1 + p / 256, ((p % 256)))).collect_in(mcx);
-    if hw.iter().enumerate().any(|(p, &x)| x != hw[0] + 8 * p as i32) {
-        bug(node, "a pull-form merge whose heap words are not contiguous");
+    let hw = (0..m.arms.len())
+        .map(|p| word(px, first + 1 + p / 256, (p % 256)))
+        .collect_in(mcx);
+    if hw
+        .iter()
+        .enumerate()
+        .any(|(p, &x)| x != hw[0] + 8 * p as i32)
+    {
+        bug(
+            node,
+            "a pull-form merge whose heap words are not contiguous",
+        );
     }
     let a0 = &arms[0];
-    let heap = Heap { h: hw[0], size, n: m.arms.len(), stride: per as i32, alive: a0.w_alive, pairs: mcx::to_vec_in(&a0.w_pairs[..], mcx), vals: mcx::to_vec_in(&a0.w_vals[..], mcx), nulls: mcx::to_vec_in(&a0.w_nulls[..], mcx) };
+    let heap = Heap {
+        h: hw[0],
+        size,
+        n: m.arms.len(),
+        stride: per as i32,
+        alive: a0.w_alive,
+        pairs: mcx::to_vec_in(&a0.w_pairs[..], mcx),
+        vals: mcx::to_vec_in(&a0.w_vals[..], mcx),
+        nulls: mcx::to_vec_in(&a0.w_nulls[..], mcx),
+    };
     mcx::pg_box_dyn!(mcx, Pull { arms, keys: shape.keys, tfs, node, w_left, w_last, w_out, w_outn, vars, heap, reopen } => dyn SourceMech + 'g)
 }
 
 /// The merge row over datum words `vals` (`(word, null)` per column), as runs/sort.rs's emit gives it (a varlena's until
 /// the emitting arm's next row, which it reads at the next window).
-fn word_row<'e>(tfs: &[TypeFacts], vals: PgVec<'e, (Value, Option<Value>)>, carry: Carry<'e>, next: Value, at: Value, mcx: Mcx<'e>) -> RowVals<'e> {
-    let cells = tfs.iter().enumerate().map(|(c, tf)| {
-        let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
-        Cell { rep: Rep::of_storage(tf.typlen, tf.byval), typid: tf.typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe }
-    }).collect_in(mcx);
-    RowVals { row: Row { cells }, cols: (0..tfs.len() as u16).map(Some).collect_in(mcx), vals, carry, next, at }
+fn word_row<'e>(
+    tfs: &[TypeFacts],
+    vals: PgVec<'e, (Value, Option<Value>)>,
+    carry: Carry<'e>,
+    next: Value,
+    at: Value,
+    mcx: Mcx<'e>,
+) -> RowVals<'e> {
+    let cells = tfs
+        .iter()
+        .enumerate()
+        .map(|(c, tf)| {
+            let life = CellLife {
+                until: Until::Row,
+                home: CellHome::FrameSlot,
+            };
+            Cell {
+                rep: Rep::of_storage(tf.typlen, tf.byval),
+                typid: tf.typid,
+                num: NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            }
+        })
+        .collect_in(mcx);
+    RowVals {
+        row: Row { cells },
+        cols: (0..tfs.len() as u16).map(Some).collect_in(mcx),
+        vals,
+        carry,
+        next,
+        at,
+    }
 }
 
 /// D449's held Sort arm at its run's end: 1 from `m11_run_held` (the error its fill held, stashed again for this thread)
 /// leaves by the raise exit, where PostgreSQL's pull of the arm runs the Sort; 0 (nothing held) reads on.
 fn raise_held(b: &mut FunctionBuilder<'_>, env: &mut Env, i: u64) {
-    let flags = HostFlags { may_error: true, ..HostFlags::default() };
-    let h = b.declare_host_once("m11_run_held", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_abi::host_words!(m11_run_held(ctx, k)), flags);
+    let flags = HostFlags {
+        may_error: true,
+        ..HostFlags::default()
+    };
+    let h = b.declare_host_once(
+        "m11_run_held",
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        gravity_abi::host_words!(m11_run_held(ctx, k)),
+        flags,
+    );
     let i = b.iconst(Type::I64, i as i64);
-    let st = b.call_host(h, &[env.ctx, i], Some(Type::I64)).expect("m11_run_held returns its answer");
-    let (held, l_raise, l_on) = (b.icmp(IntCond::Ne, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+    let st = b
+        .call_host(h, &[env.ctx, i], Some(Type::I64))
+        .expect("m11_run_held returns its answer");
+    let (held, l_raise, l_on) = (
+        b.icmp(IntCond::Ne, st, env.zero),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(held, (l_raise, &[]), (l_on, &[]));
     b.switch_to(l_raise);
     b.mark_cold(l_raise);
@@ -284,7 +504,13 @@ fn raise_held(b: &mut FunctionBuilder<'_>, env: &mut Env, i: u64) {
 }
 
 /// The chain of an arm's ops over `row`, `fin` at its end (the Feed's row).
-fn chain<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, steps: &[PgBox<'_, dyn StepMech + '_>], row: &RowVals, fin: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, &RowVals) -> Carry<'e>) -> Carry<'e> {
+fn chain<'e>(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env<'e, '_>,
+    steps: &[PgBox<'_, dyn StepMech + '_>],
+    row: &RowVals,
+    fin: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, &RowVals) -> Carry<'e>,
+) -> Carry<'e> {
     crate::stack_check(); // D3832
     match steps.split_first() {
         None => fin(b, env, row),
@@ -295,7 +521,14 @@ fn chain<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, steps: &[PgBox<
 impl Pull<'_> {
     /// Arm `a`'s next row that passes its ops, held in its words (`alive`), or `alive` cleared at its end; a status below
     /// zero leaves through `l_eof`. The row read is consumed at once (the site's cursor past it): its words are the copy.
-    fn fill(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: usize, l_eof: Block, l_next: Block) {
+    fn fill(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: usize,
+        l_eof: Block,
+        l_next: Block,
+    ) {
         let arm = &self.arms[a];
         let saved = env.site;
         if let Some(s) = arm.site {
@@ -307,7 +540,14 @@ impl Pull<'_> {
         b.br(l_loop, &[]);
         b.switch_to(l_loop);
         let win = arm.src.next_window(b, env, l_end);
-        let row = arm.src.row(b, env, &win, win.cursor, Carry::new(env.zero, env.mcx), env.zero);
+        let row = arm.src.row(
+            b,
+            env,
+            &win,
+            win.cursor,
+            Carry::new(env.zero, env.mcx),
+            env.zero,
+        );
         let cur1 = b.int_bin(IntBinOp::Add, win.cursor, env.one);
         // a run arm's position is its own cursor word (sort's RunEmit), a scan arm's its site's
         match arm.site {
@@ -317,18 +557,37 @@ impl Pull<'_> {
         let (node, tfs, keys) = (self.node, &self.tfs[..], &self.keys[..]);
         let c = chain(b, env, &arm.steps, &row, &mut |b, env, r| {
             let mut cx = env.lx(b, node);
-            let vals: PgVec<'_, (Value, Value)> = tfs.iter().enumerate().map(|(c, tf)| {
-                let Some(cr) = r.col(c as i16 + 1) else { bug(node, "a merge column past the arm's row") };
-                crate::rep::datum(&mut cx, cr, tf)
-            }).collect_in(env.mcx);
-            let wr = word_row(tfs, vals.iter().map(|&(v, n)| (v, Some(n))).collect_in(env.mcx), Carry::new(env.zero, env.mcx), env.zero, env.zero, env.mcx);
+            let vals: PgVec<'_, (Value, Value)> = tfs
+                .iter()
+                .enumerate()
+                .map(|(c, tf)| {
+                    let Some(cr) = r.col(c as i16 + 1) else {
+                        bug(node, "a merge column past the arm's row")
+                    };
+                    crate::rep::datum(&mut cx, cr, tf)
+                })
+                .collect_in(env.mcx);
+            let wr = word_row(
+                tfs,
+                vals.iter().map(|&(v, n)| (v, Some(n))).collect_in(env.mcx),
+                Carry::new(env.zero, env.mcx),
+                env.zero,
+                env.zero,
+                env.mcx,
+            );
             let pairs = crate::rep::keylane::pairs(&mut cx, node, &wr, keys, tfs, env.mcx);
             env.memo = cx.memo;
             for (c, &(v, null)) in vals.iter().enumerate() {
                 let mut word = b.select(null, env.zero, v);
                 if let Some(x) = self.vars.iter().position(|&y| y == c) {
                     word = match tfs[c].typlen {
-                        len if len > 0 => crate::ops::append::merge_pull_copy::copy_fixed(b, env, arm.bufs[x], word, len as u32),
+                        len if len > 0 => crate::ops::append::merge_pull_copy::copy_fixed(
+                            b,
+                            env,
+                            arm.bufs[x],
+                            word,
+                            len as u32,
+                        ),
                         _ => crate::ops::append::merge_pull_copy::copy(b, env, arm.bufs[x], word),
                     };
                 }
@@ -369,11 +628,35 @@ impl SourceMech for Pull<'_> {
     }
 
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("merge pull left", Base::Words, self.w_left, Type::I64, 0));
-        w.declare(OpenWord::open("merge pull last", Base::Words, self.w_last, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "merge pull left",
+            Base::Words,
+            self.w_left,
+            Type::I64,
+            0,
+        ));
+        w.declare(OpenWord::open(
+            "merge pull last",
+            Base::Words,
+            self.w_last,
+            Type::I64,
+            0,
+        ));
         for a in self.arms.iter() {
-            w.declare(OpenWord::open("merge pull need", Base::Words, a.w_need, Type::I64, 1));
-            w.declare(OpenWord::open("merge pull alive", Base::Words, a.w_alive, Type::I64, 0));
+            w.declare(OpenWord::open(
+                "merge pull need",
+                Base::Words,
+                a.w_need,
+                Type::I64,
+                1,
+            ));
+            w.declare(OpenWord::open(
+                "merge pull alive",
+                Base::Words,
+                a.w_alive,
+                Type::I64,
+                0,
+            ));
             crate::ops::append::merge_pull_copy::open_words(w, &a.bufs[..]);
             if a.site.is_none() {
                 a.src.open_words(w); // a run arm's cursor (mode, cursor, total) starts afresh at each open
@@ -408,7 +691,10 @@ impl SourceMech for Pull<'_> {
             };
             let Some(pass) = pass else {
                 let r = a.src.open(b, env);
-                let (bad, first) = (b.icmp(IntCond::Slt, r, env.zero), b.icmp(IntCond::Eq, st, env.zero));
+                let (bad, first) = (
+                    b.icmp(IntCond::Slt, r, env.zero),
+                    b.icmp(IntCond::Eq, st, env.zero),
+                );
                 let take = b.int_bin(IntBinOp::And, bad, first);
                 st = b.select(take, r, st);
                 continue;
@@ -417,7 +703,10 @@ impl SourceMech for Pull<'_> {
             b.cond_br(pass, (l_open, &[]), (l_join, &[st]));
             b.switch_to(l_open);
             let r = a.src.open(b, env);
-            let (bad, first) = (b.icmp(IntCond::Slt, r, env.zero), b.icmp(IntCond::Eq, st, env.zero));
+            let (bad, first) = (
+                b.icmp(IntCond::Slt, r, env.zero),
+                b.icmp(IntCond::Eq, st, env.zero),
+            );
             let take = b.int_bin(IntBinOp::And, bad, first);
             let st2 = b.select(take, r, st);
             b.br(l_join, &[st2]);
@@ -454,7 +743,11 @@ impl SourceMech for Pull<'_> {
         let (l_one, l_pick) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(all, (chk[0], &[]), (l_one, &[]));
         b.switch_to(l_one);
-        b.switch(last, fills.iter().enumerate().map(|(a, &t)| (a as u64, t, [])), (l_pick, &[]));
+        b.switch(
+            last,
+            fills.iter().enumerate().map(|(a, &t)| (a as u64, t, [])),
+            (l_pick, &[]),
+        );
         for a in 0..arms {
             b.switch_to(chk[a]);
             let l_cont = b.create_block(&[]);
@@ -469,7 +762,11 @@ impl SourceMech for Pull<'_> {
         }
         b.switch_to(l_pick);
         // PostgreSQL's heap over the held rows: built after an open, else settled over the arm just read
-        let (l_build, l_settle, l_top) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));
+        let (l_build, l_settle, l_top) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+        );
         b.cond_br(all, (l_build, &[]), (l_settle, &[]));
         b.switch_to(l_build);
         self.heap.build(b, env, &self.keys);
@@ -493,17 +790,31 @@ impl SourceMech for Pull<'_> {
         b.br(l_win, &[env.zero]);
         b.switch_to(l_win);
         let cursor = b.block_params(l_win)[0];
-        Win { cursor, end: env.one, facts: WinConds::default() }
+        Win {
+            cursor,
+            end: env.one,
+            facts: WinConds::default(),
+        }
     }
 
     /// The window's row: the out words.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let mcx = env.mcx;
-        let vals = (0..self.tfs.len()).map(|c| {
-            let v = env.load_word(b, self.w_out[c]);
-            let nw = env.load_word(b, self.w_outn[c]);
-            (v, Some(b.icmp(IntCond::Ne, nw, env.zero)))
-        }).collect_in(mcx);
+        let vals = (0..self.tfs.len())
+            .map(|c| {
+                let v = env.load_word(b, self.w_out[c]);
+                let nw = env.load_word(b, self.w_outn[c]);
+                (v, Some(b.icmp(IntCond::Ne, nw, env.zero)))
+            })
+            .collect_in(mcx);
         word_row(&self.tfs[..], vals, carry, next, j, mcx)
     }
 

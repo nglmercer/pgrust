@@ -129,7 +129,14 @@ pub enum Arm<'a, 'e> {
     Merge(Option<Next<'a, 'e>>),
     /// D655 Row C (V4R-534): WRITE_RECHECK of an op that rechecks in the IR (`RowOpMech::epq_in_ir`): the kind's recheck and
     /// its cells over the passing version (UPDATE's new tuple, DELETE's none), then the op again (write/rowop_epq.rs).
-    Epq(&'a dyn EpqRerun, &'a mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env<'e, '_>, &RowVals) -> PgVec<'e, (Value, Value)>),
+    Epq(
+        &'a dyn EpqRerun,
+        &'a mut dyn FnMut(
+            &mut FunctionBuilder<'_>,
+            &mut Env<'e, '_>,
+            &RowVals,
+        ) -> PgVec<'e, (Value, Value)>,
+    ),
     /// mergecmd D655 Row C: a MERGE MATCHED action of a write that rechecks in the IR (merge/epq.rs): `Merge`'s arm, and
     /// WRITE_RECHECK enters the MERGE's redo loop at the block (its WHEN MATCHED list again over the newest version).
     MergeEpq(Option<Next<'a, 'e>>, Block),
@@ -138,7 +145,15 @@ pub enum Arm<'a, 'e> {
 /// D655 Row C: a row-op kind's EvalPlanQual over the newest version the host put in write site `site` (write/epq_ir.rs):
 /// `retry` with the row the source's recheck quals and the ops below the write rebuilt, or the carry as it came (skipped).
 pub trait EpqRerun {
-    fn rerun<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, site: usize, node: i32, retry: Next<'_, 'e>) -> Carry<'e>;
+    fn rerun<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        site: usize,
+        node: i32,
+        retry: Next<'_, 'e>,
+    ) -> Carry<'e>;
 }
 
 /// The row op as a step (H27, L0-g): the write kinds call the host in their step and hand the written row on, so a
@@ -150,16 +165,42 @@ pub trait RowOpMech {
     /// Store the cells and the position, call the host, branch on its status: `RowStatus::Done` continues with `done`,
     /// `Skipped` with nothing (the carry as it came), `Conflict` with `conflict` (without one the status is unsupported),
     /// `Recheck` stops after the row naming the recheck site, an error stops at the row.
-    fn call<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, r: RowOpRow<'_>, done: Next<'_, 'e>, conflict: Option<Next<'_, 'e>>) -> Carry<'e>;
+    fn call<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        r: RowOpRow<'_>,
+        done: Next<'_, 'e>,
+        conflict: Option<Next<'_, 'e>>,
+    ) -> Carry<'e>;
     /// `call` with this call's host op in place of the declared one: MERGE's action arms (`WRITE_INSERT` / `UPDATE` /
     /// `DELETE`) share one write site (M4-TRIG T2); `arm` its extra status arm.
-    fn call_op<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, op: u32, r: RowOpRow<'_>, done: Next<'_, 'e>, arm: Arm<'_, 'e>) -> Carry<'e>;
+    fn call_op<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        op: u32,
+        r: RowOpRow<'_>,
+        done: Next<'_, 'e>,
+        arm: Arm<'_, 'e>,
+    ) -> Carry<'e>;
     /// The write site's cells after `Done` (the host's `written()` applied: a BEFORE ROW trigger's row), or the conflict
     /// site's (the existing row) under `conflict`: `(datum, isnull)` in attno order.
-    fn cells<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, conflict: bool) -> PgVec<'e, (Value, Value)>;
+    fn cells<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        conflict: bool,
+    ) -> PgVec<'e, (Value, Value)>;
     /// M4-RET R4a (V4R-286): after `Done` of an UPDATE whose plan fetches the version it replaced (`WritePlan::with_old`,
     /// RETURNING OLD), the old site's cells (the write site's successor, driver dml.rs): `(datum, isnull)` in attno order.
-    fn old_cells<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, (Value, Value)> {
+    fn old_cells<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+    ) -> PgVec<'e, (Value, Value)> {
         let _ = b;
         PgVec::new_in(env.mcx)
     }
@@ -176,12 +217,20 @@ pub trait RowOpMech {
     }
 }
 
-pub struct RowOpMaker(pub for<'g, 'p> fn(&mut Px<'g, 'p>, usize, RowOpDecl) -> PgBox<'g, dyn RowOpMech + 'g>);
+pub struct RowOpMaker(
+    pub for<'g, 'p> fn(&mut Px<'g, 'p>, usize, RowOpDecl) -> PgBox<'g, dyn RowOpMech + 'g>,
+);
 
 /// M4-RET R4a (V4R-286): write.returning's image sources for the expression at `(pipeline, op)`: `Some` for a RETURNING
 /// projection that reads OLD / NEW (PG 18) or MERGE's `merge_action()` (D789), where its continuation lays those images
 /// out; the expression step compiles its OLD / NEW Vars through them (gravity_expr `Builder.returning`).
-pub struct RetImages(pub for<'g, 'p> fn(&crate::graph::Gx<'g, 'p>, usize, usize) -> Option<gravity_expr::nodes::Returning>);
+pub struct RetImages(
+    pub  for<'g, 'p> fn(
+        &crate::graph::Gx<'g, 'p>,
+        usize,
+        usize,
+    ) -> Option<gravity_expr::nodes::Returning>,
+);
 
 /// D774 (M4-CLOSE B3): write.returning's `tableoid` for the RETURNING projection at `(pipeline, op)`: `(varno, relid)` of
 /// a target every returned row is written to (a heap target, a root pruned to one leaf), PostgreSQL's
@@ -192,7 +241,9 @@ pub struct RetImages(pub for<'g, 'p> fn(&crate::graph::Gx<'g, 'p>, usize, usize)
 pub const SYS_CELLS: u16 = 6;
 pub const TABLEOID_AT: i16 = gravity_program::protos::SYS_AT_BASE + 6;
 
-pub struct RetTableoid(pub for<'g, 'p> fn(&crate::graph::Gx<'g, 'p>, usize, usize) -> Option<(i32, types_core::Oid)>);
+pub struct RetTableoid(
+    pub for<'g, 'p> fn(&crate::graph::Gx<'g, 'p>, usize, usize) -> Option<(i32, types_core::Oid)>,
+);
 
 /// A VALUES list's per-execution literal table (road `write.literals`, H16a; L0-m; NEW-29): its `LIT_WORDS` protocol words
 /// from `base` (the cells, the null bytes, the row count) and the list's width. CAP-29: `stream`, the stream form (one more
@@ -208,24 +259,52 @@ pub struct LitTable {
 pub trait LiteralsMech: Sync {
     /// The table for VALUES pipeline `k` (plan node `node`, `cols` wide), its protocol declared, in the stream form when
     /// `stream`; `None`: the source's own form.
-    fn table(&self, px: &mut Px<'_, '_>, k: usize, node: i32, cols: usize, stream: bool) -> Option<LitTable>;
+    fn table(
+        &self,
+        px: &mut Px<'_, '_>,
+        k: usize,
+        node: i32,
+        cols: usize,
+        stream: bool,
+    ) -> Option<LitTable>;
     /// CAP-29, the stream form: coded row `j`'s cells that are not a Const evaluated into the table now, by PostgreSQL's
     /// evaluator in the row's turn (valid until the next coded row's); an error raises. D3374: `params` are the values
     /// (and valid flags) of the executor parameters the list's cells read (`values::exec_params`' order), handed over first.
-    fn stream(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable, j: Value, params: &[(Value, Value)]);
+    fn stream(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &LitTable,
+        j: Value,
+        params: &[(Value, Value)],
+    );
     /// Whether row `j` holds a cell that is not a Const (`Bool`): the source's code answers it.
     fn coded(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable, j: Value) -> Value;
     /// The execution's row count (`I64`).
     fn rows(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable) -> Value;
     /// Row `j`'s cell `c`: `(datum, valid)`.
-    fn cell(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &LitTable, j: Value, c: usize) -> (Value, Value);
+    fn cell(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &LitTable,
+        j: Value,
+        c: usize,
+    ) -> (Value, Value);
 }
 
 pub struct LiteralsRoad(pub &'static dyn LiteralsMech);
 
 /// Road `write.route`'s face for a write of several result relations (write/route.rs `target`): an arm's own target
 /// `(rti, relid)` and the write plan every arm shares.
-pub struct TargetsRoad(pub fn(&crate::graph::Gx<'_, '_>, usize, &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>, gravity_program::ArenaRef) -> (u32, u32, gravity_program::WritePlan));
+pub struct TargetsRoad(
+    pub  fn(
+        &crate::graph::Gx<'_, '_>,
+        usize,
+        &gravity_decompose::ops::shared::modifytable::WriteDesc<'_>,
+        gravity_program::ArenaRef,
+    ) -> (u32, u32, gravity_program::WritePlan),
+);
 
 /// Where a row op's checks run (H27): in the host op (PG's own ExecConstraints path), or in IR (`RowOpRoad::Checks`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,7 +337,13 @@ pub trait EndMech {
     fn carried<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, Value> {
         PgVec::new_in(env.mcx)
     }
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, x: &Exits) -> Carry<'e>;
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        x: &Exits,
+    ) -> Carry<'e>;
     /// At every window's end, with the carry after its last row.
     fn window_end(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _c: &Carry) {}
     /// D3148: after the steps' `window`, the `Bool` under which the end admits every row of the window without its
@@ -270,7 +355,12 @@ pub trait EndMech {
     /// D3027: whether the row's first key lies strictly past the end's armed bound (a row top's topk.boundfirst: no row
     /// past it can enter the top), for a prefilter in front of the end (dict code.cut ends a key-ordered window there);
     /// `None` for an end without a bound.
-    fn past_bound(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Value> {
+    fn past_bound(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Value> {
         None
     }
     /// The section close, before `done`.
@@ -293,19 +383,42 @@ pub trait EndMech {
     /// The end may branch to `l_wend` (the row loop's exit, params = `c.params()`) with the window's carry (an answered
     /// window from the site's answer records, a count-only fold's `end - cursor` over a window no step can drop rows from)
     /// and returns true iff it emitted a branch; the builder is left where the rows are walked.
-    fn whole(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _win: &Win, _c: &Carry, _l_wend: Block) -> bool {
+    fn whole(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _win: &Win,
+        _c: &Carry,
+        _l_wend: Block,
+    ) -> bool {
         false
     }
     /// H01 c (mask.fold): a whole block `[base, base + 64)` whose passing rows are `m` folded at once (a popcount, a masked
     /// sum / min / max over the lanes `w`) instead of walked by ctz: the carry after, or `None` to walk the rows. Asked by
     /// the block path only when every step after the first keeps every row and reads nothing the end needs.
-    fn block<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _w: &WordWin, _base: Value, _m: Mask, _c: &Carry) -> Option<Carry<'e>> {
+    fn block<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _w: &WordWin,
+        _base: Value,
+        _m: Mask,
+        _c: &Carry,
+    ) -> Option<Carry<'e>> {
         None
     }
     /// KEYED-24: `block`'s form for an end whose host may decline at run time (a dense table.small): the carry after a
     /// taken block, with the builder left on the taken edge, and the block a decline enters, where the frame walks the
     /// block's rows as it does after `None`. Asked where `block` is, when `block` gave `None`.
-    fn block_or_walk<'e>(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env<'e, '_>, _w: &WordWin, _base: Value, _m: Mask, _c: &Carry) -> Option<(Carry<'e>, Block)> {
+    fn block_or_walk<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        _env: &mut Env<'e, '_>,
+        _w: &WordWin,
+        _base: Value,
+        _m: Mask,
+        _c: &Carry,
+    ) -> Option<(Carry<'e>, Block)> {
         None
     }
     /// H01 c (count form): `block` reads only how many rows passed (count(*) folds, no FILTER), and only where it folds

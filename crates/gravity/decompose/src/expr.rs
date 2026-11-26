@@ -9,14 +9,19 @@ use types_nodes::{Node, NodeTag};
 use crate::catalog::expr_type::type_of;
 
 pub fn kids<'p>(node: Node<'p>, f: &mut dyn FnMut(Node<'p>)) -> bool {
-    let list = |l: &NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut * f);
+    let list = |l: &NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut *f);
     let opt = |n: Option<Node<'p>>, f: &mut dyn FnMut(Node<'p>)| {
         if let Some(n) = n {
             f(n)
         }
     };
     match node.node_tag() {
-        NodeTag::T_Var | NodeTag::T_Const | NodeTag::T_Param | NodeTag::T_CaseTestExpr | NodeTag::T_CoerceToDomainValue | NodeTag::T_SQLValueFunction => {}
+        NodeTag::T_Var
+        | NodeTag::T_Const
+        | NodeTag::T_Param
+        | NodeTag::T_CaseTestExpr
+        | NodeTag::T_CoerceToDomainValue
+        | NodeTag::T_SQLValueFunction => {}
         // MERGE .. RETURNING's merge_action(): a leaf (D789)
         NodeTag::T_MergeSupportFunc => {}
         NodeTag::T_TargetEntry => f(node.as_target_entry().unwrap().expr),
@@ -151,7 +156,11 @@ pub fn run_aggrefs<'p>(node: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
             f(x);
             return false;
         }
-        if let Some(raw) = x.as_json_value_expr().filter(|j| j.formatted_expr.is_some()).and_then(|j| j.raw_expr) {
+        if let Some(raw) = x
+            .as_json_value_expr()
+            .filter(|j| j.formatted_expr.is_some())
+            .and_then(|j| j.raw_expr)
+        {
             run_aggrefs(raw, f);
         }
         true
@@ -176,7 +185,10 @@ use crate::catalog::casts::zext4;
 /// D3630: `through_relabel` with each side judged by its base type (`typefacts::facts_of`: a domain carries its base's
 /// row). A relabel from a domain over oid to int4 re-forms the word as one from oid does (gravity_expr nodes/cast.rs
 /// `relabel_canon` reads the base types too), so no key may read the domain column's word in its place.
-pub fn through_relabel_in<'p>(facts: &dyn crate::catalog::Facts, node: Node<'p>) -> Option<Node<'p>> {
+pub fn through_relabel_in<'p>(
+    facts: &dyn crate::catalog::Facts,
+    node: Node<'p>,
+) -> Option<Node<'p>> {
     let a = through_relabel(node)?;
     let base = |t: u32| crate::catalog::typefacts::facts_of(facts, t).map_or(t, |f| f.base);
     let to = node.as_relabel_type()?.resulttype;
@@ -207,7 +219,10 @@ pub fn reforms_word(from: u32, to: u32) -> bool {
 pub fn has_subplan(node: Node<'_>) -> bool {
     let mut found = false;
     walk(node, &mut |n| {
-        found |= matches!(n.node_tag(), NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan);
+        found |= matches!(
+            n.node_tag(),
+            NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan
+        );
         !found
     });
     found
@@ -293,7 +308,9 @@ pub fn print(node: Node<'_>, out: &mut dyn Write) -> fmt::Result {
                     _ => write!(out, "{}", c.constvalue.as_i64()),
                 }
             } else if c.constlen == -1 {
-                let Some(data) = const_bytes(c) else { return write!(out, "<varlena>") };
+                let Some(data) = const_bytes(c) else {
+                    return write!(out, "<varlena>");
+                };
                 write!(out, "'")?;
                 for &b in data {
                     if b.is_ascii_graphic() || b == b' ' {
@@ -309,17 +326,46 @@ pub fn print(node: Node<'_>, out: &mut dyn Write) -> fmt::Result {
         }
         NodeTag::T_Param => {
             let p = node.as_param().unwrap();
-            write!(out, "${}{}", if p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN { "" } else { "exec" }, p.paramid)
+            write!(
+                out,
+                "${}{}",
+                if p.paramkind == types_nodes::primnodes::ParamKind::PARAM_EXTERN {
+                    ""
+                } else {
+                    "exec"
+                },
+                p.paramid
+            )
         }
         NodeTag::T_TargetEntry => {
             let t = node.as_target_entry().unwrap();
             write!(out, "{}{}=", t.resno, if t.resjunk { "j" } else { "" })?;
             print(t.expr, out)
         }
-        NodeTag::T_OpExpr => call(out, "op", node.as_op_expr().unwrap().opno, &node.as_op_expr().unwrap().args),
-        NodeTag::T_DistinctExpr => call(out, "distinct", node.as_distinct_expr().unwrap().opno, &node.as_distinct_expr().unwrap().args),
-        NodeTag::T_NullIfExpr => call(out, "nullif", node.as_null_if_expr().unwrap().opno, &node.as_null_if_expr().unwrap().args),
-        NodeTag::T_FuncExpr => call(out, "fn", node.as_func_expr().unwrap().funcid, &node.as_func_expr().unwrap().args),
+        NodeTag::T_OpExpr => call(
+            out,
+            "op",
+            node.as_op_expr().unwrap().opno,
+            &node.as_op_expr().unwrap().args,
+        ),
+        NodeTag::T_DistinctExpr => call(
+            out,
+            "distinct",
+            node.as_distinct_expr().unwrap().opno,
+            &node.as_distinct_expr().unwrap().args,
+        ),
+        NodeTag::T_NullIfExpr => call(
+            out,
+            "nullif",
+            node.as_null_if_expr().unwrap().opno,
+            &node.as_null_if_expr().unwrap().args,
+        ),
+        NodeTag::T_FuncExpr => call(
+            out,
+            "fn",
+            node.as_func_expr().unwrap().funcid,
+            &node.as_func_expr().unwrap().args,
+        ),
         NodeTag::T_ScalarArrayOpExpr => {
             let s = node.as_scalar_array_op_expr().unwrap();
             call(out, if s.useOr { "any" } else { "all" }, s.opno, &s.args)
@@ -350,7 +396,12 @@ pub fn print(node: Node<'_>, out: &mut dyn Write) -> fmt::Result {
             }
             Ok(())
         }
-        NodeTag::T_WindowFunc => call(out, "win", node.as_window_func().unwrap().winfnoid, &node.as_window_func().unwrap().args),
+        NodeTag::T_WindowFunc => call(
+            out,
+            "win",
+            node.as_window_func().unwrap().winfnoid,
+            &node.as_window_func().unwrap().args,
+        ),
         NodeTag::T_RelabelType => {
             let r = node.as_relabel_type().unwrap();
             write!(out, "relabel{}(", r.resulttype)?;
@@ -365,7 +416,15 @@ pub fn print(node: Node<'_>, out: &mut dyn Write) -> fmt::Result {
         }
         NodeTag::T_NullTest => {
             let n = node.as_null_test().unwrap();
-            write!(out, "{}(", if n.nulltesttype == NullTestType::IS_NULL { "isnull" } else { "notnull" })?;
+            write!(
+                out,
+                "{}(",
+                if n.nulltesttype == NullTestType::IS_NULL {
+                    "isnull"
+                } else {
+                    "notnull"
+                }
+            )?;
             if let Some(a) = n.arg {
                 print(a, out)?;
             }

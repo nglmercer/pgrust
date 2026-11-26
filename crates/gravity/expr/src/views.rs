@@ -13,11 +13,17 @@ pub struct Val {
 }
 
 impl Val {
-    pub const NULL: Val = Val { value: NullableDatum::null(), view: None };
+    pub const NULL: Val = Val {
+        value: NullableDatum::null(),
+        view: None,
+    };
 
     #[inline(always)]
     pub fn datum(d: NullableDatum) -> Val {
-        Val { value: d, view: None }
+        Val {
+            value: d,
+            view: None,
+        }
     }
 }
 
@@ -46,17 +52,29 @@ pub fn payload_view(d: Datum, typlen: i16, region: &mut Region) -> PgResult<View
                     let n = varatt::varsize_1b(p) as usize - 1;
                     // a short-header datum off a page is unaligned: a body that reads words (numeric's digits) gets
                     // an aligned copy, as the row executor's detoast gives it
-                    if ! (p as usize + 1).is_multiple_of( 2) {
+                    if !(p as usize + 1).is_multiple_of(2) {
                         let q = region.reserve(n).ok_or_else(no_space)?;
                         core::ptr::copy_nonoverlapping(p.add(1), q, n);
-                        return Ok(View { ptr: q, len: n as u64 });
+                        return Ok(View {
+                            ptr: q,
+                            len: n as u64,
+                        });
                     }
-                    return Ok(View { ptr: p.add(1), len: n as u64 });
+                    return Ok(View {
+                        ptr: p.add(1),
+                        len: n as u64,
+                    });
                 }
                 Ok(View::of_image(detoast_into(region, p)?))
             }
-            -2 => Ok(View { ptr: p, len: core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() as u64 }),
-            n => Ok(View { ptr: p, len: n as u64 }),
+            -2 => Ok(View {
+                ptr: p,
+                len: core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() as u64,
+            }),
+            n => Ok(View {
+                ptr: p,
+                len: n as u64,
+            }),
         }
     }
 }
@@ -70,13 +88,25 @@ pub fn image_view(d: Datum, typlen: i16, region: &mut Region) -> PgResult<View> 
         match typlen {
             -1 => {
                 if varlena_is_plain(p) {
-                    return Ok(View { ptr: p, len: varatt::varsize_4b(p) as u64 });
+                    return Ok(View {
+                        ptr: p,
+                        len: varatt::varsize_4b(p) as u64,
+                    });
                 }
                 let img = detoast_into(region, p)?;
-                Ok(View { ptr: img, len: varatt::varsize_4b(img) as u64 })
+                Ok(View {
+                    ptr: img,
+                    len: varatt::varsize_4b(img) as u64,
+                })
             }
-            -2 => Ok(View { ptr: p, len: core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() as u64 + 1 }),
-            n => Ok(View { ptr: p, len: n as u64 }),
+            -2 => Ok(View {
+                ptr: p,
+                len: core::ffi::CStr::from_ptr(p.cast()).to_bytes().len() as u64 + 1,
+            }),
+            n => Ok(View {
+                ptr: p,
+                len: n as u64,
+            }),
         }
     }
 }
@@ -87,7 +117,8 @@ pub unsafe fn detoast_into(region: &mut Region, p: *const u8) -> PgResult<*const
         let total = varatt::varsize_1b(p);
         let n = total - 1 + 4;
         let out = region.reserve(n).ok_or_else(no_space)?;
-        out.cast::<[u8; 4]>().write_unaligned(datum::set_varsize_4b(n));
+        out.cast::<[u8; 4]>()
+            .write_unaligned(datum::set_varsize_4b(n));
         core::ptr::copy_nonoverlapping(p.add(1), out.add(4), total - 1);
         return Ok(out);
     }
@@ -97,9 +128,15 @@ pub unsafe fn detoast_into(region: &mut Region, p: *const u8) -> PgResult<*const
 /// A varlena's payload as bytes, whatever its header: a plain or short-header image read in place in full, a compressed or
 /// external one expanded through the detoast seam and `copy` made of it. `None` when the detoast raises or `copy` is `None`;
 /// nothing outlives the call (D348's constants; `percode::with_const_bytes`).
-pub(crate) unsafe fn varlena_payload_with<R>(p: *const u8, copy: &mut dyn FnMut(&[u8]) -> Option<R>) -> Option<R> {
+pub(crate) unsafe fn varlena_payload_with<R>(
+    p: *const u8,
+    copy: &mut dyn FnMut(&[u8]) -> Option<R>,
+) -> Option<R> {
     if varatt::varatt_is_4b_u(p) {
-        return copy(core::slice::from_raw_parts(p.add(4), varatt::varsize_4b(p) - 4));
+        return copy(core::slice::from_raw_parts(
+            p.add(4),
+            varatt::varsize_4b(p) - 4,
+        ));
     }
     if varatt::varatt_is_1b(p) && !varatt::varatt_is_1b_e(p) {
         // D4668: a short header leaves the payload at any address, and a reader may need its type's alignment (a
@@ -152,7 +189,10 @@ pub fn with_detoast_scratch<T>(f: impl FnOnce(Mcx<'_>) -> T) -> T {
 #[cold]
 #[inline(never)]
 pub fn no_space() -> Box<PgError> {
-    Box::new(PgError::error("gravity_expr: the result region is full").with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)) // alloc: Cold
+    Box::new(
+        PgError::error("gravity_expr: the result region is full")
+            .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY),
+    ) // alloc: Cold
 }
 
 /// A by-reference result copied into the region as a complete image.

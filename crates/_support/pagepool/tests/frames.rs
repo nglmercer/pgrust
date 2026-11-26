@@ -7,11 +7,17 @@ use pagepool::frames::{self, Mode};
 use pagepool::*;
 
 fn vmas() -> usize {
-    std::fs::read_to_string("/proc/self/maps").unwrap().lines().count()
+    std::fs::read_to_string("/proc/self/maps")
+        .unwrap()
+        .lines()
+        .count()
 }
 
 #[test]
-#[cfg_attr(pagepool_tsan, ignore = "TSan: its shadow memory faults too, so the minor-fault counts run high")]
+#[cfg_attr(
+    pagepool_tsan,
+    ignore = "TSan: its shadow memory faults too, so the minor-fault counts run high"
+)]
 fn frames() {
     setup();
     let z = frames::zone().expect("frame zone");
@@ -22,7 +28,10 @@ fn frames() {
     // SAFETY: frames' own PROT_NONE range.
     let c = unsafe { frames::commit(at, 8 * MIB, true, Mode::Move, Tag::FRAME) }.expect("commit");
     if c.moved == 0 {
-        eprintln!("SKIP Move: the kernel refused MREMAP_DONTUNMAP; faulted {}", c.faulted);
+        eprintln!(
+            "SKIP Move: the kernel refused MREMAP_DONTUNMAP; faulted {}",
+            c.faulted
+        );
     } else {
         assert_eq!((c.moved, c.faulted), (8 * MIB, 0));
         assert_eq!(stats().claimed, s0.claimed, "moved RAM was already claimed");
@@ -62,12 +71,20 @@ fn frames() {
         }
     }
     let v1 = vmas();
-    eprintln!("MEASURED frame VMAs: {v0} before, {v1} after {cycles} Move commit / keep release cycles");
-    assert!(v1 <= v0 + 4, "a piece goes back to its own slot: the VMA count stays put ({v0} -> {v1})");
+    eprintln!(
+        "MEASURED frame VMAs: {v0} before, {v1} after {cycles} Move commit / keep release cycles"
+    );
+    assert!(
+        v1 <= v0 + 4,
+        "a piece goes back to its own slot: the VMA count stays put ({v0} -> {v1})"
+    );
     hooks::frame_budget(2);
     // SAFETY: frames' own PROT_NONE range.
     let c = unsafe { frames::commit(at, 8 * MIB, true, Mode::default(), Tag::FRAME) }.unwrap();
-    assert!(c.moved <= 2 * SUPER && c.moved + c.faulted == 8 * MIB, "past the mapping budget Move faults: {c:?}");
+    assert!(
+        c.moved <= 2 * SUPER && c.moved + c.faulted == 8 * MIB,
+        "past the mapping budget Move faults: {c:?}"
+    );
     // SAFETY: committed above.
     unsafe { frames::release(at, 8 * MIB, false) };
     assert_eq!(stats().moved_vmas, 0);

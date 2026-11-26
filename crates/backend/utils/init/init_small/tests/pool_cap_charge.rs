@@ -13,7 +13,13 @@ const MIB: usize = 1 << 20;
 
 fn rss_anon() -> usize {
     let s = std::fs::read_to_string("/proc/self/status").unwrap();
-    let kb = s.lines().find_map(|l| l.strip_prefix("RssAnon:")).unwrap().trim().trim_end_matches(" kB").trim();
+    let kb = s
+        .lines()
+        .find_map(|l| l.strip_prefix("RssAnon:"))
+        .unwrap()
+        .trim()
+        .trim_end_matches(" kB")
+        .trim();
     kb.parse::<usize>().unwrap() * 1024
 }
 
@@ -41,8 +47,14 @@ fn past_cap_claims_are_resident_and_on_the_allocating_backends_account() {
         let grew = rss_anon() - r0;
         pagepool::set_cap(0);
         assert!(claimed > cap, "claimed past the cap: {claimed} <= {cap}");
-        assert!(moved >= bytes && moved < bytes + 2 * MIB as i64, "the allocating backend's account moved by the blocks: {moved} vs {bytes}");
-        assert!(grew >= 64 * MIB, "the past-cap blocks are resident, in the ladder's read: RssAnon +{grew}");
+        assert!(
+            moved >= bytes && moved < bytes + 2 * MIB as i64,
+            "the allocating backend's account moved by the blocks: {moved} vs {bytes}"
+        );
+        assert!(
+            grew >= 64 * MIB,
+            "the past-cap blocks are resident, in the ladder's read: RssAnon +{grew}"
+        );
         drop(big);
         drop(small);
         unbind_backend();

@@ -50,10 +50,18 @@ impl super::TplLists {
 /// is never destroyed while its thread lives (its storage is the thread's own). The reference is `!Send` (`ThreadRef`), so
 /// it never leaves the thread.
 pub(crate) fn thread_ref<T: 'static>(key: &'static std::thread::LocalKey<T>) -> ThreadRef<T> {
-    const { assert!(!core::mem::needs_drop::<T>(), "thread_ref: a value with drop glue") };
+    const {
+        assert!(
+            !core::mem::needs_drop::<T>(),
+            "thread_ref: a value with drop glue"
+        )
+    };
     // SAFETY: as above: no destructor ever runs on the value, its storage lives as long as this thread, and the reference
     // stays on it
-    ThreadRef(key.with(|v| unsafe { &*(v as *const T) }), core::marker::PhantomData)
+    ThreadRef(
+        key.with(|v| unsafe { &*(v as *const T) }),
+        core::marker::PhantomData,
+    )
 }
 
 /// `thread_ref`'s reference, pinned to its thread (`!Send`, `!Sync`).
@@ -80,7 +88,10 @@ const VARTAG_ONDISK: u8 = 18;
 pub(super) fn ondisk_image(ptr: usize) -> Option<&'static [u8]> {
     let p = ptr as *const u8;
     // SAFETY: a live varlena datum: its header byte, then (a 1-byte external header) its tag byte
-    let ondisk = unsafe { types_tuple::varatt::varatt_is_1b_e(p) && types_tuple::varatt::vartag_external(p) == VARTAG_ONDISK };
+    let ondisk = unsafe {
+        types_tuple::varatt::varatt_is_1b_e(p)
+            && types_tuple::varatt::vartag_external(p) == VARTAG_ONDISK
+    };
     // SAFETY: an external datum's whole image is `varsize_any` bytes, alive while the parameter list is
     ondisk.then(|| unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) })
 }

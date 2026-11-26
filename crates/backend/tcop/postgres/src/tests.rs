@@ -113,7 +113,10 @@ fn process_interrupts_consumed_cancel_takes_a_late_abort_byte() {
     assert_eq!(err.sqlstate, types_error::ERRCODE_QUERY_CANCELED);
     let stale = init_small::globals::AbortPending();
     init_small::globals::SetAbortPending(false);
-    assert!(!stale, "the consumed cancel's abort byte must not outlive it into the next statement");
+    assert!(
+        !stale,
+        "the consumed cancel's abort byte must not outlive it into the next statement"
+    );
     assert!(!init_small::globals::QueryCancelPending());
 }
 
@@ -132,7 +135,10 @@ fn process_interrupts_timer_post_after_drain_is_serviced() {
     let err = match check_for_interrupts() {
         Err(e) => e,
         Ok(()) => {
-            assert!(init_small::globals::InterruptPending(), "the late post must re-raise InterruptPending");
+            assert!(
+                init_small::globals::InterruptPending(),
+                "the late post must re-raise InterruptPending"
+            );
             check_for_interrupts().unwrap_err()
         }
     };
@@ -204,8 +210,14 @@ fn single_user_startup_error_is_reported_as_fatal() {
 
 #[test]
 fn single_user_echo_stops_at_embedded_nul() {
-    assert_eq!(crate::main_loop::echoed_statement(b"select 1\n\0"), b"select 1\n");
-    assert_eq!(crate::main_loop::echoed_statement(b"select 1\0 junk\n\0"), b"select 1");
+    assert_eq!(
+        crate::main_loop::echoed_statement(b"select 1\n\0"),
+        b"select 1\n"
+    );
+    assert_eq!(
+        crate::main_loop::echoed_statement(b"select 1\0 junk\n\0"),
+        b"select 1"
+    );
 }
 
 #[test]
@@ -257,7 +269,10 @@ fn recovery_conflict_snapshot_outside_transaction_is_noop() {
     assert!(init_small::globals::InterruptPending());
     check_for_interrupts().expect("snapshot conflict outside a transaction is a no-op");
     assert!(!init_small::globals::InterruptPending());
-    assert_eq!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get), 0);
+    assert_eq!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get),
+        0
+    );
 }
 
 #[test]
@@ -268,7 +283,10 @@ fn recovery_conflict_database_is_fatal_57p04() {
     let err = check_for_interrupts().unwrap_err();
     assert_eq!(err.level(), types_error::FATAL);
     assert_eq!(err.sqlstate, types_error::ERRCODE_DATABASE_DROPPED);
-    assert_eq!(err.message, "terminating connection due to conflict with recovery");
+    assert_eq!(
+        err.message,
+        "terminating connection due to conflict with recovery"
+    );
     assert_eq!(
         err.detail.as_deref(),
         Some("User was connected to a database that must be dropped.")
@@ -279,7 +297,10 @@ fn recovery_conflict_database_is_fatal_57p04() {
             "In a moment you should be able to reconnect to the database and repeat your command."
         )
     );
-    assert_eq!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get), 0);
+    assert_eq!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get),
+        0
+    );
 }
 
 #[test]
@@ -293,19 +314,28 @@ fn recovery_conflict_logicalslot_is_error_40001_and_respects_holdoff() {
     HandleRecoveryConflictInterrupt(reason);
     check_for_interrupts().expect("conflict must defer under cancel holdoff");
     assert!(init_small::globals::InterruptPending()); /* re-armed */
-    assert_ne!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get) & (1 << reason), 0);
+    assert_ne!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get) & (1 << reason),
+        0
+    );
     init_small::globals::ResumeCancelInterrupts();
 
     // Holdoff released: the deferred conflict now cancels the statement.
     let err = check_for_interrupts().unwrap_err();
     assert_eq!(err.level(), types_error::ERROR);
     assert_eq!(err.sqlstate, types_error::ERRCODE_T_R_SERIALIZATION_FAILURE);
-    assert_eq!(err.message, "canceling statement due to conflict with recovery");
+    assert_eq!(
+        err.message,
+        "canceling statement due to conflict with recovery"
+    );
     assert_eq!(
         err.detail.as_deref(),
         Some("User was using a logical replication slot that must be invalidated.")
     );
-    assert_eq!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get), 0);
+    assert_eq!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get),
+        0
+    );
     assert!(!init_small::globals::InterruptPending());
 }
 
@@ -325,14 +355,20 @@ fn recovery_conflict_gate_ignores_reasons_left_by_an_error() {
     assert!(take_recovery_conflict_reason(lock));
     // LOCK raised ERROR: SNAPSHOT stays recorded but gated off.
     assert!(!recovery_conflict_interrupt_pending());
-    assert_ne!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get) & (1 << snapshot), 0);
+    assert_ne!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get) & (1 << snapshot),
+        0
+    );
     HandleRecoveryConflictInterrupt(lock);
     assert!(recovery_conflict_interrupt_pending());
     RECOVERY_CONFLICT_PENDING_REASONS.with(|c| c.set(c.get() & !RECOVERY_CONFLICT_PENDING));
     assert!(take_recovery_conflict_reason(lock));
     assert!(take_recovery_conflict_reason(snapshot));
     assert!(!take_recovery_conflict_reason(lock));
-    assert_eq!(RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get), 0);
+    assert_eq!(
+        RECOVERY_CONFLICT_PENDING_REASONS.with(std::cell::Cell::get),
+        0
+    );
     init_small::globals::SetInterruptPending(false);
 }
 
@@ -363,7 +399,10 @@ fn walsender_sigquit_exits_without_a_client_warning() {
             let outcome = std::panic::catch_unwind(procsignal::DrainThreadSignals);
             elog::sink::set_emit_log_hook(prev);
             let payload = outcome.expect_err("SIGQUIT disposition exits the thread");
-            payload.downcast_ref::<ipc::ProcExitThread>().expect("exit_thread_raw").code
+            payload
+                .downcast_ref::<ipc::ProcExitThread>()
+                .expect("exit_thread_raw")
+                .code
         })
         .join()
         .unwrap()
@@ -379,7 +418,11 @@ fn walsender_sigquit_exits_without_a_client_warning() {
 
     SEEN.lock().unwrap().clear();
     assert_eq!(run(false), 2);
-    assert!(SEEN.lock().unwrap().iter().any(|m| m.contains("terminating connection")));
+    assert!(SEEN
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|m| m.contains("terminating connection")));
 }
 
 #[test]
@@ -428,7 +471,9 @@ fn idle_and_transaction_timeout_arms() {
 
 #[test]
 fn escaped_fatal_counts_as_fatal_disconnect() {
-    use pgstat::database::{pgstat_session_end_cause, pgstat_set_session_end_cause, SessionEndType};
+    use pgstat::database::{
+        pgstat_session_end_cause, pgstat_set_session_end_cause, SessionEndType,
+    };
     pgstat_set_session_end_cause(SessionEndType::DisconnectNormal);
     let fatal = ereport(FATAL)
         .errcode(types_error::ERRCODE_IDLE_SESSION_TIMEOUT)
@@ -514,8 +559,7 @@ fn thread_signal_sigint_cancels_and_sigterm_terminates() {
             }
             proc_latch.is_set.store(0, Ordering::SeqCst);
             // The WaitLatch wake path: drain dispositions, then CFI.
-            if let Err(e) = procsignal::DrainThreadSignals().and_then(|_| check_for_interrupts())
-            {
+            if let Err(e) = procsignal::DrainThreadSignals().and_then(|_| check_for_interrupts()) {
                 let fatal = e.level() >= types_error::FATAL;
                 err_tx.send(e).unwrap();
                 if fatal {
@@ -529,13 +573,17 @@ fn thread_signal_sigint_cancels_and_sigterm_terminates() {
     let timeout = std::time::Duration::from_secs(10);
 
     assert_eq!(procsignal::SendThreadSignal(6161, libc::SIGINT), 0);
-    let err = err_rx.recv_timeout(timeout).expect("backend must surface the cancel");
+    let err = err_rx
+        .recv_timeout(timeout)
+        .expect("backend must surface the cancel");
     assert_eq!(err.level(), types_error::ERROR);
     assert_eq!(err.sqlstate, types_error::ERRCODE_QUERY_CANCELED); /* 57014 */
     assert!(err.message.contains("user request"));
 
     assert_eq!(procsignal::SendThreadSignal(6161, libc::SIGTERM), 0);
-    let err = err_rx.recv_timeout(timeout).expect("backend must surface the die");
+    let err = err_rx
+        .recv_timeout(timeout)
+        .expect("backend must surface the die");
     assert_eq!(err.level(), types_error::FATAL);
     assert_eq!(err.sqlstate, types_error::ERRCODE_ADMIN_SHUTDOWN); /* 57P01 */
     backend.join().unwrap();
@@ -693,7 +741,10 @@ fn log_sampling_fractional_rate_statistical_n1000() {
     }
     // Seeded, hence deterministic; the band guards the decision inequality
     // (<= rate) rather than the generator's exact stream.
-    assert!((200..=300).contains(&hits), "hits={hits} outside 200..=300 for rate 0.25");
+    assert!(
+        (200..=300).contains(&hits),
+        "hits={hits} outside 200..=300 for rate 0.25"
+    );
 }
 
 #[test]
@@ -704,8 +755,7 @@ fn log_sampling_xact_sampled_forces_logging() {
         simple_query::check_log_duration_impl(false, 2_000, &g, || panic!("no draw"));
     assert_eq!(code, 2);
     assert_eq!(msec, "2.000");
-    let (code, _) =
-        simple_query::check_log_duration_impl(true, 2_000, &g, || panic!("no draw"));
+    let (code, _) = simple_query::check_log_duration_impl(true, 2_000, &g, || panic!("no draw"));
     assert_eq!(code, 1);
 }
 
@@ -761,7 +811,10 @@ fn d2933_plain_panic_takes_the_crash_path_not_xx000() {
         types_error::ERROR,
         "division by zero",
     )));
-    assert_eq!((pg.level(), pg.message()), (types_error::ERROR, "division by zero"));
+    assert_eq!(
+        (pg.level(), pg.message()),
+        (types_error::ERROR, "division by zero")
+    );
     let boxed = main_loop::pg_error_from_panic(Box::new(Box::new(types_error::PgError::new(
         types_error::ERROR,
         "boxed",
@@ -769,8 +822,9 @@ fn d2933_plain_panic_takes_the_crash_path_not_xx000() {
     assert_eq!(boxed.message(), "boxed");
 
     for plain in [
-        Box::new(String::from("index out of bounds: the len is 1 but the index is 2"))
-            as Box<dyn std::any::Any + Send>,
+        Box::new(String::from(
+            "index out of bounds: the len is 1 but the index is 2",
+        )) as Box<dyn std::any::Any + Send>,
         Box::new("called `Option::unwrap()` on a `None` value"),
         Box::new(7u32),
     ] {
@@ -778,13 +832,18 @@ fn d2933_plain_panic_takes_the_crash_path_not_xx000() {
             main_loop::pg_error_from_panic(plain)
         }));
         let payload = r.expect_err("a plain panic must not become an ERROR");
-        assert!(payload.is::<types_error::PanicExitThread>(), "C's abort(): the crash path");
+        assert!(
+            payload.is::<types_error::PanicExitThread>(),
+            "C's abort(): the crash path"
+        );
     }
 
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         main_loop::pg_error_from_panic(Box::new(types_error::PanicExitThread))
     }));
-    assert!(r.expect_err("a PANIC keeps unwinding").is::<types_error::PanicExitThread>());
+    assert!(r
+        .expect_err("a PANIC keeps unwinding")
+        .is::<types_error::PanicExitThread>());
 }
 
 // audit-18.6 b151: errdetail_abort (postgres.c:2540) — the aborted-transaction
@@ -794,7 +853,10 @@ fn d2933_plain_panic_takes_the_crash_path_not_xx000() {
 #[test]
 fn aborted_xact_error_carries_recovery_conflict_detail_only_when_pending() {
     assert_eq!(errdetail_abort_for(false), None);
-    assert_eq!(errdetail_abort_for(true), Some("Abort reason: recovery conflict"));
+    assert_eq!(
+        errdetail_abort_for(true),
+        Some("Abort reason: recovery conflict")
+    );
 
     let err = extended_query::aborted_xact_error("exec_execute_message");
     assert_eq!(err.sqlstate, types_error::ERRCODE_IN_FAILED_SQL_TRANSACTION);

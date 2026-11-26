@@ -197,7 +197,9 @@ fn ok_pat<'a>(g: &mut Gen) -> &'a str {
 }
 
 /// Flag strings for the flags argument of the regexp_* functions.
-const FLAGS: &[&str] = &["", "i", "g", "n", "p", "w", "x", "s", "m", "gi", "in", "ig", "c"];
+const FLAGS: &[&str] = &[
+    "", "i", "g", "n", "p", "w", "x", "s", "m", "gi", "in", "ig", "c",
+];
 
 fn flag<'a>(g: &mut Gen) -> &'a str {
     FLAGS[g.rng.below_usize(FLAGS.len())]
@@ -214,7 +216,12 @@ fn gen_match(g: &mut Gen) -> Vec<StmtKind> {
     let sql = if g.rng.chance(1, 2) {
         format!("SELECT regexp_match({}, '{}')::text;", s, esc(p))
     } else {
-        format!("SELECT regexp_match({}, '{}', '{}')::text;", s, esc(p), flag(g))
+        format!(
+            "SELECT regexp_match({}, '{}', '{}')::text;",
+            s,
+            esc(p),
+            flag(g)
+        )
     };
     raw(sql)
 }
@@ -250,8 +257,18 @@ fn gen_replace(g: &mut Gen) -> Vec<StmtKind> {
         ("([a-z])([0-9])", "\\2\\1"),
     ]);
     let sql = match g.rng.below(3) {
-        0 => format!("SELECT regexp_replace({}, '{}', '{}');", s, esc(p), esc(repl)),
-        1 => format!("SELECT regexp_replace({}, '{}', '{}', 'g');", s, esc(p), esc(repl)),
+        0 => format!(
+            "SELECT regexp_replace({}, '{}', '{}');",
+            s,
+            esc(p),
+            esc(repl)
+        ),
+        1 => format!(
+            "SELECT regexp_replace({}, '{}', '{}', 'g');",
+            s,
+            esc(p),
+            esc(repl)
+        ),
         _ => format!(
             "SELECT regexp_replace({}, '{}', '{}', {}, {}, '{}');",
             s,
@@ -271,7 +288,12 @@ fn gen_count(g: &mut Gen) -> Vec<StmtKind> {
     let p = ok_pat(g);
     let sql = match g.rng.below(3) {
         0 => format!("SELECT regexp_count({}, '{}');", s, esc(p)),
-        1 => format!("SELECT regexp_count({}, '{}', {});", s, esc(p), 1 + g.rng.below(4)),
+        1 => format!(
+            "SELECT regexp_count({}, '{}', {});",
+            s,
+            esc(p),
+            1 + g.rng.below(4)
+        ),
         _ => format!(
             "SELECT regexp_count({}, '{}', {}, '{}');",
             s,
@@ -313,7 +335,7 @@ fn gen_substr(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:split");
     let s = subject_lit(g);
-    let p: &str =g.rng.pick(&["\\s+", "[.-]", "", "a", "[^a-z]+", "b*"]);
+    let p: &str = g.rng.pick(&["\\s+", "[.-]", "", "a", "[^a-z]+", "b*"]);
     if g.rng.chance(1, 2) {
         // SRF form: total order via ordinality.
         raw(format!(
@@ -336,7 +358,7 @@ fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:op");
     let s = subject_lit(g);
-    let op: &str =g.rng.pick(&["~", "~*", "!~", "!~*"]);
+    let op: &str = g.rng.pick(&["~", "~*", "!~", "!~*"]);
     let p = ok_pat(g);
     raw(format!("SELECT {} {} '{}';", s, op, esc(p)))
 }
@@ -350,7 +372,7 @@ fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_catastrophic(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:cat");
     // Evil patterns anchored so a mismatch forces the whole search.
-    let pat: &str =g.rng.pick(&[
+    let pat: &str = g.rng.pick(&[
         "(a+)+$",
         "(a*)*$",
         "(a|a)*$",
@@ -364,7 +386,7 @@ fn gen_catastrophic(g: &mut Gen) -> Vec<StmtKind> {
     // Short 'a' run + a tail that defeats the anchor → maximal work.
     let n = 12 + g.rng.below(20); // 12..=31 'a's, safely non-hanging on a real engine
     let subj = format!("{}{}", "a".repeat(n as usize), "!");
-    let op: &str =g.rng.pick(&["~", "!~"]);
+    let op: &str = g.rng.pick(&["~", "!~"]);
     raw(format!("SELECT '{}' {} '{}';", subj, op, esc(pat)))
 }
 
@@ -379,13 +401,33 @@ fn gen_bigquant(g: &mut Gen) -> Vec<StmtKind> {
     let pat = match g.rng.below(6) {
         0 => format!("a{{{}}}", 100 + g.rng.below(900)),
         1 => format!("a{{{},{}}}", 50 + g.rng.below(200), 300 + g.rng.below(1700)),
-        2 => format!("(ab){{{},{}}}", 10 + g.rng.below(90), 100 + g.rng.below(500)),
-        3 => format!("[a-z]{{{},{}}}", 50 + g.rng.below(150), 200 + g.rng.below(800)),
+        2 => format!(
+            "(ab){{{},{}}}",
+            10 + g.rng.below(90),
+            100 + g.rng.below(500)
+        ),
+        3 => format!(
+            "[a-z]{{{},{}}}",
+            50 + g.rng.below(150),
+            200 + g.rng.below(800)
+        ),
         // Nested bounded repeats multiply the compiled NFA size.
-        4 => format!("(a{{{}}}){{{}}}", 20 + g.rng.below(60), 20 + g.rng.below(60)),
-        _ => format!("(a|bb|ccc){{{},{}}}", 20 + g.rng.below(80), 200 + g.rng.below(800)),
+        4 => format!(
+            "(a{{{}}}){{{}}}",
+            20 + g.rng.below(60),
+            20 + g.rng.below(60)
+        ),
+        _ => format!(
+            "(a|bb|ccc){{{},{}}}",
+            20 + g.rng.below(80),
+            200 + g.rng.below(800)
+        ),
     };
-    raw(format!("SELECT regexp_match({}, '{}') IS NOT NULL;", s, esc(&pat)))
+    raw(format!(
+        "SELECT regexp_match({}, '{}') IS NOT NULL;",
+        s,
+        esc(&pat)
+    ))
 }
 
 /// Deep parenthesis / bracket nesting: drives the byte-based stack guard
@@ -419,7 +461,10 @@ fn gen_deepnest(g: &mut Gen) -> Vec<StmtKind> {
             close.repeat(depth as usize)
         )
     };
-    raw(format!("SELECT regexp_match('aaaa', '{}') IS NOT NULL;", esc(&pat)))
+    raw(format!(
+        "SELECT regexp_match('aaaa', '{}') IS NOT NULL;",
+        esc(&pat)
+    ))
 }
 
 /// Back-references (a REG_ADVANCED-only feature that forces the NFA/backref
@@ -429,7 +474,8 @@ fn gen_backref(g: &mut Gen) -> Vec<StmtKind> {
     let err = err_arm(g);
     let (pat, subj): (&str, &str) = if err {
         // \9 with no 9th group → invalid back reference (2201C).
-        *g.rng.pick(&[("(a)\\9", "aa"), ("(a)(b)\\3", "abab"), ("\\1(a)", "aa")])
+        *g.rng
+            .pick(&[("(a)\\9", "aa"), ("(a)(b)\\3", "abab"), ("\\1(a)", "aa")])
     } else {
         *g.rng.pick(&[
             ("(a)\\1", "aa"),
@@ -440,7 +486,7 @@ fn gen_backref(g: &mut Gen) -> Vec<StmtKind> {
             ("(a|b)\\1", "aa"),
         ])
     };
-    let op: &str =g.rng.pick(&["~", "!~"]);
+    let op: &str = g.rng.pick(&["~", "!~"]);
     raw(format!("SELECT '{}' {} '{}';", esc(subj), op, esc(pat)))
 }
 
@@ -450,21 +496,23 @@ fn gen_backref(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_charclass(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:charclass");
     let err = err_arm(g);
-    let pat: &str = if err {g.rng.pick(&[
-            "[z-a]",       // invalid range (2201B)
-            "[[:foo:]]",   // unknown char class
-            "[a",          // unterminated bracket
+    let pat: &str = if err {
+        g.rng.pick(&[
+            "[z-a]",         // invalid range (2201B)
+            "[[:foo:]]",     // unknown char class
+            "[a",            // unterminated bracket
             "[[.no-such.]]", // unknown collating element
-            "[[=@=]]",     // maybe-empty equivalence class edge
+            "[[=@=]]",       // maybe-empty equivalence class edge
         ])
-    } else {g.rng.pick(&[
+    } else {
+        g.rng.pick(&[
             "[abc]",
             "[^abc]",
             "[a-z0-9]",
-            "[]a]",     // ] as first member is literal
+            "[]a]", // ] as first member is literal
             "[^]a]",
-            "[-a]",     // leading - is literal
-            "[a-]",     // trailing - is literal
+            "[-a]", // leading - is literal
+            "[a-]", // trailing - is literal
             "[[:digit:]]",
             "[[:alpha:][:space:]]",
             "[\\d\\w]",
@@ -480,7 +528,7 @@ fn gen_charclass(g: &mut Gen) -> Vec<StmtKind> {
 /// boundaries, and the non-capturing lookahead/lookbehind constraints.
 fn gen_anchor(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:anchor");
-    let pat: &str =g.rng.pick(&[
+    let pat: &str = g.rng.pick(&[
         "^abc",
         "abc$",
         "\\Aabc",
@@ -498,7 +546,12 @@ fn gen_anchor(g: &mut Gen) -> Vec<StmtKind> {
     ]);
     let s = subject_lit(g);
     let f = if g.rng.chance(1, 3) { flag(g) } else { "" };
-    raw(format!("SELECT regexp_match({}, '{}', '{}')::text;", s, esc(pat), f))
+    raw(format!(
+        "SELECT regexp_match({}, '{}', '{}')::text;",
+        s,
+        esc(pat),
+        f
+    ))
 }
 
 /// Embedded option directors and the ARE `***` prefixes, plus the expanded
@@ -506,20 +559,22 @@ fn gen_anchor(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_flags(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:flags");
     let err = err_arm(g);
-    let pat: &str = if err {g.rng.pick(&[
-            "a(?i)b",   // embedded option not at start → error in ARE
-            "(?z)a",    // unknown embedded option
-            "***?a",    // bad *** director
+    let pat: &str = if err {
+        g.rng.pick(&[
+            "a(?i)b", // embedded option not at start → error in ARE
+            "(?z)a",  // unknown embedded option
+            "***?a",  // bad *** director
         ])
-    } else {g.rng.pick(&[
+    } else {
+        g.rng.pick(&[
             "(?i)abc",
             "(?x) a b c",
             "(?s).",
             "(?n).",
             "(?p).",
             "(?w).",
-            "***:abc",     // force ARE
-            "***=a.c",     // literal string match (metachars inert)
+            "***:abc", // force ARE
+            "***=a.c", // literal string match (metachars inert)
             "(?i)(?s)a.b",
         ])
     };
@@ -534,24 +589,24 @@ fn gen_flags(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_invalid(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:invalid");
     g.fire("regex:err");
-    let pat: &str =g.rng.pick(&[
-        "(",         // unbalanced (
-        ")",         // unbalanced )
-        "(a",        // unclosed group
-        "a)",        // extra )
-        "[",         // unterminated bracket
-        "a{",        // unbounded brace (actually literal in ARE — kept as a probe)
-        "a{2,1}",    // reversed bound → invalid repeat
-        "a{,}",      // empty bound
-        "*",         // quantifier with no atom
+    let pat: &str = g.rng.pick(&[
+        "(",      // unbalanced (
+        ")",      // unbalanced )
+        "(a",     // unclosed group
+        "a)",     // extra )
+        "[",      // unterminated bracket
+        "a{",     // unbounded brace (actually literal in ARE — kept as a probe)
+        "a{2,1}", // reversed bound → invalid repeat
+        "a{,}",   // empty bound
+        "*",      // quantifier with no atom
         "+",
         "?",
-        "a**",       // double quantifier
-        "\\",        // trailing backslash
-        "(?P<n>a)",  // Python-style named group — not ARE
-        "(?<n>a)",   // .NET-style named group — not ARE
+        "a**",         // double quantifier
+        "\\",          // trailing backslash
+        "(?P<n>a)",    // Python-style named group — not ARE
+        "(?<n>a)",     // .NET-style named group — not ARE
         "\\x{110000}", // out-of-range hex escape
-        "[a-\\d]",   // range endpoint is a class
+        "[a-\\d]",     // range endpoint is a class
     ]);
     let s = subject_lit(g);
     raw(format!("SELECT regexp_match({}, {});", s, pat_expr(pat)))

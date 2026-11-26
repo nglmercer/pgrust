@@ -128,9 +128,10 @@ pub fn gen_arrayops_module(g: &mut Gen) -> Vec<StmtKind> {
 /// multidim `a[i][j]` and `a[i:j][k:l]`, and custom-lower-bound access.
 fn gen_sub(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("arr:sub");
-    let shape = g
-        .weights
-        .pick(g.rng, &["arr:sub:elem", "arr:sub:slice", "arr:sub:md", "arr:sub:oob"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["arr:sub:elem", "arr:sub:slice", "arr:sub:md", "arr:sub:oob"],
+    );
     g.fire(shape);
     let sql = match shape {
         "arr:sub:elem" => {
@@ -156,14 +157,15 @@ fn gen_sub(g: &mut Gen) -> Vec<StmtKind> {
         }
         // Out-of-range element (→ NULL) and empty slices; custom-bound access.
         _ => {
-            let a = pick_str(g, &[
-                "'{1,2,3}'::int[]",
-                "'[2:4]={7,8,9}'::int[]",
-                "'[-1:1]={100,200,300}'::int[]",
-            ]);
-            format!(
-                "SELECT (({a})[100])::text, (({a})[-5])::text, (({a})[3:2])::text;"
-            )
+            let a = pick_str(
+                g,
+                &[
+                    "'{1,2,3}'::int[]",
+                    "'[2:4]={7,8,9}'::int[]",
+                    "'[-1:1]={100,200,300}'::int[]",
+                ],
+            );
+            format!("SELECT (({a})[100])::text, (({a})[-5])::text, (({a})[3:2])::text;")
         }
     };
     vec![raw(sql)]
@@ -177,14 +179,17 @@ fn gen_sub(g: &mut Gen) -> Vec<StmtKind> {
 /// cardinality→0).
 fn gen_dims(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("arr:dims");
-    let a = pick_str(g, &[
-        "'{}'::int[]",
-        "'{1,2,3}'::int[]",
-        "'{{1,2,3},{4,5,6}}'::int[]",
-        "'{{{1,2},{3,4}},{{5,6},{7,8}}}'::int[]",
-        "'[2:4]={7,8,9}'::int[]",
-        "'[1:2][1:3]={{1,2,3},{4,5,6}}'::int[]",
-    ]);
+    let a = pick_str(
+        g,
+        &[
+            "'{}'::int[]",
+            "'{1,2,3}'::int[]",
+            "'{{1,2,3},{4,5,6}}'::int[]",
+            "'{{{1,2},{3,4}},{{5,6},{7,8}}}'::int[]",
+            "'[2:4]={7,8,9}'::int[]",
+            "'[1:2][1:3]={{1,2,3},{4,5,6}}'::int[]",
+        ],
+    );
     let d = pick_str(g, &["1", "2", "3"]);
     let sql = format!(
         "SELECT array_dims({a}), array_ndims({a}), \
@@ -211,9 +216,7 @@ fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
         "arr:op:contain" => {
             let a = a1(g);
             let b = a1(g);
-            format!(
-                "SELECT ({a} @> {b}), ({a} <@ {b}), ({a} && {b});"
-            )
+            format!("SELECT ({a} @> {b}), ({a} <@ {b}), ({a} && {b});")
         }
         "arr:op:concat" => {
             let a = a1(g);
@@ -223,9 +226,7 @@ fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
                 let m = pick_str(g, MD);
                 format!("SELECT ({m} || {m})::text, ({a} || {a})::text;")
             } else {
-                format!(
-                    "SELECT ({a} || {a})::text, ({e} || {a})::text, ({a} || {e})::text;"
-                )
+                format!("SELECT ({a} || {a})::text, ({e} || {a})::text, ({a} || {e})::text;")
             }
         }
         _ => {
@@ -270,16 +271,20 @@ fn gen_fn(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("arr:fn");
     let shape = g.weights.pick(
         g.rng,
-        &["arr:fn:mutate", "arr:fn:cat", "arr:fn:find", "arr:fn:replace", "arr:fn:fill"],
+        &[
+            "arr:fn:mutate",
+            "arr:fn:cat",
+            "arr:fn:find",
+            "arr:fn:replace",
+            "arr:fn:fill",
+        ],
     );
     g.fire(shape);
     let sql = match shape {
         "arr:fn:mutate" => {
             let a = a1(g);
             let e = pick_str(g, &["0", "9", "NULL"]);
-            format!(
-                "SELECT array_append({a}, {e})::text, array_prepend({e}, {a})::text;"
-            )
+            format!("SELECT array_append({a}, {e})::text, array_prepend({e}, {a})::text;")
         }
         "arr:fn:cat" => {
             let a = a1(g);
@@ -289,9 +294,7 @@ fn gen_fn(g: &mut Gen) -> Vec<StmtKind> {
         "arr:fn:find" => {
             let a = a1(g);
             let e = pick_str(g, IE);
-            format!(
-                "SELECT array_position({a}, {e}), array_positions({a}, {e})::text;"
-            )
+            format!("SELECT array_position({a}, {e}), array_positions({a}, {e})::text;")
         }
         "arr:fn:replace" => {
             let a = a1(g);
@@ -305,14 +308,19 @@ fn gen_fn(g: &mut Gen) -> Vec<StmtKind> {
         // array_fill: dims + optional lower bounds, plus error arms.
         _ => {
             let e = pick_str(g, &["7", "0", "NULL"]);
-            let sub = g.weights.pick(g.rng, &["arr:fn:fill:ok", "arr:fn:fill:err"]);
+            let sub = g
+                .weights
+                .pick(g.rng, &["arr:fn:fill:ok", "arr:fn:fill:err"]);
             g.fire(sub);
             if sub == "arr:fn:fill:err" {
-                pick_str(g, &[
-                    "SELECT array_fill(1, ARRAY[-1])::text;",
-                    "SELECT array_fill(1, ARRAY[2,3], ARRAY[1])::text;",
-                    "SELECT array_fill(1, ARRAY[2], ARRAY[1,1])::text;",
-                ])
+                pick_str(
+                    g,
+                    &[
+                        "SELECT array_fill(1, ARRAY[-1])::text;",
+                        "SELECT array_fill(1, ARRAY[2,3], ARRAY[1])::text;",
+                        "SELECT array_fill(1, ARRAY[2], ARRAY[1,1])::text;",
+                    ],
+                )
                 .to_string()
             } else {
                 let dims = pick_str(g, &["ARRAY[3]", "ARRAY[2,3]", "ARRAY[0]"]);
@@ -335,12 +343,15 @@ fn gen_fn(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_str(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("arr:str");
     let sql = if g.rng.chance(1, 2) {
-        let a = pick_str(g, &[
-            "'{a,b,c}'::text[]",
-            "'{a,NULL,c}'::text[]",
-            "'{1,2,3}'::int[]",
-            "'{}'::text[]",
-        ]);
+        let a = pick_str(
+            g,
+            &[
+                "'{a,b,c}'::text[]",
+                "'{a,NULL,c}'::text[]",
+                "'{1,2,3}'::int[]",
+                "'{}'::text[]",
+            ],
+        );
         let sep = pick_str(g, &["','", "'-'", "''", "NULL"]);
         if g.rng.chance(1, 2) {
             let ns = pick_str(g, &["'*'", "''", "NULL"]);
@@ -374,14 +385,15 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
     g.fire(shape);
     let sql = match shape {
         "arr:agg:agg" => {
-            let src = pick_str(g, &[
-                "VALUES (3),(1),(2),(1),(NULL)",
-                "VALUES (10),(20),(30)",
-                "SELECT * FROM generate_series(1,5) g",
-            ]);
-            format!(
-                "SELECT array_agg(x ORDER BY x)::text FROM ({src}) v(x);"
-            )
+            let src = pick_str(
+                g,
+                &[
+                    "VALUES (3),(1),(2),(1),(NULL)",
+                    "VALUES (10),(20),(30)",
+                    "SELECT * FROM generate_series(1,5) g",
+                ],
+            );
+            format!("SELECT array_agg(x ORDER BY x)::text FROM ({src}) v(x);")
         }
         "arr:agg:unnest" => {
             let a = a1(g);
@@ -411,9 +423,7 @@ fn gen_agg(g: &mut Gen) -> Vec<StmtKind> {
 /// arms are emitted).
 fn gen_trim(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("arr:trim");
-    let shape = g
-        .weights
-        .pick(g.rng, &["arr:trim:trim", "arr:trim:sample"]);
+    let shape = g.weights.pick(g.rng, &["arr:trim:trim", "arr:trim:sample"]);
     g.fire(shape);
     let sql = match shape {
         "arr:trim:trim" => {
@@ -426,13 +436,18 @@ fn gen_trim(g: &mut Gen) -> Vec<StmtKind> {
         // are deterministic SQLSTATE.
         _ => {
             let a = "ARRAY[1,2,3,4,5,6,7,8]";
-            let sub = g.weights.pick(g.rng, &["arr:trim:sample:ok", "arr:trim:sample:err"]);
+            let sub = g
+                .weights
+                .pick(g.rng, &["arr:trim:sample:ok", "arr:trim:sample:err"]);
             g.fire(sub);
             if sub == "arr:trim:sample:err" {
-                pick_str(g, &[
-                    "SELECT cardinality(array_sample(ARRAY[1,2,3], -1));",
-                    "SELECT cardinality(array_sample(ARRAY[1,2,3], 9));",
-                ])
+                pick_str(
+                    g,
+                    &[
+                        "SELECT cardinality(array_sample(ARRAY[1,2,3], -1));",
+                        "SELECT cardinality(array_sample(ARRAY[1,2,3], 9));",
+                    ],
+                )
                 .to_string()
             } else {
                 let n = pick_str(g, &["0", "1", "3", "8"]);
@@ -456,21 +471,27 @@ fn gen_ctor(g: &mut Gen) -> Vec<StmtKind> {
     let shape = g.weights.pick(g.rng, &["arr:ctor:ok", "arr:ctor:err"]);
     g.fire(shape);
     let sql = if shape == "arr:ctor:err" {
-        pick_str(g, &[
-            "SELECT (ARRAY[ARRAY[1,2],ARRAY[3,4,5]])::text;",
-            "SELECT ('{{1,2},{3}}'::int[])::text;",
-            "SELECT ('{1,2,'::int[])::text;",
-            "SELECT (ARRAY[ARRAY[1],ARRAY[2,3]])::text;",
-        ])
+        pick_str(
+            g,
+            &[
+                "SELECT (ARRAY[ARRAY[1,2],ARRAY[3,4,5]])::text;",
+                "SELECT ('{{1,2},{3}}'::int[])::text;",
+                "SELECT ('{1,2,'::int[])::text;",
+                "SELECT (ARRAY[ARRAY[1],ARRAY[2,3]])::text;",
+            ],
+        )
         .to_string()
     } else {
-        pick_str(g, &[
-            "SELECT (ARRAY[]::int[])::text;",
-            "SELECT (ARRAY[1,2,3])::text, (ARRAY['a','b'])::text;",
-            "SELECT (ARRAY[ARRAY[1,2],ARRAY[3,4]])::text;",
-            "SELECT (ARRAY(SELECT g FROM generate_series(1,4) g))::text;",
-            "SELECT (ARRAY(SELECT g FROM generate_series(1,3) g ORDER BY g DESC))::text;",
-        ])
+        pick_str(
+            g,
+            &[
+                "SELECT (ARRAY[]::int[])::text;",
+                "SELECT (ARRAY[1,2,3])::text, (ARRAY['a','b'])::text;",
+                "SELECT (ARRAY[ARRAY[1,2],ARRAY[3,4]])::text;",
+                "SELECT (ARRAY(SELECT g FROM generate_series(1,4) g))::text;",
+                "SELECT (ARRAY(SELECT g FROM generate_series(1,3) g ORDER BY g DESC))::text;",
+            ],
+        )
         .to_string()
     };
     vec![raw(sql)]

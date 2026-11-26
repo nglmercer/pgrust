@@ -119,7 +119,11 @@ pub fn build_hstore(pairs: &[Pair]) -> Vec<u8> {
                 let vstart = str_off + pos as usize;
                 img[vstart..vstart + v.len()].copy_from_slice(v);
                 pos += v.len() as u32;
-                write_u32(&mut img, entries_off + (2 * i + 1) * 4, pos & HENTRY_POSMASK);
+                write_u32(
+                    &mut img,
+                    entries_off + (2 * i + 1) * 4,
+                    pos & HENTRY_POSMASK,
+                );
             }
         }
     }
@@ -274,7 +278,11 @@ mod tests {
     use super::*;
 
     fn p(k: &str, v: Option<&str>) -> Pair {
-        Pair { key: k.as_bytes().to_vec(), val: v.map(|s| s.as_bytes().to_vec()), needfree: false }
+        Pair {
+            key: k.as_bytes().to_vec(),
+            val: v.map(|s| s.as_bytes().to_vec()),
+            needfree: false,
+        }
     }
 
     #[test]
@@ -294,8 +302,16 @@ mod tests {
     fn dedup_keeps_first_original() {
         // needfree=false sorts before needfree=true on an exact tie.
         let pairs = unique_pairs(vec![
-            Pair { key: b"k".to_vec(), val: Some(b"new".to_vec()), needfree: true },
-            Pair { key: b"k".to_vec(), val: Some(b"old".to_vec()), needfree: false },
+            Pair {
+                key: b"k".to_vec(),
+                val: Some(b"new".to_vec()),
+                needfree: true,
+            },
+            Pair {
+                key: b"k".to_vec(),
+                val: Some(b"old".to_vec()),
+                needfree: false,
+            },
         ]);
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].val.as_deref(), Some(b"old".as_slice()));
@@ -316,7 +332,11 @@ mod tests {
         assert_eq!(pairs[0].key, b"a");
         assert_eq!(pairs[0].val.as_deref(), Some(b"3".as_slice()));
         assert_eq!(pairs[1].key, b"b");
-        let few = unique_pairs(vec![p("a", Some("1")), p("a", Some("2")), p("a", Some("3"))]);
+        let few = unique_pairs(vec![
+            p("a", Some("1")),
+            p("a", Some("2")),
+            p("a", Some("3")),
+        ]);
         assert_eq!(few.len(), 1);
         assert_eq!(few[0].val.as_deref(), Some(b"1".as_slice()));
     }

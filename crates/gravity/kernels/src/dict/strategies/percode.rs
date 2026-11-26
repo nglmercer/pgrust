@@ -12,16 +12,15 @@
 //! Only the header, the counts, the slots and the sample are zeroed at the open; a record is cleared as it opens. A min /
 //! max slot holds its best code + 1 until the map folds: the fold renders it once through the map's part's dictionary
 //! (resident for the statement, as a kept code word's render at the emit), so a window's end reads no dictionary at all.
-use gravity_abi::PtrWord;
 use gravity_abi::breaker::Rec;
 use gravity_abi::ctx::site_ptr;
 use gravity_abi::hash::{Depth, KeyHash};
 use gravity_abi::status::{self, raise};
 use gravity_abi::Ctx;
+use gravity_abi::PtrWord;
 
-use crate::table::entries::agg_front_flush;
 use crate::host_abi::AggState;
-
+use crate::table::entries::agg_front_flush;
 
 /// The front's capacity in codes (a code at or past it takes the per-row path), its touched list's entries (a full list
 /// folds at once, mid-window), and the map's records.
@@ -63,7 +62,17 @@ pub enum Fold {
 }
 
 impl Fold {
-    const ALL: [Fold; 9] = [Fold::Count, Fold::Sum64, Fold::Sum128, Fold::Avg128, Fold::Rep, Fold::Min, Fold::Max, Fold::CountF, Fold::CountFv];
+    const ALL: [Fold; 9] = [
+        Fold::Count,
+        Fold::Sum64,
+        Fold::Sum128,
+        Fold::Avg128,
+        Fold::Rep,
+        Fold::Min,
+        Fold::Max,
+        Fold::CountF,
+        Fold::CountFv,
+    ];
 
     /// The fold a slot's 4 bits name (`None`: 0, an unfolded slot).
     #[inline(always)]
@@ -131,7 +140,15 @@ crate::contract::host! {
 
 /// `agg_percode_window`'s body, run under `guard!` (V4R-16 / V4R-40).
 #[inline(always)]
-unsafe fn agg_percode_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, n: u64, ops: u64, at: u64, decline: u64) -> i64 {
+unsafe fn agg_percode_window_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    front: *mut u8,
+    n: u64,
+    ops: u64,
+    at: u64,
+    decline: u64,
+) -> i64 {
     let a = st as *mut AggState;
     let layout = &*(*a).layout.ptr();
     let part = (*site_ptr(ctx, (at >> 8) as usize)).part_id as u64;
@@ -159,7 +176,17 @@ unsafe fn agg_percode_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, n: u
         total += rows as u64;
         *c = 0;
         let keys = crate::dict::strategies::countwalk::image(layout, [e[0], e[1]], part);
-        match fold_code(ctx, a, front, &keys.0[..layout.nkeys()], ops, at, (rows, rows * low, rows * bit), part as u32, (code, code)) {
+        match fold_code(
+            ctx,
+            a,
+            front,
+            &keys.0[..layout.nkeys()],
+            ops,
+            at,
+            (rows, rows * low, rows * bit),
+            part as u32,
+            (code, code),
+        ) {
             Ok(o) => opened += o as u64,
             Err(s) => return s,
         }
@@ -187,13 +214,26 @@ unsafe fn agg_percode_window_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, n: u
 #[inline(always)]
 pub(crate) fn declines(width: u16, n: u64, total: u64, opened: u64, decline: u64) -> bool {
     let (code_w, opened_w) = (decline >> 32, decline & 0xffff_ffff);
-    width <= 1 && decline != 0 && total != 0 && code_w as u128 * n as u128 + opened_w as u128 * opened as u128 >= 256 * total as u128
+    width <= 1
+        && decline != 0
+        && total != 0
+        && code_w as u128 * n as u128 + opened_w as u128 * opened as u128 >= 256 * total as u128
 }
 
 /// Codes `lo ..= hi` of `part` (one code, or a count-walk run of one key: m1_countwalk.rs), `rows` rows, `n x f` summed
 /// `nf` (the value's `PC_F_LOW` bits) and `n x bit` summed `nv` (its `PC_F_VERDICT` bit), folded into their key `keys`' map
 /// record by `ops`. A min / max slot takes the run's first / last code. True when the record opened here.
-pub(crate) unsafe fn fold_code(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, keys: &[u64], ops: u64, at: u64, (rows, nf, nv): (i64, i64, i64), part: u32, (lo, hi): (u32, u32)) -> Result<bool, i64> {
+pub(crate) unsafe fn fold_code(
+    ctx: *mut Ctx,
+    a: *mut AggState,
+    front: *mut u8,
+    keys: &[u64],
+    ops: u64,
+    at: u64,
+    (rows, nf, nv): (i64, i64, i64),
+    part: u32,
+    (lo, hi): (u32, u32),
+) -> Result<bool, i64> {
     let layout = &*(*a).layout.ptr();
     let (r, opened) = record(ctx, a, front, keys, ops, at)?;
     let rec = Rec::at(r, layout);
@@ -208,7 +248,10 @@ pub(crate) unsafe fn fold_code(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, 
             Some(Fold::Rep) => rec.min_code(j, part, lo),
             Some(op @ (Fold::Min | Fold::Max)) => {
                 // one part's codes order as their bytes (a byte-order collation: the plan's gate)
-                let (s, v) = (r.add(layout.slot_off(j) as usize) as *mut u64, u64::from(if op == Fold::Min { lo } else { hi }) + 1);
+                let (s, v) = (
+                    r.add(layout.slot_off(j) as usize) as *mut u64,
+                    u64::from(if op == Fold::Min { lo } else { hi }) + 1,
+                );
                 let cur = s.read_unaligned();
                 if cur == 0 || if op == Fold::Min { v < cur } else { v > cur } {
                     s.write_unaligned(v);
@@ -229,11 +272,19 @@ crate::contract::host! {
 
 /// `agg_percode_flush`'s body, run under `guard!` (V4R-16 / V4R-40).
 #[inline(always)]
-unsafe fn agg_percode_flush_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, ops: u64, at: u64) -> i64 {
+unsafe fn agg_percode_flush_in(
+    ctx: *mut Ctx,
+    st: *mut u8,
+    front: *mut u8,
+    ops: u64,
+    at: u64,
+) -> i64 {
     if front.is_null() {
         return 0;
     }
-    match crate::dict::strategies::countwalk::settle(ctx, st as *mut AggState, front, ops, at).and_then(|()| flush(ctx, st as *mut AggState, front, ops, at)) {
+    match crate::dict::strategies::countwalk::settle(ctx, st as *mut AggState, front, ops, at)
+        .and_then(|()| flush(ctx, st as *mut AggState, front, ops, at))
+    {
         Ok(()) => 0,
         Err(s) => s,
     }
@@ -241,9 +292,20 @@ unsafe fn agg_percode_flush_in(ctx: *mut Ctx, st: *mut u8, front: *mut u8, ops: 
 
 /// The map's record of image `keys`, opened (cleared, then `Rec::open`) when absent, and whether it opened; a full map is
 /// folded first.
-unsafe fn record(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, keys: &[u64], ops: u64, at: u64) -> Result<(*mut u8, bool), i64> {
+unsafe fn record(
+    ctx: *mut Ctx,
+    a: *mut AggState,
+    front: *mut u8,
+    keys: &[u64],
+    ops: u64,
+    at: u64,
+) -> Result<(*mut u8, bool), i64> {
     let layout = &*(*a).layout.ptr();
-    let (size, slots, recs) = (layout.size() as usize, front.add(PC_SLOTS) as *mut u32, front.add(PC_RECORDS));
+    let (size, slots, recs) = (
+        layout.size() as usize,
+        front.add(PC_SLOTS) as *mut u32,
+        front.add(PC_RECORDS),
+    );
     let home = KeyHash::of(keys).home(SLOTS.trailing_zeros(), Depth::TOP);
     let mut i = home;
     while *slots.add(i) != 0 {
@@ -271,7 +333,13 @@ unsafe fn record(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, keys: &[u64], 
 /// The map's records folded into the claim's T1: each min / max's best code rendered through the map's part's dictionary
 /// in code order and copied (code_copy.rs's copy, its header naming the code: `extreme`), then `agg_front_flush`
 /// (`locate` and `Rec::fold`, the owner merge's, each record zeroed after); the map emptied.
-pub(crate) unsafe fn flush(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops: u64, at: u64) -> Result<(), i64> {
+pub(crate) unsafe fn flush(
+    ctx: *mut Ctx,
+    a: *mut AggState,
+    front: *mut u8,
+    ops: u64,
+    at: u64,
+) -> Result<(), i64> {
     let (n, part) = (*(front as *const u64), *(front as *const u64).add(1));
     if n == 0 {
         return Ok(());
@@ -285,10 +353,13 @@ pub(crate) unsafe fn flush(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops:
     // each min / max slot's best codes rendered in code order, the part's dictionary read forward, not at random; the
     // order is sorted in the map's slots, which the fold no longer reads (they are cleared below)
     let order = core::slice::from_raw_parts_mut(front.add(PC_SLOTS) as *mut u64, PC_RECS);
-    for j in (0..layout.nslots()).filter(|&j| matches!(Fold::of(ops >> (4 * j) & 15), Some(Fold::Min | Fold::Max))) {
+    for j in (0..layout.nslots())
+        .filter(|&j| matches!(Fold::of(ops >> (4 * j) & 15), Some(Fold::Min | Fold::Max)))
+    {
         let mut m = 0;
         for k in 0..n as usize {
-            let v = (recs.add(k * size + layout.slot_off(j) as usize) as *const u64).read_unaligned();
+            let v =
+                (recs.add(k * size + layout.slot_off(j) as usize) as *const u64).read_unaligned();
             if v != 0 {
                 (order[m], m) = ((v - 1) << 32 | k as u64, m + 1);
             }
@@ -309,7 +380,14 @@ pub(crate) unsafe fn flush(ctx: *mut Ctx, a: *mut AggState, front: *mut u8, ops:
 
 /// Slot `j` (`MinVar` / `MaxVar`) of the record at `r`, holding its best code + 1 of `part` (0: none): the code rendered
 /// through lane `at` and copied, the slot then the copy's address, marked valid; a code with no image raises.
-unsafe fn extreme(ctx: *mut Ctx, a: *mut AggState, r: *mut u8, j: usize, at: u64, part: u64) -> Result<(), i64> {
+unsafe fn extreme(
+    ctx: *mut Ctx,
+    a: *mut AggState,
+    r: *mut u8,
+    j: usize,
+    at: u64,
+    part: u64,
+) -> Result<(), i64> {
     let layout = &*(*a).layout.ptr();
     let slot = r.add(layout.slot_off(j) as usize) as *mut u64;
     let v = slot.read_unaligned();
@@ -322,13 +400,24 @@ unsafe fn extreme(ctx: *mut Ctx, a: *mut AggState, r: *mut u8, j: usize, at: u64
         Ok(Some(img)) => img,
         Ok(None) => {
             // a listed code is never a NULL row's: a code the dictionary has no image for disagrees with the lane (M1-FOLD)
-            gravity_fn::stash_error(Box::new(gravity_fn::PgError::error("gravity: a listed code without an image"))); // alloc: Cold
+            gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(
+                "gravity: a listed code without an image",
+            ))); // alloc: Cold
             return Err(HOST_RAISE);
         }
         Err(_) => return Err(HOST_RAISE),
     };
     let new = crate::dict::reps::varlena_bytes(img);
-    if copy(ctx, slot, core::ptr::addr_of_mut!((*a).arena_cur) as *mut u64, new, new.len() + 4, word, NO_THR) == 0 {
+    if copy(
+        ctx,
+        slot,
+        core::ptr::addr_of_mut!((*a).arena_cur) as *mut u64,
+        new,
+        new.len() + 4,
+        word,
+        NO_THR,
+    ) == 0
+    {
         return Err(HOST_RAISE);
     }
     if layout.has_validity() {
@@ -346,7 +435,15 @@ pub const HDR: usize = 24;
 pub const NO_THR: u64 = u64::MAX;
 
 /// code_copy.rs `copy`: a copy of capacity `cap` (rounded to 8) holding `new`, its header `(cap, win, thr)`.
-unsafe fn copy(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], cap: usize, win: u64, thr: u64) -> i64 {
+unsafe fn copy(
+    ctx: *mut Ctx,
+    slot: *mut u64,
+    images: *mut u64,
+    new: &[u8],
+    cap: usize,
+    win: u64,
+    thr: u64,
+) -> i64 {
     let cap = (cap + 7) & !7;
     let d = alloc(ctx, images, HDR + cap);
     if d.is_null() {
@@ -354,7 +451,9 @@ unsafe fn copy(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], cap:
         return 0;
     }
     let h = d as *mut u64;
-    h.write(cap as u64); h.add(1).write(win); h.add(2).write(thr);
+    h.write(cap as u64);
+    h.add(1).write(win);
+    h.add(2).write(thr);
     write_image(d.add(HDR), new);
     slot.write_unaligned(d.add(HDR) as u64);
     1
@@ -370,7 +469,8 @@ unsafe fn write_image(d: *mut u8, new: &[u8]) {
 /// from 64 KiB doubling to 32 MiB, pinned to the statement's end).
 unsafe fn alloc(ctx: *mut Ctx, images: *mut u64, need: usize) -> *mut u8 {
     let images = gravity_abi::breaker::T1::img_resolve(images); // D1392 (a): a state's words name its table's
-    gravity_abi::breaker::img_bump(images, need, |bytes| gravity_abi::program::pin(ctx, bytes)) // D3312: the arena's one bump
+    gravity_abi::breaker::img_bump(images, need, |bytes| gravity_abi::program::pin(ctx, bytes))
+    // D3312: the arena's one bump
 }
 
 #[cfg(test)]
@@ -397,7 +497,7 @@ mod tests {
         let mut program = Box::new(gravity_abi::ProgramBlock::NONE); // alloc: Cold
         program.pin = Some(test_pin);
         let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(1) / 8]; // alloc: Cold
-        // SAFETY: the words are a ctx image; `program` outlives every use.
+                                                                     // SAFETY: the words are a ctx image; `program` outlives every use.
         unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
         (ctx, program)
     }
@@ -410,16 +510,46 @@ mod tests {
     #[test]
     fn a_serial_claim_of_fresh_codes_declines_the_front() {
         // the cost home's word (cost::PERCODE_DECLINE: the code weight << 32 | the opened record's)
-        let (cw, ow) = (cost_profile::front::PERCODE_CODE_W, cost_profile::front::PERCODE_OPENED_W);
+        let (cw, ow) = (
+            cost_profile::front::PERCODE_CODE_W,
+            cost_profile::front::PERCODE_OPENED_W,
+        );
         let d = cw << 32 | ow;
-        assert!(declines(1, 4096, 4096, 4096, d), "every row a fresh record, serial");
-        assert!(declines(1, 4096, 4096, 1024, d), "fresh codes, a record in four rows");
-        assert!(!declines(9, 4096, 4096, 4096, d), "a parallel claim keeps its front");
-        assert!(!declines(1, 4096, 4096, 300, d), "fresh codes whose records repeat (one host over many referers)");
-        assert!(!declines(1, 1024, 4096, 1024, d), "codes and records repeating every four rows");
+        assert!(
+            declines(1, 4096, 4096, 4096, d),
+            "every row a fresh record, serial"
+        );
+        assert!(
+            declines(1, 4096, 4096, 1024, d),
+            "fresh codes, a record in four rows"
+        );
+        assert!(
+            !declines(9, 4096, 4096, 4096, d),
+            "a parallel claim keeps its front"
+        );
+        assert!(
+            !declines(1, 4096, 4096, 300, d),
+            "fresh codes whose records repeat (one host over many referers)"
+        );
+        assert!(
+            !declines(1, 1024, 4096, 1024, d),
+            "codes and records repeating every four rows"
+        );
         assert!(!declines(1, 4096, 4096, 4096, 0), "no weights: never");
-        for (n, t, o) in [(4096, 4096, 4096), (2048, 4096, 2048), (1024, 4096, 1024), (4096, 4096, 1024), (4096, 4096, 300), (4096, 8192, 512), (1, 1, 1)] {
-            assert_eq!(declines(1, n, t, o, d), cost_profile::front::percode_declines(n, t, o, cw, ow), "the cost home's rule: {n} {t} {o}");
+        for (n, t, o) in [
+            (4096, 4096, 4096),
+            (2048, 4096, 2048),
+            (1024, 4096, 1024),
+            (4096, 4096, 1024),
+            (4096, 4096, 300),
+            (4096, 8192, 512),
+            (1, 1, 1),
+        ] {
+            assert_eq!(
+                declines(1, n, t, o, d),
+                cost_profile::front::percode_declines(n, t, o, cw, ow),
+                "the cost home's rule: {n} {t} {o}"
+            );
         }
     }
 
@@ -431,15 +561,55 @@ mod tests {
         let (mut a, mut b) = (0u64, 0u64);
         let long = vec![b'z'; 70_000]; // alloc: Cold
         unsafe {
-            assert_eq!(copy(cp, &mut a, cur.as_mut_ptr(), b"http://s.example/", 21, 3 << 32 | 9, NO_THR), 1);
+            assert_eq!(
+                copy(
+                    cp,
+                    &mut a,
+                    cur.as_mut_ptr(),
+                    b"http://s.example/",
+                    21,
+                    3 << 32 | 9,
+                    NO_THR
+                ),
+                1
+            );
             let h = a as *const u64;
-            assert_eq!((*h.sub(3), *h.sub(2), *h.sub(1)), (24, 3 << 32 | 9, NO_THR), "cap, win, thr");
-            assert_eq!(crate::dict::reps::varlena_bytes(a as usize as *const u8), b"http://s.example/");
+            assert_eq!(
+                (*h.sub(3), *h.sub(2), *h.sub(1)),
+                (24, 3 << 32 | 9, NO_THR),
+                "cap, win, thr"
+            );
+            assert_eq!(
+                crate::dict::reps::varlena_bytes(a as usize as *const u8),
+                b"http://s.example/"
+            );
             assert_eq!(cur[2], T1_IMAGE_CHUNK as u64, "the first chunk");
-            assert_eq!(copy(cp, &mut b, cur.as_mut_ptr(), &long, long.len() + 4, 4 << 32, NO_THR), 1);
-            assert_eq!((*(b as *const u64).sub(3), cur[2]), (70_008, 2 * T1_IMAGE_CHUNK as u64), "a copy past the chunk opens the next, doubled");
-            assert_eq!(crate::dict::reps::varlena_bytes(b as usize as *const u8), long.as_slice());
-            assert_eq!(crate::dict::reps::varlena_bytes(a as usize as *const u8), b"http://s.example/", "the earlier copy stays");
+            assert_eq!(
+                copy(
+                    cp,
+                    &mut b,
+                    cur.as_mut_ptr(),
+                    &long,
+                    long.len() + 4,
+                    4 << 32,
+                    NO_THR
+                ),
+                1
+            );
+            assert_eq!(
+                (*(b as *const u64).sub(3), cur[2]),
+                (70_008, 2 * T1_IMAGE_CHUNK as u64),
+                "a copy past the chunk opens the next, doubled"
+            );
+            assert_eq!(
+                crate::dict::reps::varlena_bytes(b as usize as *const u8),
+                long.as_slice()
+            );
+            assert_eq!(
+                crate::dict::reps::varlena_bytes(a as usize as *const u8),
+                b"http://s.example/",
+                "the earlier copy stays"
+            );
         }
     }
 }

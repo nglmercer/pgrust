@@ -7,9 +7,7 @@ use types_error::PgResult;
 use types_rel::RelationData;
 use types_tuple::heap_deform_tuple;
 
-use crate::{
-    dl_iter, rb_error, ChangeId, ListHead, ReorderBuffer, ReorderBufferChangeData, TxnId,
-};
+use crate::{dl_iter, rb_error, ChangeId, ListHead, ReorderBuffer, ReorderBufferChangeData, TxnId};
 
 pub struct ReorderBufferToastEnt {
     pub chunk_id: Oid,
@@ -104,7 +102,11 @@ impl ReorderBuffer {
         let mut isnull = ::mcx::std_vec_from_elem("replication", false, natts)?;
         {
             let change = self.change(cid);
-            let ReorderBufferChangeData::Tp { newtuple: Some(newtup), .. } = &change.data else {
+            let ReorderBufferChangeData::Tp {
+                newtuple: Some(newtup),
+                ..
+            } = &change.data
+            else {
                 unreachable!("toast chunk change carries a new tuple");
             };
             heap_deform_tuple(newtup.as_tuple(), desc, &mut values, &mut isnull);
@@ -216,7 +218,11 @@ impl ReorderBuffer {
         let mut isnull = ::mcx::std_vec_from_elem("replication", false, natts)?;
         let (t_self, t_table_oid) = {
             let change = self.change(cid);
-            let ReorderBufferChangeData::Tp { newtuple: Some(newtup), .. } = &change.data else {
+            let ReorderBufferChangeData::Tp {
+                newtuple: Some(newtup),
+                ..
+            } = &change.data
+            else {
                 unreachable!("toast replace requires a new tuple");
             };
             heap_deform_tuple(newtup.as_tuple(), desc, &mut values, &mut isnull);
@@ -230,7 +236,8 @@ impl ReorderBuffer {
         // in rb->context; heap_form_tuple copies the image into the rebuilt
         // tuple, so they only need to outlive that call. Reserved up front so
         // the values[] pointers into it never move.
-        let mut indirect_images: Vec<[u8; VARHDRSZ_EXTERNAL + 8]> = ::mcx::std_vec_with_capacity("replication", natts)?;
+        let mut indirect_images: Vec<[u8; VARHDRSZ_EXTERNAL + 8]> =
+            ::mcx::std_vec_with_capacity("replication", natts)?;
 
         for natt in 0..natts {
             let attr = desc.attr(natt);
@@ -261,10 +268,14 @@ impl ReorderBuffer {
 
                 let mut data_done = 0usize;
                 for chunk_cid in dl_iter(&self.changes, ent.chunks, |c| c.node) {
-                    let mut cvalues = ::mcx::std_vec_from_elem("replication", Datum::from_usize(0), toast_natts)?;
+                    let mut cvalues =
+                        ::mcx::std_vec_from_elem("replication", Datum::from_usize(0), toast_natts)?;
                     let mut cisnull = ::mcx::std_vec_from_elem("replication", false, toast_natts)?;
                     let cchange = self.change(chunk_cid);
-                    let ReorderBufferChangeData::Tp { newtuple: Some(ctup), .. } = &cchange.data
+                    let ReorderBufferChangeData::Tp {
+                        newtuple: Some(ctup),
+                        ..
+                    } = &cchange.data
                     else {
                         unreachable!("toast chunk change carries a new tuple");
                     };
@@ -298,9 +309,8 @@ impl ReorderBuffer {
             image[1] = VARTAG_INDIRECT;
             image[VARHDRSZ_EXTERNAL..].copy_from_slice(&(target as usize).to_ne_bytes());
             indirect_images.push(image);
-            values[natt] = Datum::from_usize(
-                indirect_images.last().expect("just pushed").as_ptr() as usize,
-            );
+            values[natt] =
+                Datum::from_usize(indirect_images.last().expect("just pushed").as_ptr() as usize);
             replaced_any = true;
         }
 
@@ -328,8 +338,7 @@ impl ReorderBuffer {
         };
         for (_, mut ent) in hash {
             ent.reconstructed = None;
-            let chunks: Vec<ChangeId> =
-                dl_iter(&self.changes, ent.chunks, |c| c.node).collect();
+            let chunks: Vec<ChangeId> = dl_iter(&self.changes, ent.chunks, |c| c.node).collect();
             let mut list = ent.chunks;
             for chunk_cid in chunks {
                 crate::dl_delete(&mut self.changes, &mut list, chunk_cid, |c| &mut c.node);

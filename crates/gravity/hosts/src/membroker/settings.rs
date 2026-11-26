@@ -185,7 +185,15 @@ const SWITCHES: [Switch; 17] = [
 /// Every row: the knobs in `KNOBS`' order, `trace`, then the switches.
 pub fn rows(out: &mut dyn FnMut(Row)) {
     mempolicy::consts::each(|k, value, source| {
-        out(Row { kind: "knob", name: k.name, value: Val::N(value), default: Val::N(k.default), source: source.name(), set_by: "PGRUST_MEMPOLICY", doc: k.doc })
+        out(Row {
+            kind: "knob",
+            name: k.name,
+            value: Val::N(value),
+            default: Val::N(k.default),
+            source: source.name(),
+            set_by: "PGRUST_MEMPOLICY",
+            doc: k.doc,
+        })
     });
     let trace = mempolicy::trace::on();
     out(Row {
@@ -193,7 +201,11 @@ pub fn rows(out: &mut dyn FnMut(Row)) {
         name: "trace",
         value: on(trace),
         default: Val::N(0),
-        source: if trace { mempolicy::consts::Source::Env.name() } else { mempolicy::consts::Source::Default.name() },
+        source: if trace {
+            mempolicy::consts::Source::Env.name()
+        } else {
+            mempolicy::consts::Source::Default.name()
+        },
         set_by: "PGRUST_MEMPOLICY",
         doc: "one log record per memory policy decision and statement end",
     });
@@ -205,7 +217,15 @@ pub fn rows(out: &mut dyn FnMut(Row)) {
         } else {
             "default"
         };
-        out(Row { kind: "env", name: s.name, value: (s.value)(), default: (s.default)(), source, set_by: s.var, doc: s.doc });
+        out(Row {
+            kind: "env",
+            name: s.name,
+            value: (s.value)(),
+            default: (s.default)(),
+            source,
+            set_by: s.var,
+            doc: s.doc,
+        });
     }
 }
 
@@ -240,12 +260,16 @@ fn val<'m>(mcx: mcx::Mcx<'m>, v: Val) -> Datum {
 /// `pgrust_memory_settings()`: kind ('knob': a `PGRUST_MEMPOLICY` key, every one of them; 'env': a memory switch its own
 /// variable sets), name, value (now, as the code reads it), default_value, source (default, PGRUST_MEMPOLICY, environment,
 /// set), set_by (`PGRUST_MEMPOLICY` or the variable) and doc.
-pub fn fc_pgrust_memory_settings(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+pub fn fc_pgrust_memory_settings(
+    flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     let flinfo = flinfo.expect("pgrust_memory_settings: resolved FmgrInfo required");
     let mcx = super::raw::result_mcx(fcinfo);
     let mut srf = funcapi::InitMaterializedSRF(mcx, flinfo, fcinfo, 0)?;
     if srf.tupdesc.natts as usize != SETTINGS_COLS {
-        return Err(Box::new(types_error::PgError::error("the memory views' installed declaration is another build's: run scripts/memory-broker-views.sql again").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH))); // alloc: Cold
+        return Err(Box::new(types_error::PgError::error("the memory views' installed declaration is another build's: run scripts/memory-broker-views.sql again").with_sqlstate(types_error::ERRCODE_DATATYPE_MISMATCH)));
+        // alloc: Cold
     }
     let mut failed = None;
     rows(&mut |r| {

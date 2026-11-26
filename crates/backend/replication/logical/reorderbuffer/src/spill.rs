@@ -73,16 +73,24 @@ impl<'a> Cur<'a> {
         Ok(self.take(1)?[0])
     }
     fn u16(&mut self) -> PgResult<u16> {
-        Ok(u16::from_ne_bytes(self.take(2)?.try_into().expect("2 bytes")))
+        Ok(u16::from_ne_bytes(
+            self.take(2)?.try_into().expect("2 bytes"),
+        ))
     }
     fn u32(&mut self) -> PgResult<u32> {
-        Ok(u32::from_ne_bytes(self.take(4)?.try_into().expect("4 bytes")))
+        Ok(u32::from_ne_bytes(
+            self.take(4)?.try_into().expect("4 bytes"),
+        ))
     }
     fn i32(&mut self) -> PgResult<i32> {
-        Ok(i32::from_ne_bytes(self.take(4)?.try_into().expect("4 bytes")))
+        Ok(i32::from_ne_bytes(
+            self.take(4)?.try_into().expect("4 bytes"),
+        ))
     }
     fn u64(&mut self) -> PgResult<u64> {
-        Ok(u64::from_ne_bytes(self.take(8)?.try_into().expect("8 bytes")))
+        Ok(u64::from_ne_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
     }
 }
 
@@ -147,7 +155,10 @@ fn put_tid(buf: &mut Vec<u8>, tid: &ItemPointerData) {
 
 fn get_tid(cur: &mut Cur) -> PgResult<ItemPointerData> {
     Ok(ItemPointerData {
-        ip_blkid: BlockIdData { bi_hi: cur.u16()?, bi_lo: cur.u16()? },
+        ip_blkid: BlockIdData {
+            bi_hi: cur.u16()?,
+            bi_lo: cur.u16()?,
+        },
         ip_posid: cur.u16()?,
     })
 }
@@ -180,8 +191,11 @@ impl ReorderBuffer {
         // this image is ever handed to unsafe deform/varlena code.
         let header = tuple.t_data();
         let t_hoff = header.t_hoff as usize;
-        let null_bitmap_len =
-            if tuple.has_nulls() { (header.natts() as usize).div_ceil( 8) } else { 0 };
+        let null_bitmap_len = if tuple.has_nulls() {
+            (header.natts() as usize).div_ceil(8)
+        } else {
+            0
+        };
         let min_hoff = SizeofHeapTupleHeader + null_bitmap_len;
         if t_hoff < min_hoff || t_hoff > t_len {
             return Err(PgError::error(format!(
@@ -196,7 +210,7 @@ impl ReorderBuffer {
 
     pub(crate) fn largest_txn(&self) -> Option<TxnId> {
         let largest = self.txn_heap.first().map(|&(_, id)| id);
-        debug_assert!(largest.is_none_or( |id| self.txn(id).size <= self.size));
+        debug_assert!(largest.is_none_or(|id| self.txn(id).size <= self.size));
         largest
     }
 
@@ -263,7 +277,9 @@ impl ReorderBuffer {
 
                 self.stream_txn(txn)?;
             } else {
-                let txn = self.largest_txn().expect("nonzero rb size implies a sized txn");
+                let txn = self
+                    .largest_txn()
+                    .expect("nonzero rb size implies a sized txn");
                 debug_assert!(self.txn(txn).size > 0);
                 debug_assert!(self.size >= self.txn(txn).size);
 
@@ -329,14 +345,20 @@ impl ReorderBuffer {
                 )?;
                 if fd_raw < 0 {
                     return Err(rb_file_error(
-                        format!("could not open file \"{}\": {PCT_M}", crate::startup::datadir_relative(&path)),
+                        format!(
+                            "could not open file \"{}\": {PCT_M}",
+                            crate::startup::datadir_relative(&path)
+                        ),
                         &errno_error(),
                     ));
                 }
                 cur_offset = fd::pg_file_size_raw(fd_raw);
                 if cur_offset < 0 {
                     return Err(rb_file_error(
-                        format!("could not open file \"{}\": {PCT_M}", crate::startup::datadir_relative(&path)),
+                        format!(
+                            "could not open file \"{}\": {PCT_M}",
+                            crate::startup::datadir_relative(&path)
+                        ),
                         &errno_error(),
                     ));
                 }
@@ -356,8 +378,8 @@ impl ReorderBuffer {
             self.spillCount += 1;
             self.spillBytes += size as i64;
             // Don't count already-serialized transactions again.
-            let counted = self.txn(txn).txn_flags & (RBTXN_IS_SERIALIZED | RBTXN_IS_SERIALIZED_CLEAR)
-                != 0;
+            let counted =
+                self.txn(txn).txn_flags & (RBTXN_IS_SERIALIZED | RBTXN_IS_SERIALIZED_CLEAR) != 0;
             self.spillTxns += if counted { 0 } else { 1 };
             if let Some(update_stats) = self.update_stats {
                 update_stats(self);
@@ -396,8 +418,12 @@ impl ReorderBuffer {
 
         match &change.data {
             // The locator and clear-toast flag survive for the spec-confirm/abort forms too; tuples ride only when present.
-            ReorderBufferChangeData::Tp { rlocator, clear_toast_afterwards, oldtuple, newtuple } =>
-            {
+            ReorderBufferChangeData::Tp {
+                rlocator,
+                clear_toast_afterwards,
+                oldtuple,
+                newtuple,
+            } => {
                 put_locator(buf, rlocator);
                 put_u8(buf, *clear_toast_afterwards as u8);
                 put_u8(buf, oldtuple.is_some() as u8);
@@ -441,7 +467,11 @@ impl ReorderBuffer {
                 put_u64(buf, snap.vistest.id);
                 put_u64(buf, snap.snapXactCompletionCount);
             }
-            ReorderBufferChangeData::Truncate { cascade, restart_seqs, relids } => {
+            ReorderBufferChangeData::Truncate {
+                cascade,
+                restart_seqs,
+                relids,
+            } => {
                 put_u8(buf, *cascade as u8);
                 put_u8(buf, *restart_seqs as u8);
                 put_u64(buf, relids.len() as u64);
@@ -452,7 +482,13 @@ impl ReorderBuffer {
             ReorderBufferChangeData::CommandId(cmd) => {
                 put_u32(buf, *cmd);
             }
-            ReorderBufferChangeData::TupleCid { locator, tid, cmin, cmax, combocid } => {
+            ReorderBufferChangeData::TupleCid {
+                locator,
+                tid,
+                cmin,
+                cmax,
+                combocid,
+            } => {
                 put_locator(buf, locator);
                 put_tid(buf, tid);
                 put_u32(buf, *cmin);
@@ -472,7 +508,11 @@ impl ReorderBuffer {
         if written != size as isize {
             let save_errno = fd::get_errno();
             fd::CloseTransientFile(fd_raw);
-            let errno = if save_errno != 0 { save_errno } else { libc::ENOSPC };
+            let errno = if save_errno != 0 {
+                save_errno
+            } else {
+                libc::ENOSPC
+            };
             let xid = self.txn(txn).xid;
             return Err(rb_file_error(
                 format!("could not write to data file for XID {xid}: {PCT_M}"),
@@ -529,7 +569,10 @@ impl ReorderBuffer {
                         continue;
                     }
                     return Err(rb_file_error(
-                        format!("could not open file \"{}\": {PCT_M}", crate::startup::datadir_relative(&path)),
+                        format!(
+                            "could not open file \"{}\": {PCT_M}",
+                            crate::startup::datadir_relative(&path)
+                        ),
                         &std::io::Error::from_raw_os_error(errno),
                     ));
                 }
@@ -605,9 +648,22 @@ impl ReorderBuffer {
                 let clear_toast_afterwards = cur.u8()? != 0;
                 let has_old = cur.u8()? != 0;
                 let has_new = cur.u8()? != 0;
-                let oldtuple = if has_old { Some(self.get_tuple(&mut cur)?) } else { None };
-                let newtuple = if has_new { Some(self.get_tuple(&mut cur)?) } else { None };
-                ReorderBufferChangeData::Tp { rlocator, clear_toast_afterwards, oldtuple, newtuple }
+                let oldtuple = if has_old {
+                    Some(self.get_tuple(&mut cur)?)
+                } else {
+                    None
+                };
+                let newtuple = if has_new {
+                    Some(self.get_tuple(&mut cur)?)
+                } else {
+                    None
+                };
+                ReorderBufferChangeData::Tp {
+                    rlocator,
+                    clear_toast_afterwards,
+                    oldtuple,
+                    newtuple,
+                }
             }
             Message => {
                 let prefix_len = cur.u64()? as usize;
@@ -674,7 +730,11 @@ impl ReorderBuffer {
                 for _ in 0..n {
                     relids.push(cur.u32()?);
                 }
-                ReorderBufferChangeData::Truncate { cascade, restart_seqs, relids }
+                ReorderBufferChangeData::Truncate {
+                    cascade,
+                    restart_seqs,
+                    relids,
+                }
             }
             InternalCommandId => ReorderBufferChangeData::CommandId(cur.u32()?),
             InternalTupleCid => {
@@ -723,7 +783,10 @@ impl ReorderBuffer {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
                     return Err(rb_file_error(
-                        format!("could not remove file \"{}\": {PCT_M}", crate::startup::datadir_relative(&path)),
+                        format!(
+                            "could not remove file \"{}\": {PCT_M}",
+                            crate::startup::datadir_relative(&path)
+                        ),
                         &e,
                     ))
                 }
@@ -761,7 +824,12 @@ pub(crate) struct SpillReader {
 
 impl SpillReader {
     fn read(&mut self, buf: &mut [u8]) -> PgResult<usize> {
-        let n = fd::FileRead(self.vfd, buf, self.cur_offset, WAIT_EVENT_REORDER_BUFFER_READ)?;
+        let n = fd::FileRead(
+            self.vfd,
+            buf,
+            self.cur_offset,
+            WAIT_EVENT_REORDER_BUFFER_READ,
+        )?;
         if n < 0 {
             return Err(rb_file_error(
                 format!("could not read from reorderbuffer spill file: {PCT_M}"),

@@ -36,17 +36,20 @@ fn out_cstring(fcinfo: &Fcinfo, bytes: &[u8]) -> PgResult<Datum> {
 }
 
 fn out_text(fcinfo: &Fcinfo, payload: &[u8]) -> PgResult<Datum> {
-    Ok(varlena_result(varlena::cstring_to_text(fcinfo.result_mcx(), payload)?))
+    Ok(varlena_result(varlena::cstring_to_text(
+        fcinfo.result_mcx(),
+        payload,
+    )?))
 }
 
 // SAFETY contract of callers: the declared arg is a non-null live varlena.
-unsafe fn arg_text(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i) }?.data())
 }
 
 // text_to_cstring hands C a NUL-terminated copy: bytes past an embedded NUL
 // are invisible to the C string consumers below.
-unsafe fn arg_text_cstr(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
+unsafe fn arg_text_cstr(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     let b = unsafe { arg_text(fcinfo, i) }?;
     Ok(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
@@ -55,7 +58,9 @@ unsafe fn arg_text_cstr(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
 
 // SAFETY: strict fn; catalog arg i is a non-null path varlena, live for the call.
 unsafe fn arg_path<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<::adt_geo::PathRef<'a>> {
-    Ok(::adt_geo::PathRef::from_payload(unsafe { fcinfo.arg_varlena_packed(i) }?.data()))
+    Ok(::adt_geo::PathRef::from_payload(
+        unsafe { fcinfo.arg_varlena_packed(i) }?.data(),
+    ))
 }
 
 fn fc_interpt_pp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -90,9 +95,7 @@ fn fc_interpt_pp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
 /* ============================ overpaid(emp) ============================== */
 
 fn fc_overpaid(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    use ::types_tuple::{
-        heap_deform_tuple, HeapTupleData, HeapTupleHeaderData, ItemPointerData,
-    };
+    use ::types_tuple::{heap_deform_tuple, HeapTupleData, HeapTupleHeaderData, ItemPointerData};
     let (salary_null, salary) = {
         let mcx = fcinfo.result_mcx();
         // SAFETY: strict fn; catalog arg 0 is a non-null composite datum.
@@ -157,18 +160,26 @@ fn c_atof(bytes: &[u8]) -> f64 {
 // %f, both with trailing zeros (and a bare '.') stripped.
 fn fmt_g(x: f64) -> String {
     if x == 0.0 {
-        return if x.is_sign_negative() { "-0".into() } else { "0".into() };
+        return if x.is_sign_negative() {
+            "-0".into()
+        } else {
+            "0".into()
+        };
     }
     if x.is_nan() {
         return "NaN".into();
     }
     if x.is_infinite() {
-        return if x < 0.0 { "-Infinity".into() } else { "Infinity".into() };
+        return if x < 0.0 {
+            "-Infinity".into()
+        } else {
+            "Infinity".into()
+        };
     }
     let s = format!("{x:.5e}");
     let (m, e) = s.split_once('e').expect("{:e} always has an exponent");
     let exp: i32 = e.parse().expect("exponent is an integer");
-    if !( -4.. 6).contains(&exp) {
+    if !(-4..6).contains(&exp) {
         let m = m.trim_end_matches('0').trim_end_matches('.');
         let sign = if exp < 0 { '-' } else { '+' };
         format!("{m}e{sign}{:02}", exp.abs())
@@ -292,8 +303,11 @@ fn fc_int44in(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum>
         result[i] = core::str::from_utf8(&bytes[start..p])
             .ok()
             .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(if bytes[start] == b'-' { i64::MIN } else { i64::MAX })
-            as i32;
+            .unwrap_or(if bytes[start] == b'-' {
+                i64::MIN
+            } else {
+                i64::MAX
+            }) as i32;
         i += 1;
         if i < 4 {
             if p < bytes.len() && bytes[p] == b',' {
@@ -317,7 +331,10 @@ fn fc_int44out(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum
     for (j, slot) in a.iter_mut().enumerate() {
         *slot = i32::from_ne_bytes(b[j * 4..j * 4 + 4].try_into().unwrap());
     }
-    out_cstring(fcinfo, format!("{},{},{},{}", a[0], a[1], a[2], a[3]).as_bytes())
+    out_cstring(
+        fcinfo,
+        format!("{},{},{},{}", a[0], a[1], a[2], a[3]).as_bytes(),
+    )
 }
 
 /* ==================== test_canonicalize_path(text) ======================= */
@@ -396,8 +413,7 @@ fn fc_make_tuple_indirect(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
         )
     };
 
-    let mut values: ::mcx::PgVec<'_, Datum> =
-        ::mcx::vec_from_elem_in(mcx, Datum::null(), ncolumns);
+    let mut values: ::mcx::PgVec<'_, Datum> = ::mcx::vec_from_elem_in(mcx, Datum::null(), ncolumns);
     let mut nulls: ::mcx::PgVec<'_, bool> = ::mcx::vec_from_elem_in(mcx, true, ncolumns);
     ::types_tuple::heap_deform_tuple(&tuple, &tupdesc, &mut values, &mut nulls);
 
@@ -436,7 +452,8 @@ fn fc_make_tuple_indirect(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
         let mut wrapper = [0u8; ::types_tuple::varatt::VARHDRSZ_EXTERNAL + 8];
         wrapper[0] = VARATT_EXTERNAL_MARKER;
         wrapper[1] = ::types_tuple::varatt::VARTAG_INDIRECT;
-        wrapper[::types_tuple::varatt::VARHDRSZ_EXTERNAL..].copy_from_slice(&target_ptr.to_ne_bytes());
+        wrapper[::types_tuple::varatt::VARHDRSZ_EXTERNAL..]
+            .copy_from_slice(&target_ptr.to_ne_bytes());
         let new_attr = byref_result(mcx, &wrapper)?;
 
         values[i] = new_attr;
@@ -504,14 +521,14 @@ fn fc_regress_setenv(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     let envvar = unsafe { arg_text_cstr(fcinfo, 0) }?;
     let envval = unsafe { arg_text_cstr(fcinfo, 1) }?;
     if !superuser::superuser()? {
-        return Err(err("must be superuser to change environment variables".to_string()));
+        return Err(err(
+            "must be superuser to change environment variables".to_string()
+        ));
     }
-    let envvar_c = std::ffi::CString::new(envvar).map_err(|_| {
-        err("could not set environment variable: Invalid argument".to_string())
-    })?;
-    let envval_c = std::ffi::CString::new(envval).map_err(|_| {
-        err("could not set environment variable: Invalid argument".to_string())
-    })?;
+    let envvar_c = std::ffi::CString::new(envvar)
+        .map_err(|_| err("could not set environment variable: Invalid argument".to_string()))?;
+    let envval_c = std::ffi::CString::new(envval)
+        .map_err(|_| err("could not set environment variable: Invalid argument".to_string()))?;
     #[cfg(target_family = "wasm")]
     {
         let _ = (envvar_c, envval_c);
@@ -524,7 +541,10 @@ fn fc_regress_setenv(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
         // SAFETY: CStrings are NUL-terminated; setenv copies them.
         if unsafe { libc::setenv(envvar_c.as_ptr(), envval_c.as_ptr(), 1) } != 0 {
             let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-            return Err(err(format!("could not set environment variable: {}", strerror(errno))));
+            return Err(err(format!(
+                "could not set environment variable: {}",
+                strerror(errno)
+            )));
         }
         Ok(Datum::null())
     }
@@ -571,7 +591,10 @@ fn wait_for_pid(
             if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
                 let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
                 if errno != libc::ESRCH {
-                    return Err(err(format!("could not check PID {pid} liveness: {}", strerror(errno))));
+                    return Err(err(format!(
+                        "could not check PID {pid} liveness: {}",
+                        strerror(errno)
+                    )));
                 }
                 break;
             }
@@ -598,13 +621,31 @@ fn expect_true(cond: bool, what: &str) -> PgResult<()> {
 
 fn test_atomic_flag() -> PgResult<()> {
     let flag = AtomicBool::new(false);
-    expect_true(!flag.load(Ordering::SeqCst), "pg_atomic_unlocked_test_flag(&flag)")?;
-    expect_true(!flag.swap(true, Ordering::SeqCst), "pg_atomic_test_set_flag(&flag)")?;
-    expect_true(flag.load(Ordering::SeqCst), "!pg_atomic_unlocked_test_flag(&flag)")?;
-    expect_true(flag.swap(true, Ordering::SeqCst), "!pg_atomic_test_set_flag(&flag)")?;
+    expect_true(
+        !flag.load(Ordering::SeqCst),
+        "pg_atomic_unlocked_test_flag(&flag)",
+    )?;
+    expect_true(
+        !flag.swap(true, Ordering::SeqCst),
+        "pg_atomic_test_set_flag(&flag)",
+    )?;
+    expect_true(
+        flag.load(Ordering::SeqCst),
+        "!pg_atomic_unlocked_test_flag(&flag)",
+    )?;
+    expect_true(
+        flag.swap(true, Ordering::SeqCst),
+        "!pg_atomic_test_set_flag(&flag)",
+    )?;
     flag.store(false, Ordering::SeqCst);
-    expect_true(!flag.load(Ordering::SeqCst), "pg_atomic_unlocked_test_flag(&flag)")?;
-    expect_true(!flag.swap(true, Ordering::SeqCst), "pg_atomic_test_set_flag(&flag)")?;
+    expect_true(
+        !flag.load(Ordering::SeqCst),
+        "pg_atomic_unlocked_test_flag(&flag)",
+    )?;
+    expect_true(
+        !flag.swap(true, Ordering::SeqCst),
+        "pg_atomic_test_set_flag(&flag)",
+    )?;
     Ok(())
 }
 
@@ -625,8 +666,16 @@ fn test_atomic_uint32() -> PgResult<()> {
     let d = var.load(SEQ).wrapping_sub(2);
     eq_u32(var.fetch_add(d, SEQ), 3, "pg_atomic_fetch_add_u32")?;
     eq_u32(var.fetch_sub(1, SEQ), 4, "pg_atomic_fetch_sub_u32")?;
-    eq_u32(var.fetch_sub(3, SEQ).wrapping_sub(3), 0, "pg_atomic_sub_fetch_u32")?;
-    eq_u32(var.fetch_add(10, SEQ).wrapping_add(10), 10, "pg_atomic_add_fetch_u32")?;
+    eq_u32(
+        var.fetch_sub(3, SEQ).wrapping_sub(3),
+        0,
+        "pg_atomic_sub_fetch_u32",
+    )?;
+    eq_u32(
+        var.fetch_add(10, SEQ).wrapping_add(10),
+        10,
+        "pg_atomic_add_fetch_u32",
+    )?;
     eq_u32(var.swap(5, SEQ), 10, "pg_atomic_exchange_u32")?;
     eq_u32(var.swap(0, SEQ), 5, "pg_atomic_exchange_u32")?;
 
@@ -637,8 +686,16 @@ fn test_atomic_uint32() -> PgResult<()> {
     eq_u32(var.fetch_add(INT_MAX, SEQ), INT_MAX, "fetch_add INT_MAX")?;
     var.fetch_add(2, SEQ);
     eq_u32(var.fetch_add(INT16_MAX, SEQ), 0, "fetch_add PG_INT16_MAX")?;
-    eq_u32(var.fetch_add(INT16_MAX + 1, SEQ), INT16_MAX, "fetch_add PG_INT16_MAX+1")?;
-    eq_u32(var.fetch_add(INT16_MIN, SEQ), 2 * INT16_MAX + 1, "fetch_add PG_INT16_MIN")?;
+    eq_u32(
+        var.fetch_add(INT16_MAX + 1, SEQ),
+        INT16_MAX,
+        "fetch_add PG_INT16_MAX+1",
+    )?;
+    eq_u32(
+        var.fetch_add(INT16_MIN, SEQ),
+        2 * INT16_MAX + 1,
+        "fetch_add PG_INT16_MIN",
+    )?;
     eq_u32(
         var.fetch_add(INT16_MIN.wrapping_sub(1), SEQ),
         INT16_MAX,
@@ -648,9 +705,19 @@ fn test_atomic_uint32() -> PgResult<()> {
     eq_u32(var.load(SEQ), u32::MAX, "pg_atomic_read_u32(&var)")?;
     eq_u32(var.fetch_sub(INT_MAX, SEQ), u32::MAX, "fetch_sub INT_MAX")?;
     eq_u32(var.load(SEQ), INT_MAX + 1, "pg_atomic_read_u32(&var)")?;
-    eq_u32(var.fetch_sub(INT_MAX, SEQ).wrapping_sub(INT_MAX), 1, "sub_fetch INT_MAX")?;
+    eq_u32(
+        var.fetch_sub(INT_MAX, SEQ).wrapping_sub(INT_MAX),
+        1,
+        "sub_fetch INT_MAX",
+    )?;
     var.fetch_sub(1, SEQ);
-    for exp in [INT16_MAX, INT16_MAX + 1, INT16_MIN, INT16_MIN.wrapping_sub(1), 10] {
+    for exp in [
+        INT16_MAX,
+        INT16_MAX + 1,
+        INT16_MIN,
+        INT16_MIN.wrapping_sub(1),
+        10,
+    ] {
         expect_true(
             var.compare_exchange(exp, 1, SEQ, SEQ).is_err(),
             "!pg_atomic_compare_exchange_u32(&var, &expected, 1)",
@@ -664,16 +731,36 @@ fn test_atomic_uint32() -> PgResult<()> {
         }
     }
     if !ok {
-        return Err(err("atomic_compare_exchange_u32() never succeeded".to_string()));
+        return Err(err(
+            "atomic_compare_exchange_u32() never succeeded".to_string()
+        ));
     }
     eq_u32(var.load(SEQ), 1, "pg_atomic_read_u32(&var)")?;
     var.store(0, SEQ);
-    expect_true(var.fetch_or(1, SEQ) & 1 == 0, "!(pg_atomic_fetch_or_u32(&var, 1) & 1)")?;
-    expect_true(var.fetch_or(2, SEQ) & 1 != 0, "pg_atomic_fetch_or_u32(&var, 2) & 1")?;
+    expect_true(
+        var.fetch_or(1, SEQ) & 1 == 0,
+        "!(pg_atomic_fetch_or_u32(&var, 1) & 1)",
+    )?;
+    expect_true(
+        var.fetch_or(2, SEQ) & 1 != 0,
+        "pg_atomic_fetch_or_u32(&var, 2) & 1",
+    )?;
     eq_u32(var.load(SEQ), 3, "pg_atomic_read_u32(&var)")?;
-    eq_u32(var.fetch_and(!2u32, SEQ) & 3, 3, "pg_atomic_fetch_and_u32(&var, ~2) & 3")?;
-    eq_u32(var.fetch_and(!1u32, SEQ), 1, "pg_atomic_fetch_and_u32(&var, ~1)")?;
-    eq_u32(var.fetch_and(!0u32, SEQ), 0, "pg_atomic_fetch_and_u32(&var, ~0)")?;
+    eq_u32(
+        var.fetch_and(!2u32, SEQ) & 3,
+        3,
+        "pg_atomic_fetch_and_u32(&var, ~2) & 3",
+    )?;
+    eq_u32(
+        var.fetch_and(!1u32, SEQ),
+        1,
+        "pg_atomic_fetch_and_u32(&var, ~1)",
+    )?;
+    eq_u32(
+        var.fetch_and(!0u32, SEQ),
+        0,
+        "pg_atomic_fetch_and_u32(&var, ~0)",
+    )?;
     Ok(())
 }
 
@@ -694,8 +781,16 @@ fn test_atomic_uint64() -> PgResult<()> {
     let d = var.load(SEQ).wrapping_sub(2);
     eq_u64(var.fetch_add(d, SEQ), 3, "pg_atomic_fetch_add_u64")?;
     eq_u64(var.fetch_sub(1, SEQ), 4, "pg_atomic_fetch_sub_u64")?;
-    eq_u64(var.fetch_sub(3, SEQ).wrapping_sub(3), 0, "pg_atomic_sub_fetch_u64")?;
-    eq_u64(var.fetch_add(10, SEQ).wrapping_add(10), 10, "pg_atomic_add_fetch_u64")?;
+    eq_u64(
+        var.fetch_sub(3, SEQ).wrapping_sub(3),
+        0,
+        "pg_atomic_sub_fetch_u64",
+    )?;
+    eq_u64(
+        var.fetch_add(10, SEQ).wrapping_add(10),
+        10,
+        "pg_atomic_add_fetch_u64",
+    )?;
     eq_u64(var.swap(5, SEQ), 10, "pg_atomic_exchange_u64")?;
     eq_u64(var.swap(0, SEQ), 5, "pg_atomic_exchange_u64")?;
     expect_true(
@@ -710,16 +805,36 @@ fn test_atomic_uint64() -> PgResult<()> {
         }
     }
     if !ok {
-        return Err(err("atomic_compare_exchange_u64() never succeeded".to_string()));
+        return Err(err(
+            "atomic_compare_exchange_u64() never succeeded".to_string()
+        ));
     }
     eq_u64(var.load(SEQ), 1, "pg_atomic_read_u64(&var)")?;
     var.store(0, SEQ);
-    expect_true(var.fetch_or(1, SEQ) & 1 == 0, "!(pg_atomic_fetch_or_u64(&var, 1) & 1)")?;
-    expect_true(var.fetch_or(2, SEQ) & 1 != 0, "pg_atomic_fetch_or_u64(&var, 2) & 1")?;
+    expect_true(
+        var.fetch_or(1, SEQ) & 1 == 0,
+        "!(pg_atomic_fetch_or_u64(&var, 1) & 1)",
+    )?;
+    expect_true(
+        var.fetch_or(2, SEQ) & 1 != 0,
+        "pg_atomic_fetch_or_u64(&var, 2) & 1",
+    )?;
     eq_u64(var.load(SEQ), 3, "pg_atomic_read_u64(&var)")?;
-    eq_u64(var.fetch_and(!2u64, SEQ) & 3, 3, "pg_atomic_fetch_and_u64(&var, ~2) & 3")?;
-    eq_u64(var.fetch_and(!1u64, SEQ), 1, "pg_atomic_fetch_and_u64(&var, ~1)")?;
-    eq_u64(var.fetch_and(!0u64, SEQ), 0, "pg_atomic_fetch_and_u64(&var, ~0)")?;
+    eq_u64(
+        var.fetch_and(!2u64, SEQ) & 3,
+        3,
+        "pg_atomic_fetch_and_u64(&var, ~2) & 3",
+    )?;
+    eq_u64(
+        var.fetch_and(!1u64, SEQ),
+        1,
+        "pg_atomic_fetch_and_u64(&var, ~1)",
+    )?;
+    eq_u64(
+        var.fetch_and(!0u64, SEQ),
+        0,
+        "pg_atomic_fetch_and_u64(&var, ~0)",
+    )?;
     Ok(())
 }
 
@@ -822,7 +937,9 @@ fn fc_is_catalog_text_unique_index_oid(
     _f: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
 ) -> PgResult<Datum> {
-    Ok(Datum::from_bool(catalog::IsCatalogTextUniqueIndexOid(fcinfo.arg_oid(0))))
+    Ok(Datum::from_bool(catalog::IsCatalogTextUniqueIndexOid(
+        fcinfo.arg_oid(0),
+    )))
 }
 
 /* ====================== test_support_func(internal) ====================== */
@@ -1099,7 +1216,11 @@ fn fc_test_mblen_func(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     // see a terminator-like byte (length 1) and the bounded arms have no
     // bytes left, which is always the invalid-sequence error.
     let in_range = offset >= 0 && (offset as usize) < size;
-    let at_offset: &[u8] = if in_range { &data[offset as usize..] } else { &[] };
+    let at_offset: &[u8] = if in_range {
+        &data[offset as usize..]
+    } else {
+        &[]
+    };
     let no_bytes_left = || {
         Box::new(
             PgError::error(format!(
@@ -1208,7 +1329,10 @@ fn fc_test_wchars_to_text(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
             }
             wchars.push(d.as_i32() as wchar::pg_wchar);
         }
-        ::mcx::std_vec_from_slice("src", &mbutils::pg_encoding_wchar2mb_with_len(mcx, encoding, &wchars)?)?
+        ::mcx::std_vec_from_slice(
+            "src",
+            &mbutils::pg_encoding_wchar2mb_with_len(mcx, encoding, &wchars)?,
+        )?
     } else {
         Vec::new()
     };
@@ -1217,10 +1341,15 @@ fn fc_test_wchars_to_text(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
 
 /* =================== test_valid_server_encoding(text) ==================== */
 
-fn fc_test_valid_server_encoding(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_test_valid_server_encoding(
+    _f: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     // SAFETY: strict fn, text arg.
     let name = unsafe { arg_text_cstr(fcinfo, 0) }?;
-    Ok(Datum::from_bool(mbutils::pg_valid_server_encoding_bytes(name) >= 0))
+    Ok(Datum::from_bool(
+        mbutils::pg_valid_server_encoding_bytes(name) >= 0,
+    ))
 }
 
 /* ==================== binary_coercible(oid, oid) ========================= */
@@ -1228,7 +1357,9 @@ fn fc_test_valid_server_encoding(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
 fn fc_binary_coercible(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let srctype = fcinfo.arg_oid(0);
     let targettype = fcinfo.arg_oid(1);
-    Ok(Datum::from_bool(coerce::IsBinaryCoercible(srctype, targettype)?))
+    Ok(Datum::from_bool(coerce::IsBinaryCoercible(
+        srctype, targettype,
+    )?))
 }
 
 /* ======================= trigger_return_old() ============================ */
@@ -1237,7 +1368,9 @@ fn fc_trigger_return_old(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     // SAFETY: a T_TRIGGER_DATA-tagged context is the live TriggerData the
     // trigger manager armed for this call.
     let Some(trigdata) = (unsafe { types_trigger_call::trigger_data_from_fcinfo(fcinfo) }) else {
-        return Err(err("trigger_return_old: not fired by trigger manager".to_string()));
+        return Err(err(
+            "trigger_return_old: not fired by trigger manager".to_string()
+        ));
     };
     Ok(Datum::from_usize(
         trigdata.tg_trigtuple.map_or(0, |p| p.as_ptr() as usize),
@@ -1352,7 +1485,10 @@ fn fc_test_pglz_decompress(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
 
 // BRIN inclusion add_value (support proc 2) for a point column summarized as a
 // box (opclass STORAGE box): an extension proc 2 that is not the core one.
-fn fc_test_brin_point_box_add_value(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_test_brin_point_box_add_value(
+    _f: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo,
+) -> PgResult<Datum> {
     const UNION: usize = 0;
     const UNMERGEABLE: usize = 1;
     const CONTAINS_EMPTY: usize = 2;
@@ -1441,7 +1577,10 @@ mod tests {
     #[test]
     fn get_environ_copies_non_utf8_bytes() {
         use std::os::unix::ffi::OsStringExt;
-        std::env::set_var("PGRUST_B68_RAW", std::ffi::OsString::from_vec(vec![b'a', 0xff, b'b']));
+        std::env::set_var(
+            "PGRUST_B68_RAW",
+            std::ffi::OsString::from_vec(vec![b'a', 0xff, b'b']),
+        );
         let entries = super::environ_entries();
         assert!(entries.iter().any(|e| e == b"PGRUST_B68_RAW=a\xffb"));
     }
@@ -1467,7 +1606,9 @@ mod tests {
             fci.set_arg(0, Datum::from_usize(image.as_ptr() as usize));
             let d = fc_test_canonicalize_path(None, &mut fci).unwrap();
             // SAFETY: a 4B-header varlena result left in the armed context.
-            unsafe { VarlenaRef::from_ptr(d.as_u64() as usize as *const u8) }.data().to_vec()
+            unsafe { VarlenaRef::from_ptr(d.as_u64() as usize as *const u8) }
+                .data()
+                .to_vec()
         };
         assert_eq!(canon(b"\xff//x"), b"\xff/x");
         assert_eq!(canon(b"a//b/\0dropped"), b"a/b");
@@ -1475,7 +1616,9 @@ mod tests {
             let image = text(input);
             let mut fci = fmgr::LocalFcinfo::<1>::new(0);
             fci.set_arg(0, Datum::from_usize(image.as_ptr() as usize));
-            fc_test_valid_server_encoding(None, &mut fci).unwrap().as_bool()
+            fc_test_valid_server_encoding(None, &mut fci)
+                .unwrap()
+                .as_bool()
         };
         assert!(valid(b"UTF8\0x"));
         assert!(!valid(b"UTF8x"));
@@ -1500,7 +1643,10 @@ mod tests {
         fci.set_arg(0, Datum::from_usize(name.as_ptr() as usize));
         fci.set_arg(1, Datum::from_usize(value.as_ptr() as usize));
         let e = fc_regress_setenv(None, &mut fci).unwrap_err();
-        assert_eq!(e.message(), "could not set environment variable: Invalid argument");
+        assert_eq!(
+            e.message(),
+            "could not set environment variable: Invalid argument"
+        );
     }
 
     #[test]
@@ -1529,8 +1675,11 @@ mod tests {
             fci.set_arg(0, Datum::from_usize(cstr.as_ptr() as usize));
             let d = fc_int44in(None, &mut fci).unwrap();
             // SAFETY: a 16-byte by-ref result left in the armed context.
-            let image = unsafe { core::slice::from_raw_parts(d.as_u64() as usize as *const u8, 16) };
-            core::array::from_fn(|j| i32::from_ne_bytes(image[j * 4..j * 4 + 4].try_into().unwrap()))
+            let image =
+                unsafe { core::slice::from_raw_parts(d.as_u64() as usize as *const u8, 16) };
+            core::array::from_fn(|j| {
+                i32::from_ne_bytes(image[j * 4..j * 4 + 4].try_into().unwrap())
+            })
         };
         assert_eq!(parse(b"1, 2,3,4"), [1, 2, 3, 4]);
         // strtol saturates at LONG_MAX/LONG_MIN before the (int) store.
@@ -1569,8 +1718,13 @@ mod tests {
         assert_eq!(call("pg_encoding_mblen", "GB18030", 2).unwrap(), 1);
         for f in ["pg_mblen_range", "pg_mblen_with_len"] {
             let err = call(f, "UTF8", 3).unwrap_err();
-            assert_eq!(err.sqlstate(), ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
-            assert!(err.message().starts_with("invalid byte sequence for encoding"));
+            assert_eq!(
+                err.sqlstate(),
+                ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+            );
+            assert!(err
+                .message()
+                .starts_with("invalid byte sequence for encoding"));
             assert_eq!(call(f, "UTF8", 2).unwrap(), 1);
         }
     }
@@ -1621,7 +1775,9 @@ mod tests {
         }
         fn payload(d: Datum) -> Vec<u8> {
             // SAFETY: a 4B-header varlena result left in the armed context.
-            unsafe { VarlenaRef::from_ptr(d.as_u64() as usize as *const u8) }.data().to_vec()
+            unsafe { VarlenaRef::from_ptr(d.as_u64() as usize as *const u8) }
+                .data()
+                .to_vec()
         }
         let ctx = MemoryContext::new("t");
         let compress = |input: &[u8]| -> Option<Vec<u8>> {
@@ -1662,7 +1818,10 @@ mod tests {
         failed(decompress(b"\x01", 1024, true));
         // regress.c:1226: rawsize + VARHDRSZ wraps in int32 and sign-extends.
         let e = decompress(b"\x00", i32::MAX, false).unwrap_err();
-        assert_eq!(e.message(), "invalid memory alloc request size 18446744071562067971");
+        assert_eq!(
+            e.message(),
+            "invalid memory alloc request size 18446744071562067971"
+        );
         // Set control bit with read of a match tag, 1 byte follows.
         failed(decompress(b"\x01\xff", 1024, false));
         failed(decompress(b"\x01\xff", 1024, true));
@@ -1674,18 +1833,42 @@ mod tests {
     #[test]
     fn lookup_covers_every_regress_symbol() {
         for sym in [
-            "interpt_pp", "overpaid", "widget_in", "widget_out", "pt_in_widget",
-            "reverse_name", "trigger_return_old", "int44in", "int44out",
-            "test_canonicalize_path", "make_tuple_indirect", "get_environ",
-            "regress_setenv", "wait_pid", "test_atomic_ops", "test_fdw_handler",
-            "is_catalog_text_unique_index_oid", "test_support_func",
-            "test_opclass_options_func", "test_enc_setup", "test_enc_conversion",
-            "test_bytea_to_text", "test_text_to_bytea", "test_mblen_func",
-            "test_text_to_wchars", "test_wchars_to_text",
-            "test_valid_server_encoding", "binary_coercible", "test_relpath",
-            "test_pglz_compress", "test_pglz_decompress",
+            "interpt_pp",
+            "overpaid",
+            "widget_in",
+            "widget_out",
+            "pt_in_widget",
+            "reverse_name",
+            "trigger_return_old",
+            "int44in",
+            "int44out",
+            "test_canonicalize_path",
+            "make_tuple_indirect",
+            "get_environ",
+            "regress_setenv",
+            "wait_pid",
+            "test_atomic_ops",
+            "test_fdw_handler",
+            "is_catalog_text_unique_index_oid",
+            "test_support_func",
+            "test_opclass_options_func",
+            "test_enc_setup",
+            "test_enc_conversion",
+            "test_bytea_to_text",
+            "test_text_to_bytea",
+            "test_mblen_func",
+            "test_text_to_wchars",
+            "test_wchars_to_text",
+            "test_valid_server_encoding",
+            "binary_coercible",
+            "test_relpath",
+            "test_pglz_compress",
+            "test_pglz_decompress",
         ] {
-            assert!(lookup(sym).is_some(), "regress symbol {sym} missing from lookup");
+            assert!(
+                lookup(sym).is_some(),
+                "regress symbol {sym} missing from lookup"
+            );
         }
         assert!(lookup("nosuchsymbol").is_none());
     }
@@ -1698,8 +1881,11 @@ mod tests {
         init_small::globals::set_pkglib_path(pkglib);
         assert!(dfmgr::load_external_function("$libdir/regress", "binary_coercible", true).is_ok());
         assert!(dfmgr::load_external_function("regress", "binary_coercible", true).is_ok());
-        let err = dfmgr::load_external_function("/x/y/regress.so", "binary_coercible", true).unwrap_err();
-        assert!(err.message().contains("could not access file \"/x/y/regress.so\""));
+        let err =
+            dfmgr::load_external_function("/x/y/regress.so", "binary_coercible", true).unwrap_err();
+        assert!(err
+            .message()
+            .contains("could not access file \"/x/y/regress.so\""));
     }
 
     /// wait_pid's poll loop: a pending interrupt routes through the ported
@@ -1748,7 +1934,8 @@ mod tests {
                 assert_eq!(pid, target);
                 probes += 1;
                 probes < 4
-            }).unwrap();
+            })
+            .unwrap();
             assert_eq!(probes, 4);
         }
     }
@@ -1818,7 +2005,11 @@ mod tests {
         };
         assert_eq!(s.lock.tas(), 0, "S_LOCK on a free lock");
         assert_ne!(s.lock.tas(), 0, "acquired already held spinlock (TAS)");
-        assert_ne!(s.lock.tas_spin(), 0, "acquired already held spinlock (TAS_SPIN)");
+        assert_ne!(
+            s.lock.tas_spin(),
+            0,
+            "acquired already held spinlock (TAS_SPIN)"
+        );
         s.lock.unlock();
         assert!(s.lock.is_free());
         assert_eq!(&s.data_before, b"abcd", "padding before spinlock modified");
@@ -1830,7 +2021,10 @@ mod tests {
         use ::types_error::ERRCODE_INVALID_PARAMETER_VALUE;
         let src = invalid_encoding_name_error("source", b"no_such_enc");
         assert_eq!(src.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
-        assert_eq!(src.message(), "invalid source encoding name \"no_such_enc\"");
+        assert_eq!(
+            src.message(),
+            "invalid source encoding name \"no_such_enc\""
+        );
         let dest = invalid_encoding_name_error("destination", b"no_such_enc");
         assert_eq!(dest.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
         assert_eq!(
@@ -1839,7 +2033,10 @@ mod tests {
         );
         // regress.c:884-886 echoes the raw NameStr bytes.
         let raw = invalid_encoding_name_error("source", b"x\xff");
-        assert_eq!(raw.message_raw.as_deref(), Some(&b"invalid source encoding name \"x\xff\""[..]));
+        assert_eq!(
+            raw.message_raw.as_deref(),
+            Some(&b"invalid source encoding name \"x\xff\""[..])
+        );
     }
 
     // regress.c:196-198 echoes the raw input bytes; a 63-byte name whose
@@ -1862,7 +2059,7 @@ mod tests {
         );
 
         let mut name = b"UTF8".to_vec();
-        name.extend(std::iter::repeat_n(b' ',58));
+        name.extend(std::iter::repeat_n(b' ', 58));
         name.push(0xff);
         assert_eq!(name.len(), 63);
         assert!(mbutils::pg_char_to_encoding_bytes(&name) >= 0);

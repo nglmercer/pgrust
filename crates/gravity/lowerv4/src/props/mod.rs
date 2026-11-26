@@ -3,6 +3,8 @@
 pub(crate) mod code;
 mod ops;
 mod props;
-pub use props::*;
-pub(crate) use crate::ops::append::merge_admit::{arms_admit, incremental_admit, merge_cap, merge_pull, ops_can_raise, pure_given, Merge};
+pub(crate) use crate::ops::append::merge_admit::{
+    arms_admit, incremental_admit, merge_cap, merge_pull, ops_can_raise, pure_given, Merge,
+};
 pub(crate) use crate::ops::group::regroup::fed_in_order;
+pub use props::*;

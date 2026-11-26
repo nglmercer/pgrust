@@ -14,30 +14,29 @@
 //! query trigrams (and graph) across calls.
 //!
 
-mod settings;
 pub mod gist;
 pub mod regexp;
+mod settings;
 pub mod trgm;
 
 use datum::Datum;
-use mcx::MemoryContext;
 use gin_vocab::TrgmPackedGraph;
+use mcx::MemoryContext;
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use types_fmgr::{
-    byref_result, varlena_result, FmgrInfo, FnExtra, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
+    byref_result, varlena_result, FmgrInfo, FnExtra, FunctionCallInfoBaseData as Fcinfo, PGFunction,
 };
 use types_gist::{GistEntryVector, GistSplitVec, GISTENTRY};
 use types_tuple::varatt;
 
 use gist::{
-    SIGLEN_DEFAULT, SIGLEN_MAX, EQUAL_STRATEGY, ILIKE_STRATEGY, LIKE_STRATEGY,
-    REGEXP_ICASE_STRATEGY, REGEXP_STRATEGY, SIMILARITY_STRATEGY,
-    STRICT_WORD_SIMILARITY_STRATEGY, WORD_SIMILARITY_STRATEGY,
+    EQUAL_STRATEGY, ILIKE_STRATEGY, LIKE_STRATEGY, REGEXP_ICASE_STRATEGY, REGEXP_STRATEGY,
+    SIGLEN_DEFAULT, SIGLEN_MAX, SIMILARITY_STRATEGY, STRICT_WORD_SIMILARITY_STRATEGY,
+    WORD_SIMILARITY_STRATEGY,
 };
 use trgm::{
-    calc_word_similarity, cnt_sml, generate_trgm, generate_wildcard_trgm, trgm2int, Trgm,
-    TrgmEnv, WORD_SIMILARITY_CHECK_ONLY, WORD_SIMILARITY_STRICT,
+    calc_word_similarity, cnt_sml, generate_trgm, generate_wildcard_trgm, trgm2int, Trgm, TrgmEnv,
+    WORD_SIMILARITY_CHECK_ONLY, WORD_SIMILARITY_STRICT,
 };
 
 const LIBRARY: &str = "pg_trgm";
@@ -111,9 +110,7 @@ fn index_strategy_get_limit(strategy: u16) -> PgResult<f64> {
         WORD_SIMILARITY_STRATEGY => word_similarity_threshold(),
         STRICT_WORD_SIMILARITY_STRATEGY => strict_word_similarity_threshold(),
         other => {
-            return Err(
-                PgError::error(format!("unrecognized strategy number: {other}")).into(),
-            )
+            return Err(PgError::error(format!("unrecognized strategy number: {other}")).into())
         }
     })
 }
@@ -122,7 +119,7 @@ fn index_strategy_get_limit(strategy: u16) -> PgResult<f64> {
 // Scalar functions (trgm_op.c).
 // ===========================================================================
 
-fn text_args(fcinfo: & Fcinfo) -> PgResult<(& [u8], & [u8])> {
+fn text_args(fcinfo: &Fcinfo) -> PgResult<(&[u8], &[u8])> {
     // SAFETY: catalog args are non-null text varlenas (strict fns).
     let (a, b) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
     Ok((a.data(), b.data()))
@@ -158,14 +155,8 @@ fn fc_show_trgm(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datu
         let v = varlena::cstring_to_text(mcx, bytes)?;
         elems.push(varlena_result(v));
     }
-    let image = arrayfuncs::construct::construct_array(
-        mcx,
-        &elems,
-        types_core::TEXTOID,
-        -1,
-        false,
-        b'i',
-    )?;
+    let image =
+        arrayfuncs::construct::construct_array(mcx, &elems, types_core::TEXTOID, -1, false, b'i')?;
     let d = Datum::from_usize(image.as_ptr() as usize);
     core::mem::forget(image);
     Ok(d)
@@ -221,7 +212,11 @@ fn fc_word_similarity(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
 }
 
 fn fc_strict_word_similarity(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    Ok(Datum::from_f32(word_sim_value(fcinfo, false, WORD_SIMILARITY_STRICT)?))
+    Ok(Datum::from_f32(word_sim_value(
+        fcinfo,
+        false,
+        WORD_SIMILARITY_STRICT,
+    )?))
 }
 
 macro_rules! fc_word_ops {
@@ -314,13 +309,15 @@ fn trgm_extract_query(
             }
         }
         other => {
-            return Err(
-                PgError::error(format!("unrecognized strategy number: {other}")).into(),
-            )
+            return Err(PgError::error(format!("unrecognized strategy number: {other}")).into())
         }
     };
     let keys = keys_of(&trg);
-    let search_mode = if keys.is_empty() { GIN_SEARCH_MODE_ALL } else { 0 };
+    let search_mode = if keys.is_empty() {
+        GIN_SEARCH_MODE_ALL
+    } else {
+        0
+    };
     Ok((keys, search_mode, graph))
 }
 
@@ -354,9 +351,7 @@ fn trgm_consistent(
             }
         }
         other => {
-            return Err(
-                PgError::error(format!("unrecognized strategy number: {other}")).into(),
-            )
+            return Err(PgError::error(format!("unrecognized strategy number: {other}")).into())
         }
     };
     Ok((res, true))
@@ -403,9 +398,7 @@ fn trgm_triconsistent(
             }
         }
         other => {
-            return Err(
-                PgError::error(format!("unrecognized strategy number: {other}")).into(),
-            )
+            return Err(PgError::error(format!("unrecognized strategy number: {other}")).into())
         }
     })
 }
@@ -457,7 +450,9 @@ const TRGMGISTOPTIONS_SIGLEN_OFF: usize = 4;
 fn get_siglen(f: &Option<&mut FmgrInfo>) -> usize {
     match f.as_ref().and_then(|f| f.opclass_options()) {
         Some(img) => i32::from_ne_bytes(
-            img[TRGMGISTOPTIONS_SIGLEN_OFF..TRGMGISTOPTIONS_SIGLEN_OFF + 4].try_into().unwrap(),
+            img[TRGMGISTOPTIONS_SIGLEN_OFF..TRGMGISTOPTIONS_SIGLEN_OFF + 4]
+                .try_into()
+                .unwrap(),
         ) as usize,
         None => SIGLEN_DEFAULT,
     }
@@ -470,7 +465,10 @@ unsafe fn entry_arg<'a>(fcinfo: &Fcinfo, i: usize) -> &'a GISTENTRY {
 
 fn entry_result(fcinfo: &Fcinfo, e: &GISTENTRY) -> PgResult<Datum> {
     let bytes = unsafe {
-        core::slice::from_raw_parts((e as *const GISTENTRY).cast::<u8>(), core::mem::size_of::<GISTENTRY>())
+        core::slice::from_raw_parts(
+            (e as *const GISTENTRY).cast::<u8>(),
+            core::mem::size_of::<GISTENTRY>(),
+        )
     };
     byref_result(fcinfo.result_mcx(), bytes)
 }
@@ -488,7 +486,10 @@ fn detoasted_image<'m>(mcx: mcx::Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> {
             );
             let total = 4 + src.len();
             let mut buf: mcx::PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, total)?;
-            mcx::vec_append_bytes(&mut buf, &varatt::set_varsize_4b_word(total as u32).to_ne_bytes())?;
+            mcx::vec_append_bytes(
+                &mut buf,
+                &varatt::set_varsize_4b_word(total as u32).to_ne_bytes(),
+            )?;
             mcx::vec_append_bytes(&mut buf, src)?;
             let out = core::slice::from_raw_parts(buf.as_ptr(), buf.len());
             core::mem::forget(buf);
@@ -615,9 +616,10 @@ fn gtrgm_cached<'f>(
             | gist::STRICT_WORD_DISTANCE_STRATEGY => {
                 (Some(generate_trgm(payload, &env, &legacy_crc32)), None)
             }
-            LIKE_STRATEGY | ILIKE_STRATEGY => {
-                (Some(generate_wildcard_trgm(payload, &env, &legacy_crc32)), None)
-            }
+            LIKE_STRATEGY | ILIKE_STRATEGY => (
+                Some(generate_wildcard_trgm(payload, &env, &legacy_crc32)),
+                None,
+            ),
             REGEXP_STRATEGY | REGEXP_ICASE_STRATEGY => {
                 match regexp::create_trgm_nfa(payload, fcinfo.fncollation, &env, &legacy_crc32)? {
                     Some((trg, graph)) if !trg.is_empty() => (Some(trg), Some(graph)),
@@ -625,14 +627,12 @@ fn gtrgm_cached<'f>(
                 }
             }
             other => {
-                return Err(
-                    PgError::error(format!("unrecognized strategy number: {other}")).into(),
-                )
+                return Err(PgError::error(format!("unrecognized strategy number: {other}")).into())
             }
         };
         flinfo.fn_extra = Some(FnExtra::new(GtrgmCache {
             strategy,
-            query: ::mcx::std_vec_from_slice("pg_trgm",payload)?,
+            query: ::mcx::std_vec_from_slice("pg_trgm", payload)?,
             trigrams,
             graph,
         }));
@@ -652,14 +652,13 @@ fn fc_gtrgm_consistent(mut f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     let cache = gtrgm_cached(&mut f, fcinfo, strategy, false)?;
     let (res, rc) = match strategy {
         REGEXP_STRATEGY | REGEXP_ICASE_STRATEGY => {
-            let GtrgmCache { trigrams, graph, .. } = cache;
+            let GtrgmCache {
+                trigrams, graph, ..
+            } = cache;
             let res = match graph {
-                Some(graph) => gist::consistent_regexp(
-                    entry.page_is_leaf,
-                    &key,
-                    trigrams.as_deref(),
-                    graph,
-                )?,
+                Some(graph) => {
+                    gist::consistent_regexp(entry.page_is_leaf, &key, trigrams.as_deref(), graph)?
+                }
                 // Trigram-free query: recheck everywhere.
                 None => true,
             };
@@ -672,7 +671,10 @@ fn fc_gtrgm_consistent(mut f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
                 | STRICT_WORD_SIMILARITY_STRATEGY => index_strategy_get_limit(strategy)?,
                 _ => 0.0,
             };
-            let qtrg = cache.trigrams.as_deref().expect("non-regexp cache has trigrams");
+            let qtrg = cache
+                .trigrams
+                .as_deref()
+                .expect("non-regexp cache has trigrams");
             gist::consistent(entry.page_is_leaf, &key, qtrg, strategy, nlimit)?
         }
     };
@@ -688,7 +690,10 @@ fn fc_gtrgm_distance(mut f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     let strategy = fcinfo.arg(2).as_u32() as u16;
     let key = gist::decode_key(key_image(entry.key))?;
     let cache = gtrgm_cached(&mut f, fcinfo, strategy, true)?;
-    let qtrg = cache.trigrams.as_deref().expect("distance cache has trigrams");
+    let qtrg = cache
+        .trigrams
+        .as_deref()
+        .expect("distance cache has trigrams");
     let (res, rc) = gist::distance(entry.page_is_leaf, &key, qtrg, strategy)?;
     let recheck = fcinfo.arg(4).as_usize() as *mut bool;
     // SAFETY: recheck out-param live in the caller frame.
@@ -831,12 +836,10 @@ pub fn init_seams() {
         get: gucs::word_similarity_threshold,
         set: gucs::set_word_similarity_threshold,
     });
-    guc_tables::vars::pg_trgm_strict_word_similarity_threshold.install_if_absent(
-        GucVarAccessors {
-            get: gucs::strict_word_similarity_threshold,
-            set: gucs::set_strict_word_similarity_threshold,
-        },
-    );
+    guc_tables::vars::pg_trgm_strict_word_similarity_threshold.install_if_absent(GucVarAccessors {
+        get: gucs::strict_word_similarity_threshold,
+        set: gucs::set_strict_word_similarity_threshold,
+    });
     dfmgr::register_builtin_library(dfmgr::BuiltinLibraryEntry {
         name: LIBRARY,
         lookup,

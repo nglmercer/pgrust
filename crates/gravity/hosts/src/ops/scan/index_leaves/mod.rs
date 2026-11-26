@@ -37,10 +37,14 @@ use types_scan::scankey::ScanKeyData;
 use types_scan::sdir::ForwardScanDirection;
 use types_storage::bufpage::PageRef;
 use types_storage::RelFileLocator;
-use types_tuple::itemptr::{ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumber};
+use types_tuple::itemptr::{
+    ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumber,
+};
 
 use crate::ops::scan::bitmap_leaves::SharedScanKey;
-use crate::ops::scan::heap_source::{charged_scratch, HeapRangeSource, HeldCharge, HeldOwner, RangeRecipe, SampleFilter};
+use crate::ops::scan::heap_source::{
+    charged_scratch, HeapRangeSource, HeldCharge, HeldOwner, RangeRecipe, SampleFilter,
+};
 use crate::ops::scan::index_window::IosBatch;
 use crate::ops::scan::tid_pages::TidPages;
 use crate::scratch::NodeScratch;
@@ -114,47 +118,117 @@ impl LeafRecipe {
     /// is order-free, the pool walks forward), every key a plain key a thread rebuilds (no row comparison, no ORDER BY
     /// operator; arrays and NULL tests are nbtree's own), table columns only, over relations the heap range source reads
     /// by locator (not temporary).
-    pub fn of(r: &crate::ops::scan::index_source::SiteRecipe, heap: &Relation<'_>, index: &Relation<'_>) -> PgResult<Option<LeafRecipe>> {
-        if !r.only || index.rd_rel.relam != crate::ops::scan::index_source::BTREE_AM_OID || r.am.is_some() || !r.rows.is_empty() || heap.uses_local_buffers() || index.uses_local_buffers() {
+    pub fn of(
+        r: &crate::ops::scan::index_source::SiteRecipe,
+        heap: &Relation<'_>,
+        index: &Relation<'_>,
+    ) -> PgResult<Option<LeafRecipe>> {
+        if !r.only
+            || index.rd_rel.relam != crate::ops::scan::index_source::BTREE_AM_OID
+            || r.am.is_some()
+            || !r.rows.is_empty()
+            || heap.uses_local_buffers()
+            || index.uses_local_buffers()
+        {
             return Ok(None);
         }
-        if r.attnos.iter().any(|&a| a < 1) || r.keys[..r.nkeys].iter().any(|k| SharedScanKey::of(k).is_none()) || r.words.iter().any(|w| !matches!(w, crate::ops::scan::index_source::KeyWord::Key(_))) {
+        if r.attnos.iter().any(|&a| a < 1)
+            || r.keys[..r.nkeys]
+                .iter()
+                .any(|k| SharedScanKey::of(k).is_none())
+            || r.words
+                .iter()
+                .any(|w| !matches!(w, crate::ops::scan::index_source::KeyWord::Key(_)))
+        {
             return Ok(None);
         }
-        let (index_attnums, names) = crate::ops::scan::indexonly::index_attnums(index, heap, &r.attnos, &[])?;
+        let (index_attnums, names) =
+            crate::ops::scan::indexonly::index_attnums(index, heap, &r.attnos, &[])?;
         let range = RangeRecipe::from_plan(heap, &r.attnos)?;
         let byref = crate::ops::scan::index_window::byref_of(heap, &r.attnos);
-        Ok(Some(LeafRecipe { range, heap: heap.rd_id, index: r.index, attnos: r.attnos.clone(), index_attnums, names, byref, heap_fetches: r.heap_fetch_cell() }))
+        Ok(Some(LeafRecipe {
+            range,
+            heap: heap.rd_id,
+            index: r.index,
+            attnos: r.attnos.clone(),
+            index_attnums,
+            names,
+            byref,
+            heap_fetches: r.heap_fetch_cell(),
+        }))
     }
 
     /// One run's shared walk over `index` with `keys` (`SiteRecipe::bind_keys`: the recipe's keys bound to the run's key
     /// words; a by-reference argument's image lives as long as the execution), for the leader and the pool:
     /// `None` when it does not hold: not imageable, a function it or a key calls not pool-hosted, or a SERIALIZABLE
     /// transaction (the image takes no predicate lock). The leader's thread, when the pipeline's run starts.
-    pub fn capture(&self, index: &Relation<'_>, heap: &Relation<'_>, keys: &[ScanKeyData], snapshot: &std::rc::Rc<types_snapshot::SnapshotData<'static>>, in_recovery: bool) -> PgResult<Option<Arc<Filed>>> {
-        if xact_seams::isolation_is_serializable::is_installed() && xact_seams::isolation_is_serializable::call() {
+    pub fn capture(
+        &self,
+        index: &Relation<'_>,
+        heap: &Relation<'_>,
+        keys: &[ScanKeyData],
+        snapshot: &std::rc::Rc<types_snapshot::SnapshotData<'static>>,
+        in_recovery: bool,
+    ) -> PgResult<Option<Arc<Filed>>> {
+        if xact_seams::isolation_is_serializable::is_installed()
+            && xact_seams::isolation_is_serializable::call()
+        {
             return Ok(None);
         }
-        let Some(images) = keys.iter().map(SharedScanKey::of).collect::<Option<Vec<SharedScanKey>>>() else { return Ok(None) }; // alloc: Exec
-        if !images.iter().all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func)) {
+        let Some(images) = keys
+            .iter()
+            .map(SharedScanKey::of)
+            .collect::<Option<Vec<SharedScanKey>>>()
+        else {
+            return Ok(None);
+        }; // alloc: Exec
+        if !images
+            .iter()
+            .all(|k| k.func == 0 || gravity_fn::session::pool_hosted(k.func))
+        {
             return Ok(None);
         }
-        let Some(img) = nbtree::IndexImage::capture(index)? else { return Ok(None) };
+        let Some(img) = nbtree::IndexImage::capture(index)? else {
+            return Ok(None);
+        };
         if !img.proc_oids().all(gravity_fn::session::pool_hosted) {
             return Ok(None);
         }
-        let shared = Arc::new(types_relscan::ParallelIndexScanDescShared { // alloc: Exec
+        let shared = Arc::new(types_relscan::ParallelIndexScanDescShared {
+            // alloc: Exec
             ps_locator: img.locator(),
             ps_indexlocator: img.locator(),
             snapshot: snapmgr::SerializeSnapshot(snapshot),
-            am: types_relscan::ParallelIndexAmShared::Btree(types_relscan::BTParallelScanShared::new()),
+            am: types_relscan::ParallelIndexAmShared::Btree(
+                types_relscan::BTParallelScanShared::new(),
+            ),
         });
         let permanent = heap.rd_rel.relpersistence == types_core::RELPERSISTENCE_PERMANENT;
-        let vm = (heap.rd_locator.get(), permanent, visibilitymap::vm_nblocks(heap)?);
-        let stats = index.pgstat_enabled.get().then_some(index.rd_rel.relisshared);
+        let vm = (
+            heap.rd_locator.get(),
+            permanent,
+            visibilitymap::vm_nblocks(heap)?,
+        );
+        let stats = index
+            .pgstat_enabled
+            .get()
+            .then_some(index.rd_rel.relisshared);
         let kill = !in_recovery && heapam::relation_needs_wal(index);
-        let horizon = if kill { procarray_seams::get_oldest_non_removable_transaction_id::call(heap)? } else { types_core::InvalidTransactionId };
-        Ok(Some(Arc::new(Filed { img: Arc::new(img), shared, keys: images, in_recovery, vm, stats, kill, horizon }))) // alloc: Exec
+        let horizon = if kill {
+            procarray_seams::get_oldest_non_removable_transaction_id::call(heap)?
+        } else {
+            types_core::InvalidTransactionId
+        };
+        Ok(Some(Arc::new(Filed {
+            img: Arc::new(img),
+            shared,
+            keys: images,
+            in_recovery,
+            vm,
+            stats,
+            kill,
+            horizon,
+        }))) // alloc: Exec
     }
 }
 
@@ -199,11 +273,17 @@ impl SampleFilter for LeafTids {
         vis.len()
     }
 
-    fn keep_page(&mut self, blk: BlockNumber, page: PageRef<'_>, vis: &mut [u16]) -> PgResult<usize> {
+    fn keep_page(
+        &mut self,
+        blk: BlockNumber,
+        page: PageRef<'_>,
+        vis: &mut [u16],
+    ) -> PgResult<usize> {
         if self.room == 0 {
             return self.pages.keep_page(page, vis);
         }
-        self.pages.keep_page_dead(blk, page, vis, self.horizon, &mut self.dead, self.room)
+        self.pages
+            .keep_page_dead(blk, page, vis, self.horizon, &mut self.dead, self.room)
     }
 }
 
@@ -273,8 +353,37 @@ const HEAP_BATCH: usize = crate::ops::scan::index_window::IOS_MAX_ROWS;
 
 impl LeafSource {
     pub fn new(r: &LeafRecipe, site: usize, worker: bool) -> LeafSource {
-        let heap = HeapRangeSource::with_sample(r.range.clone(), LeafTids { pages: TidPages::new(), dead: Vec::new(), room: 0, horizon: types_core::InvalidTransactionId }).serving_worker(); // alloc: Node
-        LeafSource { site, worker, recipe: r.clone(), cell: None, filed: None, view: None, batch: Some(IosBatch::with_byref(r.byref.clone(), &r.attnos, None, None)), name_bufs: vec![0; r.attnos.len() * crate::ops::scan::indexonly::NAMEDATALEN], heap, phase: Phase::Index, done: false, cur: Cursor::default(), counts: (0, 0, 0, 0), stats: None, fetches: 0, tags: Vec::new(), leaves: Vec::new(), cands: memledger::ChargedVec::none(), held: None } // alloc: Node
+        let heap = HeapRangeSource::with_sample(
+            r.range.clone(),
+            LeafTids {
+                pages: TidPages::new(),
+                dead: Vec::new(),
+                room: 0,
+                horizon: types_core::InvalidTransactionId,
+            },
+        )
+        .serving_worker(); // alloc: Node
+        LeafSource {
+            site,
+            worker,
+            recipe: r.clone(),
+            cell: None,
+            filed: None,
+            view: None,
+            batch: Some(IosBatch::with_byref(r.byref.clone(), &r.attnos, None, None)),
+            name_bufs: vec![0; r.attnos.len() * crate::ops::scan::indexonly::NAMEDATALEN],
+            heap,
+            phase: Phase::Index,
+            done: false,
+            cur: Cursor::default(),
+            counts: (0, 0, 0, 0),
+            stats: None,
+            fetches: 0,
+            tags: Vec::new(),
+            leaves: Vec::new(),
+            cands: memledger::ChargedVec::none(),
+            held: None,
+        } // alloc: Node
     }
 
     /// At a window's start: the view goes when it is another thread's or another execution's (a claim may move between
@@ -283,7 +392,11 @@ impl LeafSource {
     fn check_view(&mut self) {
         let me = std::thread::current().id();
         let filed = self.filed.as_ref();
-        if self.view.as_ref().is_some_and(|v| v.thread != me || !filed.is_some_and(|f| Arc::ptr_eq(&v.filed, f))) {
+        if self
+            .view
+            .as_ref()
+            .is_some_and(|v| v.thread != me || !filed.is_some_and(|f| Arc::ptr_eq(&v.filed, f)))
+        {
             self.drop_view();
         }
     }
@@ -292,7 +405,9 @@ impl LeafSource {
     /// the thread, its keys rebuilt here and the scan joined to the shared state.
     fn view(&mut self, owner: HeldOwner) -> PgResult<&mut View> {
         if self.view.is_none() {
-            let filed = self.filed.clone().ok_or_else(|| crate::pg_err("gravity: a leaf walk without its execution's image"))?;
+            let filed = self.filed.clone().ok_or_else(|| {
+                crate::pg_err("gravity: a leaf walk without its execution's image")
+            })?;
             let me = std::thread::current().id();
             let scratch = NodeScratch::new("GravityIndexLeaves");
             let mcx = scratch.mcx();
@@ -305,7 +420,7 @@ impl LeafSource {
             let mut keys = charged_scratch::<ScanKeyData>(owner);
             keys.with_vec(|v| -> PgResult<()> {
                 v.reserve_exact(filed.keys.len()); // alloc: Node charged owner
-                // bounded("key-columns: one scan key per index key column, at most INDEX_MAX_KEYS (32); PG's btrescan copies them with no poll")
+                                                   // bounded("key-columns: one scan key per index key column, at most INDEX_MAX_KEYS (32); PG's btrescan copies them with no poll")
                 for k in filed.keys.iter() {
                     v.push(SharedScanKey::key(k)?); // alloc: Node charged owner
                 }
@@ -316,14 +431,23 @@ impl LeafSource {
                 nbtree::bt_scan_lsn_with_pin(&mut scan);
             }
             self.stats = filed.stats.map(|shared| (filed.img.oid(), shared));
-            self.view = Some(View { scan, vm: visibilitymap::VmBuffer::new(), rel, filed, thread: me, _scratch: scratch });
+            self.view = Some(View {
+                scan,
+                vm: visibilitymap::VmBuffer::new(),
+                rel,
+                filed,
+                thread: me,
+                _scratch: scratch,
+            });
         }
         Ok(self.view.as_mut().expect("built"))
     }
 
     /// The view ended: its scan closed on the thread that built it (a pin is that thread's), its counts taken.
     fn drop_view(&mut self) {
-        let Some(mut v) = self.view.take() else { return };
+        let Some(mut v) = self.view.take() else {
+            return;
+        };
         self.counts.0 += v.scan.xs_pgstat.take_detached_scans();
         self.counts.2 += v.rel.blocks_fetched();
         self.counts.3 += v.rel.blocks_hit();
@@ -343,8 +467,16 @@ impl LeafSource {
 
     /// The walk's next entry the map vouches for, its cells into `vals` / `nulls`; the others' TIDs into the heap
     /// batch until it is full. `None` when the shared scan ended or the heap batch is full.
-    fn next_visible(&mut self, vals: &mut [Word], nulls: &mut [u8], owner: HeldOwner) -> PgResult<Option<ScanPos>> {
-        let filed = self.filed.as_ref().ok_or_else(|| crate::pg_err("gravity: a leaf walk without its execution's image"))?;
+    fn next_visible(
+        &mut self,
+        vals: &mut [Word],
+        nulls: &mut [u8],
+        owner: HeldOwner,
+    ) -> PgResult<Option<ScanPos>> {
+        let filed = self
+            .filed
+            .as_ref()
+            .ok_or_else(|| crate::pg_err("gravity: a leaf walk without its execution's image"))?;
         let ((loc, permanent, vm_blocks), kill) = (filed.vm, filed.kill);
         let heap_oid = self.recipe.heap;
         // bounded("small-fixed: every pass but the last files one TID into the heap batch, which is full at HEAP_BATCH (IOS_MAX_ROWS: MaxIndexTuplesPerPage, 408 at 8 K pages)")
@@ -352,7 +484,10 @@ impl LeafSource {
             if self.done || self.heap.sample_mut().pages.len() >= HEAP_BATCH {
                 return Ok(None);
             }
-            let stepped = self.view(owner).and_then(|v| nbtree::btgettuple_over(&mut v.scan, &v.rel, ForwardScanDirection).map(|got| (got, v.scan.xs_heaptid)));
+            let stepped = self.view(owner).and_then(|v| {
+                nbtree::btgettuple_over(&mut v.scan, &v.rel, ForwardScanDirection)
+                    .map(|got| (got, v.scan.xs_heaptid))
+            });
             let (got, tid) = match stepped {
                 Ok(x) => x,
                 Err(e) => {
@@ -374,7 +509,9 @@ impl LeafSource {
             self.counts.1 += 1;
             let block = ItemPointerGetBlockNumber(&tid);
             let v = self.view.as_mut().expect("built");
-            let visible = match visibilitymap::vm_all_visible_by_locator(loc, permanent, vm_blocks, block, &mut v.vm) {
+            let visible = match visibilitymap::vm_all_visible_by_locator(
+                loc, permanent, vm_blocks, block, &mut v.vm,
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     v.filed.abort();
@@ -390,7 +527,9 @@ impl LeafSource {
                 continue;
             }
             let v = self.view.as_ref().expect("built");
-            let Some(row) = crate::ops::scan::raw::OnlyRow::of(&v.scan) else { return Err(crate::pg_err("gravity: the index returned no tuple image")) };
+            let Some(row) = crate::ops::scan::raw::OnlyRow::of(&v.scan) else {
+                return Err(crate::pg_err("gravity: the index returned no tuple image"));
+            };
             // bounded("key-columns: one cell per output column read from the index tuple, at most INDEX_MAX_KEYS (32) columns")
             for (k, &attnum) in self.recipe.index_attnums.iter().enumerate() {
                 let mut null = false;
@@ -409,7 +548,11 @@ impl LeafSource {
                     vals[k] = buf.as_ptr() as u64;
                 }
             }
-            return Ok(Some(ScanPos::row(heap_oid, block, ItemPointerGetOffsetNumber(&tid))));
+            return Ok(Some(ScanPos::row(
+                heap_oid,
+                block,
+                ItemPointerGetOffsetNumber(&tid),
+            )));
         }
     }
 }
@@ -418,28 +561,46 @@ impl LeafSource {
     /// The heap-bound entry the walk returned last: its leaf position beside its TID (`tags`, `leaves`).
     fn tag(&mut self, tid: ItemPointerData) {
         let Some(v) = self.view.as_ref() else { return };
-        let Some((leaf, off, lsn)) = nbtree::bt_scan_entry(&v.scan) else { return };
+        let Some((leaf, off, lsn)) = nbtree::bt_scan_entry(&v.scan) else {
+            return;
+        };
         if self.leaves.last() != Some(&(leaf, lsn)) {
             self.leaves.push((leaf, lsn)); // alloc: Node
         }
-        self.tags.push((tid_key(&tid), ((self.leaves.len() - 1) as u64) << 16 | off as u64)); // alloc: Node
+        self.tags.push((
+            tid_key(&tid),
+            ((self.leaves.len() - 1) as u64) << 16 | off as u64,
+        )); // alloc: Node
     }
 
     /// A heap batch is over (`all`: the claim too): each dead TID its read found becomes a candidate with its leaf
     /// position, the batch's tags go, and the candidates of every leaf the walk has left are marked on this thread
     /// (`mark`); the leaf the walk is still on keeps its own for the next batch, unless `all` or the walk ended.
     fn settle(&mut self, all: bool) {
-        let on = if all || self.done { None } else { self.leaves.last().copied() };
+        let on = if all || self.done {
+            None
+        } else {
+            self.leaves.last().copied()
+        };
         let dead = &mut self.heap.sample_mut().dead;
         if !dead.is_empty() {
             // bounded("small-fixed: one heap batch's tags, at most HEAP_BATCH (MaxIndexTuplesPerPage, 408 at 8 K pages), an integer sort")
             self.tags.sort_unstable_by_key(|t| t.0);
             // bounded("small-fixed: one heap batch's dead TIDs, at most HEAP_BATCH (MaxIndexTuplesPerPage, 408 at 8 K pages), a binary search each")
             for tid in dead.drain(..) {
-                let Ok(i) = self.tags.binary_search_by_key(&tid_key(&tid), |t| t.0) else { continue };
+                let Ok(i) = self.tags.binary_search_by_key(&tid_key(&tid), |t| t.0) else {
+                    continue;
+                };
                 let tag = self.tags[i].1;
                 let (leaf, lsn) = self.leaves[(tag >> 16) as usize];
-                self.cands.with_vec(|c| c.push(Cand { tid, leaf, off: tag as u16, lsn })); // alloc: Node charged owner
+                self.cands.with_vec(|c| {
+                    c.push(Cand {
+                        tid,
+                        leaf,
+                        off: tag as u16,
+                        lsn,
+                    })
+                }); // alloc: Node charged owner
             }
         }
         self.tags.clear();
@@ -459,11 +620,18 @@ impl LeafSource {
             return;
         };
         let held = self.held;
-        let mut cands = core::mem::replace(&mut self.cands, crate::ops::scan::heap_source::charged_scratch(held));
+        let mut cands = core::mem::replace(
+            &mut self.cands,
+            crate::ops::scan::heap_source::charged_scratch(held),
+        );
         // bounded("small-fixed: one heap batch's dead TIDs (at most HEAP_BATCH, 408) and the candidates kept for the one leaf the walk is on (at most MaxTIDsPerBTreePage, 1358 at 8 K pages)")
-        cands.as_mut_slice().sort_unstable_by_key(|c| (c.leaf, c.lsn, c.off, tid_key(&c.tid)));
-        let mut items: memledger::ChargedVec<(u16, ItemPointerData)> = crate::ops::scan::heap_source::charged_scratch(held);
-        let mut tids: memledger::ChargedVec<ItemPointerData> = crate::ops::scan::heap_source::charged_scratch(held);
+        cands
+            .as_mut_slice()
+            .sort_unstable_by_key(|c| (c.leaf, c.lsn, c.off, tid_key(&c.tid)));
+        let mut items: memledger::ChargedVec<(u16, ItemPointerData)> =
+            crate::ops::scan::heap_source::charged_scratch(held);
+        let mut tids: memledger::ChargedVec<ItemPointerData> =
+            crate::ops::scan::heap_source::charged_scratch(held);
         // bounded("small-fixed: one leaf read and marked per leaf of the candidates, at most one per dead TID of a heap batch (HEAP_BATCH, 408) and the one leaf kept")
         for group in cands.chunk_by(|a, b| a.leaf == b.leaf && a.lsn == b.lsn) {
             if on == Some((group[0].leaf, group[0].lsn)) {
@@ -474,7 +642,7 @@ impl LeafSource {
             tids.clear();
             items.with_vec(|v| v.extend(group.iter().map(|c| (c.off, c.tid)))); // alloc: Node charged owner
             tids.with_vec(|v| v.extend(group.iter().map(|c| c.tid))); // alloc: Node charged owner
-            // bounded("small-fixed: one leaf's candidates, at most MaxTIDsPerBTreePage (1358 at 8 K pages), an integer sort")
+                                                                      // bounded("small-fixed: one leaf's candidates, at most MaxTIDsPerBTreePage (1358 at 8 K pages), an integer sort")
             tids.as_mut_slice().sort_unstable_by_key(tid_key);
             let _ = mark_leaf(&filed, group[0].leaf, group[0].lsn, &items, &tids);
         }
@@ -483,9 +651,24 @@ impl LeafSource {
 
 /// Leaf `leaf`'s dead entries `items` (offset, heap TID; `tids` their TIDs sorted) marked when its LSN is still `lsn`
 /// (`nbtree::bt_kill_by_block`), the leaf read by block through the image's locator (the index is WAL-logged: permanent).
-fn mark_leaf(filed: &Filed, leaf: BlockNumber, lsn: XLogRecPtr, items: &[(u16, ItemPointerData)], tids: &[ItemPointerData]) -> PgResult<()> {
-    let buf = bufmgr_seams::read_buffer_without_relcache::call(filed.img.locator(), types_core::ForkNumber::MAIN_FORKNUM, leaf, types_storage::ReadBufferMode::Normal, None, true)?;
-    let Some(pin) = bufmgr_seams::BufferPin::adopt(buf) else { return Ok(()) };
+fn mark_leaf(
+    filed: &Filed,
+    leaf: BlockNumber,
+    lsn: XLogRecPtr,
+    items: &[(u16, ItemPointerData)],
+    tids: &[ItemPointerData],
+) -> PgResult<()> {
+    let buf = bufmgr_seams::read_buffer_without_relcache::call(
+        filed.img.locator(),
+        types_core::ForkNumber::MAIN_FORKNUM,
+        leaf,
+        types_storage::ReadBufferMode::Normal,
+        None,
+        true,
+    )?;
+    let Some(pin) = bufmgr_seams::BufferPin::adopt(buf) else {
+        return Ok(());
+    };
     let marked = nbtree::bt_kill_by_block(pin.buffer(), lsn, items, tids);
     pin.release();
     marked.map(|_| ())
@@ -493,7 +676,9 @@ fn mark_leaf(filed: &Filed, leaf: BlockNumber, lsn: XLogRecPtr, items: &[(u16, I
 
 impl Source for LeafSource {
     fn bind(&mut self, b: &BindingRef<'_>) -> Result<()> {
-        let resolved = b.resolved.and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
+        let resolved = b
+            .resolved
+            .and_then(|r| r.downcast_ref::<crate::ops::scan::pgrc::granule_source::Resolved>());
         self.cell = resolved.and_then(|r| r.leaf_cell(self.site)).cloned();
         self.heap.bind(b)
     }
@@ -501,7 +686,11 @@ impl Source for LeafSource {
     /// A claim's start: this participant joins the run's shared walk (its view on this thread) until the walk ends; a
     /// claim after this participant saw the end gets no row.
     fn seek(&mut self, _keys: &[Word], _keys_null: &[u8]) -> Result<()> {
-        let filed = self.cell.as_ref().and_then(|c| c.get()).ok_or_else(|| Error::host("gravity: a leaf walk without its run's image"))?;
+        let filed = self
+            .cell
+            .as_ref()
+            .and_then(|c| c.get())
+            .ok_or_else(|| Error::host("gravity: a leaf walk without its run's image"))?;
         // what an earlier claim left is that walk's, marked through its image
         self.settle(true);
         let same = self.filed.as_ref().is_some_and(|f| Arc::ptr_eq(f, &filed));
@@ -521,7 +710,8 @@ impl Source for LeafSource {
     fn window(&mut self, w: &mut Window<'_>) -> Result<u32> {
         // a pass is the unit: a batch of index entries walked or its heap pages read (a run of batches whose every heap
         // tuple is dead returns no row)
-        let mut step = cancelpoll::step("index_leaves window: one batch of entries or its heap pages");
+        let mut step =
+            cancelpoll::step("index_leaves window: one batch of entries or its heap pages");
         let owner = HeldCharge::owner_of(w);
         // memsig E-pub t3: the TID list and the dead-entry candidates on the window's owner before the walk fills them
         self.heap.sample_mut().pages.set_owner(owner);
@@ -540,7 +730,9 @@ impl Source for LeafSource {
             }
             let heap_oid = self.recipe.heap;
             self.check_view();
-            let Some(mut b) = self.batch.take() else { return Ok(0) };
+            let Some(mut b) = self.batch.take() else {
+                return Ok(0);
+            };
             let got = b.fill_rows(|v, n| self.next_visible(v, n, owner), heap_oid, w);
             self.batch = Some(b);
             let (rows, _, _) = got.map_err(crate::stash)?;
@@ -551,10 +743,15 @@ impl Source for LeafSource {
                 return Ok(0);
             }
             let room = self.tags.len();
-            let horizon = self.filed.as_ref().map_or(types_core::InvalidTransactionId, |f| f.horizon);
+            let horizon = self
+                .filed
+                .as_ref()
+                .map_or(types_core::InvalidTransactionId, |f| f.horizon);
             let sample = self.heap.sample_mut();
             (sample.room, sample.horizon) = (room, horizon);
-            sample.pages.set_owner(crate::ops::scan::heap_source::HeldCharge::owner_of(w));
+            sample
+                .pages
+                .set_owner(crate::ops::scan::heap_source::HeldCharge::owner_of(w));
             sample.pages.order(&mut step)?;
             self.heap.seek(&[], &[])?;
             self.phase = Phase::Heap;
@@ -657,8 +854,15 @@ pub struct IndexLeaves {
 }
 
 impl IndexLeaves {
-    pub fn new(serial: crate::ops::scan::index_source::IndexSource, leaf: LeafSource) -> IndexLeaves {
-        IndexLeaves { serial, leaf, leaf_mode: false }
+    pub fn new(
+        serial: crate::ops::scan::index_source::IndexSource,
+        leaf: LeafSource,
+    ) -> IndexLeaves {
+        IndexLeaves {
+            serial,
+            leaf,
+            leaf_mode: false,
+        }
     }
 }
 
@@ -671,43 +875,83 @@ impl Source for IndexLeaves {
 
     fn seek(&mut self, keys: &[Word], keys_null: &[u8]) -> Result<()> {
         self.leaf_mode = self.leaf.cell.as_ref().is_some_and(|c| c.get().is_some());
-        if self.leaf_mode { self.leaf.seek(keys, keys_null) } else { self.serial.seek(keys, keys_null) }
+        if self.leaf_mode {
+            self.leaf.seek(keys, keys_null)
+        } else {
+            self.serial.seek(keys, keys_null)
+        }
     }
 
     fn window(&mut self, w: &mut Window<'_>) -> Result<u32> {
-        if self.leaf_mode { self.leaf.window(w) } else { self.serial.window(w) }
+        if self.leaf_mode {
+            self.leaf.window(w)
+        } else {
+            self.serial.window(w)
+        }
     }
 
     fn cursor(&self) -> &Cursor {
-        if self.leaf_mode { self.leaf.cursor() } else { self.serial.cursor() }
+        if self.leaf_mode {
+            self.leaf.cursor()
+        } else {
+            self.serial.cursor()
+        }
     }
 
     fn cursor_mut(&mut self) -> &mut Cursor {
-        if self.leaf_mode { self.leaf.cursor_mut() } else { self.serial.cursor_mut() }
+        if self.leaf_mode {
+            self.leaf.cursor_mut()
+        } else {
+            self.serial.cursor_mut()
+        }
     }
 
     fn next(&mut self, values: &mut [Word], isnull: &mut [u8]) -> Result<bool> {
-        if self.leaf_mode { self.leaf.next(values, isnull) } else { self.serial.next(values, isnull) }
+        if self.leaf_mode {
+            self.leaf.next(values, isnull)
+        } else {
+            self.serial.next(values, isnull)
+        }
     }
 
     fn position(&self) -> ScanPos {
-        if self.leaf_mode { self.leaf.position() } else { self.serial.position() }
+        if self.leaf_mode {
+            self.leaf.position()
+        } else {
+            self.serial.position()
+        }
     }
 
     fn lanes_hint(&self) -> usize {
-        if self.leaf_mode { self.leaf.lanes_hint() } else { self.serial.lanes_hint() }
+        if self.leaf_mode {
+            self.leaf.lanes_hint()
+        } else {
+            self.serial.lanes_hint()
+        }
     }
 
     fn lane(&mut self, k: u16, sel: &[u32], out: &mut Lane) -> Result<u32> {
-        if self.leaf_mode { self.leaf.lane(k, sel, out) } else { self.serial.lane(k, sel, out) }
+        if self.leaf_mode {
+            self.leaf.lane(k, sel, out)
+        } else {
+            self.serial.lane(k, sel, out)
+        }
     }
 
     fn refetch(&mut self, values: &mut [Word], isnull: &mut [u8]) -> Result<bool> {
-        if self.leaf_mode { self.leaf.refetch(values, isnull) } else { self.serial.refetch(values, isnull) }
+        if self.leaf_mode {
+            self.leaf.refetch(values, isnull)
+        } else {
+            self.serial.refetch(values, isnull)
+        }
     }
 
     fn substitute(&mut self, pos: ScanPos) {
-        if self.leaf_mode { self.leaf.substitute(pos) } else { self.serial.substitute(pos) }
+        if self.leaf_mode {
+            self.leaf.substitute(pos)
+        } else {
+            self.serial.substitute(pos)
+        }
     }
 
     fn pins(&self) -> u64 {
@@ -743,12 +987,21 @@ impl Source for IndexLeaves {
 }
 
 /// A worker's source for recipe `r` at registry entry `site` (`HostRegistry::derive_worker_source`).
-pub fn derive(r: &LeafRecipe, site: usize, a: gravity_driver::ArenaRef) -> gravity_driver::SourceBox {
+pub fn derive(
+    r: &LeafRecipe,
+    site: usize,
+    a: gravity_driver::ArenaRef,
+) -> gravity_driver::SourceBox {
     gravity_driver::box_source(LeafSource::new(r, site, true), a)
 }
 
 /// The leader's source of a leaves site (`derive.rs`): the serial index source of `serial` and the leaf walk of `r`.
-pub fn derive_leader(serial: crate::ops::scan::index_source::IndexSource, r: &LeafRecipe, site: usize, a: gravity_driver::ArenaRef) -> gravity_driver::SourceBox {
+pub fn derive_leader(
+    serial: crate::ops::scan::index_source::IndexSource,
+    r: &LeafRecipe,
+    site: usize,
+    a: gravity_driver::ArenaRef,
+) -> gravity_driver::SourceBox {
     gravity_driver::box_source(IndexLeaves::new(serial, LeafSource::new(r, site, false)), a)
 }
 

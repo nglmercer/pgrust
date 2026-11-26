@@ -56,10 +56,9 @@ fn install() {
                             def(mcx, "effective_io_concurrency", "7"),
                         ],
                     )?;
-                    let img = reloptions::transformRelOptions(
-                        mcx, None, &list, None, &[], false, false,
-                    )?
-                    .expect("options image");
+                    let img =
+                        reloptions::transformRelOptions(mcx, None, &list, None, &[], false, false)?
+                            .expect("options image");
                     Some(Some(img))
                 }
                 SPC_SHORT_OPTS => Some(Some(mcx::slice_in(mcx, &short_header_options())?)),
@@ -67,10 +66,16 @@ fn install() {
                 _ => None,
             })
         });
-        guc_tables::vars::effective_io_concurrency
-            .install_if_absent(guc_tables::GucVarAccessors { get: || 16, set: |_| {} });
-        guc_tables::vars::maintenance_io_concurrency
-            .install_if_absent(guc_tables::GucVarAccessors { get: || 10, set: |_| {} });
+        guc_tables::vars::effective_io_concurrency.install_if_absent(guc_tables::GucVarAccessors {
+            get: || 16,
+            set: |_| {},
+        });
+        guc_tables::vars::maintenance_io_concurrency.install_if_absent(
+            guc_tables::GucVarAccessors {
+                get: || 10,
+                set: |_| {},
+            },
+        );
     });
 }
 
@@ -99,9 +104,18 @@ fn page_costs_prefer_tablespace_options_over_gucs() {
     install();
     let cx = MemoryContext::new("t");
     let m = cx.mcx();
-    assert_eq!(get_tablespace_page_costs(m, SPC_WITH_OPTS, 4.0, 1.0).unwrap(), (1.5, 2.5));
-    assert_eq!(get_tablespace_page_costs(m, SPC_NULL_OPTS, 4.0, 1.0).unwrap(), (4.0, 1.0));
-    assert_eq!(get_tablespace_page_costs(m, 9, 4.0, 1.0).unwrap(), (4.0, 1.0));
+    assert_eq!(
+        get_tablespace_page_costs(m, SPC_WITH_OPTS, 4.0, 1.0).unwrap(),
+        (1.5, 2.5)
+    );
+    assert_eq!(
+        get_tablespace_page_costs(m, SPC_NULL_OPTS, 4.0, 1.0).unwrap(),
+        (4.0, 1.0)
+    );
+    assert_eq!(
+        get_tablespace_page_costs(m, 9, 4.0, 1.0).unwrap(),
+        (4.0, 1.0)
+    );
 }
 
 // spccache.c:215-237: per-tablespace io concurrency, GUC fallback when unset.
@@ -112,7 +126,10 @@ fn io_concurrency_prefers_tablespace_options_over_gucs() {
     let m = cx.mcx();
     assert_eq!(get_tablespace_io_concurrency(m, SPC_WITH_OPTS).unwrap(), 7);
     assert_eq!(get_tablespace_io_concurrency(m, SPC_NULL_OPTS).unwrap(), 16);
-    assert_eq!(get_tablespace_maintenance_io_concurrency(m, SPC_WITH_OPTS).unwrap(), 10);
+    assert_eq!(
+        get_tablespace_maintenance_io_concurrency(m, SPC_WITH_OPTS).unwrap(),
+        10
+    );
     assert_eq!(get_tablespace_maintenance_io_concurrency(m, 9).unwrap(), 10);
 }
 
@@ -125,8 +142,14 @@ fn lookup_leaves_nothing_charged_in_the_callers_context() {
     let opts = get_tablespace(m, SPC_SHORT_OPTS).unwrap().unwrap();
     assert_eq!(opts.seq_page_cost, 1.1);
     assert_eq!(opts.random_page_cost, -1.0);
-    assert_eq!(get_tablespace_page_costs(m, SPC_SHORT_OPTS, 4.0, 1.0).unwrap(), (4.0, 1.1));
-    assert_eq!(get_tablespace_maintenance_io_concurrency(m, SPC_SHORT_OPTS).unwrap(), 10);
+    assert_eq!(
+        get_tablespace_page_costs(m, SPC_SHORT_OPTS, 4.0, 1.0).unwrap(),
+        (4.0, 1.1)
+    );
+    assert_eq!(
+        get_tablespace_maintenance_io_concurrency(m, SPC_SHORT_OPTS).unwrap(),
+        10
+    );
     assert_eq!(cx.used(), 0);
     cx.reset();
 }

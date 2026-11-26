@@ -378,10 +378,7 @@ mod tests {
             // Cluster-global roles must be dropped in the same section.
             for line in pool.iter() {
                 if let Some(rest) = line.strip_prefix("CREATE ROLE ") {
-                    let role = rest
-                        .split([ ' ', ';'])
-                        .next()
-                        .unwrap_or("");
+                    let role = rest.split([' ', ';']).next().unwrap_or("");
                     assert!(!role.is_empty(), "{name}: unparsable CREATE ROLE");
                     let drop = format!("DROP ROLE {role};");
                     let ci = joined.find(&format!("CREATE ROLE {role}")).unwrap();
@@ -391,10 +388,7 @@ mod tests {
                     assert!(di > ci, "{name}: DROP ROLE {role} not after CREATE");
                 }
                 if let Some(rest) = line.strip_prefix("CREATE SCHEMA ") {
-                    let sc = rest
-                        .split([ ' ', ';'])
-                        .next()
-                        .unwrap_or("");
+                    let sc = rest.split([' ', ';']).next().unwrap_or("");
                     let ci = joined.find(&format!("CREATE SCHEMA {sc}")).unwrap();
                     let di = joined
                         .rfind(&format!("DROP SCHEMA {sc}"))

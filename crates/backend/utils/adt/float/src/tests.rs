@@ -1,5 +1,6 @@
 // The PI/E literals are the exact decimal inputs PostgreSQL's float tests use (text I/O round trips), not approximations.
-#![allow(clippy::approx_constant)]use super::*;
+#![allow(clippy::approx_constant)]
+use super::*;
 use crate::aggregates::*;
 use crate::builtins::*;
 
@@ -74,8 +75,16 @@ fn nan_payload_bits_follow_strtod() {
         ("NaN()", 0x7ff8_0000_0000_0000, 0x7fc0_0000),
         (" NaN(5) ", 0x7ff8_0000_0000_0005, 0x7fc0_0005),
     ] {
-        assert_eq!(float8in(lit, None).unwrap().to_bits(), bits8, "float8 {lit}");
-        assert_eq!(float4in(lit, None).unwrap().to_bits(), bits4, "float4 {lit}");
+        assert_eq!(
+            float8in(lit, None).unwrap().to_bits(),
+            bits8,
+            "float8 {lit}"
+        );
+        assert_eq!(
+            float4in(lit, None).unwrap().to_bits(),
+            bits4,
+            "float4 {lit}"
+        );
     }
     assert!(float8in("NaN(1)x", None).is_err());
 }
@@ -84,17 +93,26 @@ fn nan_payload_bits_follow_strtod() {
 fn float8in_error_surface_matches_live_pg() {
     let err = float8in("1e400", None).unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
-    assert_eq!(err.message(), "\"1e400\" is out of range for type double precision");
+    assert_eq!(
+        err.message(),
+        "\"1e400\" is out of range for type double precision"
+    );
     let err = float8in("1e-400", None).unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
     let err = float8in(" 1.5x", None).unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TEXT_REPRESENTATION);
-    assert_eq!(err.message(), "invalid input syntax for type double precision: \" 1.5x\"");
+    assert_eq!(
+        err.message(),
+        "invalid input syntax for type double precision: \" 1.5x\""
+    );
     let err = float4in("1e40", None).unwrap_err();
     assert_eq!(err.message(), "\"1e40\" is out of range for type real");
     assert!(float4in("1e-50", None).is_err());
     let err = float8in("", None).unwrap_err();
-    assert_eq!(err.message(), "invalid input syntax for type double precision: \"\"");
+    assert_eq!(
+        err.message(),
+        "invalid input syntax for type double precision: \"\""
+    );
     assert!(float8in("  ", None).is_err());
     assert!(float8in("xyz", None).is_err());
 
@@ -147,7 +165,10 @@ fn hex_floats_match_pg() {
     }
 
     let err = float8in("0x1p1024", None).unwrap_err();
-    assert_eq!(err.message(), "\"0x1p1024\" is out of range for type double precision");
+    assert_eq!(
+        err.message(),
+        "\"0x1p1024\" is out of range for type double precision"
+    );
     assert!(float8in("0x1p-1075", None).is_err());
     assert!(float4in("0x1p128", None).is_err());
     assert!(float8in("0x", None).is_err());
@@ -162,7 +183,14 @@ fn endptr_path_reports_consumed() {
     assert_eq!((v, endptr), (2.71, 4));
 
     let mut endptr = 0usize;
-    let v = float8in_internal("  2.71  rest", Some(&mut endptr), "box", b"  2.71  rest", None).unwrap();
+    let v = float8in_internal(
+        "  2.71  rest",
+        Some(&mut endptr),
+        "box",
+        b"  2.71  rest",
+        None,
+    )
+    .unwrap();
     assert_eq!((v, endptr), (2.71, 8));
 
     let mut endptr = 0usize;
@@ -233,7 +261,14 @@ fn guc_default_and_live_read() {
 
 #[test]
 fn roundtrip_in_out() {
-    for &s in &["1.5", "3.14159265358979", "1e10", "-2.5e-3", "0", "123456.789"] {
+    for &s in &[
+        "1.5",
+        "3.14159265358979",
+        "1e10",
+        "-2.5e-3",
+        "0",
+        "123456.789",
+    ] {
         let v = float8in(s, None).unwrap();
         assert_eq!(float8in(&out8(v), None).unwrap(), v, "roundtrip {s}");
     }
@@ -317,14 +352,23 @@ fn conversions_match_live_pg() {
 #[cfg_attr(miri, ignore)] // Miri approximates libm; exact-value KATs
 fn math_domains_and_live_pg_values() {
     let err = dsqrt(-1.0).unwrap_err();
-    assert_eq!(err.message(), "cannot take square root of a negative number");
+    assert_eq!(
+        err.message(),
+        "cannot take square root of a negative number"
+    );
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_ARGUMENT_FOR_POWER_FUNCTION);
     let err = dpow(0.0, -1.0).unwrap_err();
-    assert_eq!(err.message(), "zero raised to a negative power is undefined");
+    assert_eq!(
+        err.message(),
+        "zero raised to a negative power is undefined"
+    );
     let err = dlog1(0.0).unwrap_err();
     assert_eq!(err.message(), "cannot take logarithm of zero");
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_ARGUMENT_FOR_LOG);
-    assert_eq!(dlog1(-1.0).unwrap_err().message(), "cannot take logarithm of a negative number");
+    assert_eq!(
+        dlog1(-1.0).unwrap_err().message(),
+        "cannot take logarithm of a negative number"
+    );
     assert_eq!(
         dpow(-2.0, 0.5).unwrap_err().message(),
         "a negative number raised to a non-integer power yields a complex result"
@@ -410,7 +454,10 @@ fn width_bucket_and_in_range() {
     assert_eq!(width_bucket_float8(100.0, 0.0, 10.0, 5).unwrap(), 6);
     assert_eq!(width_bucket_float8(5.0, 10.0, 0.0, 5).unwrap(), 3);
     let err = width_bucket_float8(5.0, 0.0, 10.0, 0).unwrap_err();
-    assert_eq!(err.sqlstate(), ERRCODE_INVALID_ARGUMENT_FOR_WIDTH_BUCKET_FUNCTION);
+    assert_eq!(
+        err.sqlstate(),
+        ERRCODE_INVALID_ARGUMENT_FOR_WIDTH_BUCKET_FUNCTION
+    );
     assert!(width_bucket_float8(f64::NAN, 0.0, 10.0, 5).is_err());
     assert!(width_bucket_float8(5.0, 0.0, 0.0, 5).is_err());
     assert!(width_bucket_float8(5.0, f64::INFINITY, 10.0, 5).is_err());
@@ -418,7 +465,10 @@ fn width_bucket_and_in_range() {
     assert!(in_range_float8_float8(5.0, 3.0, 2.0, false, false).unwrap());
     assert!(!in_range_float8_float8(6.0, 3.0, 2.0, false, true).unwrap());
     let err = in_range_float8_float8(1.0, 1.0, -1.0, false, false).unwrap_err();
-    assert_eq!(err.message(), "invalid preceding or following size in window function");
+    assert_eq!(
+        err.message(),
+        "invalid preceding or following size in window function"
+    );
     assert!(in_range_float8_float8(f64::NAN, f64::NAN, 1.0, false, true).unwrap());
     assert!(in_range_float4_float8(1.0, 1.0, f64::INFINITY, false, true).unwrap());
 }
@@ -426,7 +476,11 @@ fn width_bucket_and_in_range() {
 /// PostgreSQL's float results differ per platform (GCC fuses on
 /// aarch64, x86-64 cannot). Pick the pin for the platform under test.
 fn arm<T>(aarch64: T, x86_64: T) -> T {
-    if cfg!(target_arch = "aarch64") { aarch64 } else { x86_64 }
+    if cfg!(target_arch = "aarch64") {
+        aarch64
+    } else {
+        x86_64
+    }
 }
 
 #[test]
@@ -451,14 +505,26 @@ fn aggregates_match_live_pg() {
     }
     // Pinned per platform: x86-64 PostgreSQL 18 (SSE2, unfused) and
     // PG 18.6 pgdg aarch64 (GCC fuses float.c:3369-3374).
-    assert_eq!(out8(float8_corr(r).unwrap()), arm("0.9986369273154668", "0.9986369273154669"));
-    assert_eq!(out8(float8_regr_slope(r).unwrap()), arm("0.5650552218562294", "0.5650552218562295"));
+    assert_eq!(
+        out8(float8_corr(r).unwrap()),
+        arm("0.9986369273154668", "0.9986369273154669")
+    );
+    assert_eq!(
+        out8(float8_regr_slope(r).unwrap()),
+        arm("0.5650552218562294", "0.5650552218562295")
+    );
     assert_eq!(
         out8(float8_regr_intercept(r).unwrap()),
         arm("-0.06761044371245872", "-0.06761044371245895")
     );
-    assert_eq!(out8(float8_regr_r2(r).unwrap()), arm("0.997275712598077", "0.9972757125980773"));
-    assert_eq!(out8(float8_covar_pop(r).unwrap()), arm("14.581249999999999", "14.58125"));
+    assert_eq!(
+        out8(float8_regr_r2(r).unwrap()),
+        arm("0.997275712598077", "0.9972757125980773")
+    );
+    assert_eq!(
+        out8(float8_covar_pop(r).unwrap()),
+        arm("14.581249999999999", "14.58125")
+    );
     assert_eq!(out8(float8_covar_samp(r).unwrap()), "19.441666666666666");
     assert_eq!(float8_corr([0.0; 6]), None);
 
@@ -501,12 +567,12 @@ fn rb6_regr_family_c_bit_parity() {
     // C gives 0x4046FFFFFFFFFFFF (45.99999999999999); the old FMA path gave
     // exactly 46.0, shifting corr by 1 ulp.
     let expect_bits: [u64; 6] = [
-        0x4010000000000000, // N   = 4
-        0x4024000000000000, // Sx  = 10
-        0x4014000000000000, // Sxx = 5
-        0x4038000000000000, // Sy  = 24
+        0x4010000000000000,                          // N   = 4
+        0x4024000000000000,                          // Sx  = 10
+        0x4014000000000000,                          // Sxx = 5
+        0x4038000000000000,                          // Sy  = 24
         arm(0x4047000000000000, 0x4046FFFFFFFFFFFF), // Syy (aarch64 fuses: 46)
-        0x402E000000000000, // Sxy = 15
+        0x402E000000000000,                          // Sxy = 15
     ];
     assert_eq!(r.map(f64::to_bits), expect_bits);
 
@@ -514,13 +580,19 @@ fn rb6_regr_family_c_bit_parity() {
     let corr = float8_corr(r).unwrap();
     assert_eq!(corr.to_bits(), arm(0x3FEFA6779E291557, 0x3FEFA6779E291558));
     assert_eq!(out8(corr), arm("0.9890707100936805", "0.9890707100936806"));
-    assert_eq!(out8(float8_regr_r2(r).unwrap()), arm("0.9782608695652174", "0.9782608695652175"));
+    assert_eq!(
+        out8(float8_regr_r2(r).unwrap()),
+        arm("0.9782608695652174", "0.9782608695652175")
+    );
     assert_eq!(out8(float8_regr_slope(r).unwrap()), "3");
     assert_eq!(out8(float8_regr_intercept(r).unwrap()), "-1.5");
     assert_eq!(out8(float8_covar_pop(r).unwrap()), "3.75");
     assert_eq!(out8(float8_covar_samp(r).unwrap()), "5");
     assert_eq!(out8(float8_regr_sxx(r).unwrap()), "5");
-    assert_eq!(out8(float8_regr_syy(r).unwrap()), arm("46", "45.99999999999999"));
+    assert_eq!(
+        out8(float8_regr_syy(r).unwrap()),
+        arm("46", "45.99999999999999")
+    );
     assert_eq!(out8(float8_regr_sxy(r).unwrap()), "15");
 
     // Moving/parallel path: float8_regr_combine over the two halves must use
@@ -554,11 +626,14 @@ fn rb6_regr_family_c_bit_parity() {
     for (x, _) in rows {
         t = float8_accum(t, x).unwrap();
     }
-    assert_eq!(t.map(f64::to_bits), [
-        0x4010000000000000,                        // N = 4
-        0x4024000000000000,                        // Sx = 10
-        0x4014000000000000,                        // Sxx = 5
-    ]);
+    assert_eq!(
+        t.map(f64::to_bits),
+        [
+            0x4010000000000000, // N = 4
+            0x4024000000000000, // Sx = 10
+            0x4014000000000000, // Sxx = 5
+        ]
+    );
     assert_eq!(out8(float8_stddev_samp(t).unwrap()), "1.2909944487358056");
 }
 
@@ -584,30 +659,39 @@ fn round12_fz_fma_aggregate_amd64_bit_parity() {
     // (n, var_pop(v), var_samp(v), stddev_pop(v), stddev_samp(v),
     //  var_pop(r), stddev_samp(r))
     let plain: [(i64, [u64; 6]); 3] = [
-        (200, [
-            0x40563cdb8bac710a,
-            0x40565977054cd360,
-            0x4022dcdda3d090b2,
-            0x4022e8fbc074a280,
-            0x4034f4a2339c0ebd,
-            0x40125b5b77ed36c4,
-        ]),
-        (350, [
-            0x405527bc4a65906b,
-            0x40553740dd50953b,
-            0x402265de19ec1ab5,
-            0x40226c9c44554743,
-            0x40350cccccccccce,
-            0x401260ddda6c68c2,
-        ]),
-        (499, [
-            0x4054b4af09997564,
-            0x4054bf53e3108382,
-            0x4022339223e29d1d,
-            0x4022383f2e255653,
-            0x40354e990ce54393,
-            0x40127b7ab31f883a,
-        ]),
+        (
+            200,
+            [
+                0x40563cdb8bac710a,
+                0x40565977054cd360,
+                0x4022dcdda3d090b2,
+                0x4022e8fbc074a280,
+                0x4034f4a2339c0ebd,
+                0x40125b5b77ed36c4,
+            ],
+        ),
+        (
+            350,
+            [
+                0x405527bc4a65906b,
+                0x40553740dd50953b,
+                0x402265de19ec1ab5,
+                0x40226c9c44554743,
+                0x40350cccccccccce,
+                0x401260ddda6c68c2,
+            ],
+        ),
+        (
+            499,
+            [
+                0x4054b4af09997564,
+                0x4054bf53e3108382,
+                0x4022339223e29d1d,
+                0x4022383f2e255653,
+                0x40354e990ce54393,
+                0x40127b7ab31f883a,
+            ],
+        ),
     ];
     for (n, exp) in plain {
         let mut tv = [0.0f64; 3];
@@ -634,45 +718,54 @@ fn round12_fz_fma_aggregate_amd64_bit_parity() {
     // (n, corr, covar_pop, covar_samp, regr_slope, regr_intercept, regr_r2,
     //  regr_avgx, regr_avgy, regr_sxx, regr_syy, regr_sxy)
     let regr: [(i64, [u64; 11]); 3] = [
-        (200, [
-            0x3fe106fd6500fe92,
-            0x40475d1b71758e1f,
-            0x40477b29bb5b217d,
-            0x3fe13f4d86aaba61,
-            0x402f6eeb464fca4f,
-            0x3fd21edd845aea71,
-            0xbfee147ae147ae14,
-            0x402e6b851eb851ec,
-            0x40d0eed1eb851eb9,
-            0x40d15f8b851eb850,
-            0x40c240bd70a3d708,
-        ]),
-        (350, [
-            arm(0x3fdff3922a5cb88c, 0x3fdff3922a5cb88d),
-            0x4045175075075076,
-            arm(0x404526c8fc5516be, 0x404526c8fc5516bf),
-            arm(0x3fe0000000000001, 0x3fe0000000000002),
-            0x402ea0ea0ea0ea0f,
-            arm(0x3fcfe7292892a888, 0x3fcfe7292892a88b),
-            0xbfe0000000000000,
-            0x402e20ea0ea0ea0f,
-            0x40dcd5dfffffffff,
-            0x40dcec536db6db72,
-            arm(0x40ccd5e000000001, 0x40ccd5e000000002),
-        ]),
-        (499, [
-            arm(0x3fde9528f7f34c29, 0x3fde9528f7f34c28),
-            0x4043f57be7088e0d,
-            0x4043ffbe76eb4557,
-            arm(0x3fde5262df69f305, 0x3fde5262df69f303),
-            0x402f9c2ee3ab9d88,
-            arm(0x3fcd3a6416a1abe3, 0x3fcd3a6416a1abe0),
-            0xbfe6b38f225f6c40,
-            0x402ef018a0106ab6,
-            arm(0x40e4875bb412780c, 0x40e4875bb412780d),
-            0x40e42e1897db0fe9,
-            0x40d373c041aad672,
-        ]),
+        (
+            200,
+            [
+                0x3fe106fd6500fe92,
+                0x40475d1b71758e1f,
+                0x40477b29bb5b217d,
+                0x3fe13f4d86aaba61,
+                0x402f6eeb464fca4f,
+                0x3fd21edd845aea71,
+                0xbfee147ae147ae14,
+                0x402e6b851eb851ec,
+                0x40d0eed1eb851eb9,
+                0x40d15f8b851eb850,
+                0x40c240bd70a3d708,
+            ],
+        ),
+        (
+            350,
+            [
+                arm(0x3fdff3922a5cb88c, 0x3fdff3922a5cb88d),
+                0x4045175075075076,
+                arm(0x404526c8fc5516be, 0x404526c8fc5516bf),
+                arm(0x3fe0000000000001, 0x3fe0000000000002),
+                0x402ea0ea0ea0ea0f,
+                arm(0x3fcfe7292892a888, 0x3fcfe7292892a88b),
+                0xbfe0000000000000,
+                0x402e20ea0ea0ea0f,
+                0x40dcd5dfffffffff,
+                0x40dcec536db6db72,
+                arm(0x40ccd5e000000001, 0x40ccd5e000000002),
+            ],
+        ),
+        (
+            499,
+            [
+                arm(0x3fde9528f7f34c29, 0x3fde9528f7f34c28),
+                0x4043f57be7088e0d,
+                0x4043ffbe76eb4557,
+                arm(0x3fde5262df69f305, 0x3fde5262df69f303),
+                0x402f9c2ee3ab9d88,
+                arm(0x3fcd3a6416a1abe3, 0x3fcd3a6416a1abe0),
+                0xbfe6b38f225f6c40,
+                0x402ef018a0106ab6,
+                arm(0x40e4875bb412780c, 0x40e4875bb412780d),
+                0x40e42e1897db0fe9,
+                0x40d373c041aad672,
+            ],
+        ),
     ];
     for (n, exp) in regr {
         let mut t = [0.0f64; 6];
@@ -700,33 +793,45 @@ fn round12_fz_fma_aggregate_amd64_bit_parity() {
     // (float8_combine / float8_regr_combine round every op separately).
     // (n, k, var_samp(v), stddev_pop(v), corr, regr_intercept, Sxx, Syy, Sxy)
     let combined: [(i64, i64, [u64; 7]); 3] = [
-        (200, 73, [
-            0x40565977054cd364,
-            0x4022dcdda3d090b4,
-            0x3fe106fd6500fe93,
-            0x402f6eeb464fca4f,
-            0x40d0eed1eb851eb7,
-            0x40d15f8b851eb853,
-            0x40c240bd70a3d70a,
-        ]),
-        (350, 175, [
-            0x40553740dd509537,
-            0x402265de19ec1ab3,
-            arm(0x3fdff3922a5cb889, 0x3fdff3922a5cb886),
-            0x402ea0ea0ea0ea0f,
-            arm(0x40dcd5e000000003, 0x40dcd5e000000005),
-            arm(0x40dcec536db6db6d, 0x40dcec536db6db6c),
-            arm(0x40ccd5dffffffffd, 0x40ccd5dffffffffc),
-        ]),
-        (499, 168, [
-            0x4054bf53e3108382,
-            0x4022339223e29d1d,
-            0x3fde9528f7f34c28,
-            0x402f9c2ee3ab9d88,
-            0x40e4875bb412780a,
-            0x40e42e1897db0fe9,
-            0x40d373c041aad671,
-        ]),
+        (
+            200,
+            73,
+            [
+                0x40565977054cd364,
+                0x4022dcdda3d090b4,
+                0x3fe106fd6500fe93,
+                0x402f6eeb464fca4f,
+                0x40d0eed1eb851eb7,
+                0x40d15f8b851eb853,
+                0x40c240bd70a3d70a,
+            ],
+        ),
+        (
+            350,
+            175,
+            [
+                0x40553740dd509537,
+                0x402265de19ec1ab3,
+                arm(0x3fdff3922a5cb889, 0x3fdff3922a5cb886),
+                0x402ea0ea0ea0ea0f,
+                arm(0x40dcd5e000000003, 0x40dcd5e000000005),
+                arm(0x40dcec536db6db6d, 0x40dcec536db6db6c),
+                arm(0x40ccd5dffffffffd, 0x40ccd5dffffffffc),
+            ],
+        ),
+        (
+            499,
+            168,
+            [
+                0x4054bf53e3108382,
+                0x4022339223e29d1d,
+                0x3fde9528f7f34c28,
+                0x402f9c2ee3ab9d88,
+                0x40e4875bb412780a,
+                0x40e42e1897db0fe9,
+                0x40d373c041aad671,
+            ],
+        ),
     ];
     for (n, k, exp) in combined {
         let mut a3 = [0.0f64; 3];
@@ -772,7 +877,10 @@ fn transarray_image_layout() {
     assert_eq!(check_float8_array::<3>(&img, "t").unwrap(), vals);
 
     let err = check_float8_array::<6>(&img, "float8_regr_sxx").unwrap_err();
-    assert_eq!(err.message(), "float8_regr_sxx: expected 6-element float8 array");
+    assert_eq!(
+        err.message(),
+        "float8_regr_sxx: expected 6-element float8 array"
+    );
     assert!(check_float8_array::<3>(&img[..20], "t").is_err());
 }
 
@@ -817,7 +925,10 @@ fn fmgr_wrappers_and_table() {
     assert_eq!(fc_float4in(None, &mut fci).unwrap().as_f32(), 16.0);
 
     let mut fci = LocalFcinfo::<0>::new(0);
-    assert_eq!(fc_dpi(None, &mut fci).unwrap().as_f64(), core::f64::consts::PI);
+    assert_eq!(
+        fc_dpi(None, &mut fci).unwrap().as_f64(),
+        core::f64::consts::PI
+    );
 
     // Table sanity: unique OIDs, all rows strict/non-retset, and every row
     // matches the canonical pg_proc projection (name + nargs).
@@ -898,7 +1009,10 @@ fn float_agg_fmgr_frames() {
     }
     let mut fci = LocalFcinfo::<1>::fresh(0);
     fci.set_arg(0, Datum::from_usize(tp));
-    assert_eq!(out8(fc_float8_avg(None, &mut fci).unwrap().as_f64()), "1.0625");
+    assert_eq!(
+        out8(fc_float8_avg(None, &mut fci).unwrap().as_f64()),
+        "1.0625"
+    );
     assert!(!fci.isnull);
     let mut fci = LocalFcinfo::<1>::fresh(0);
     fci.set_arg(0, Datum::from_usize(tp));
@@ -917,9 +1031,15 @@ fn float_agg_fmgr_frames() {
 
     // combine in the agg frame folds t2 into t1 in place.
     let mut t1 = [0u8; float8_transarray_size(3)];
-    write_float8_transarray(&float8_accum(float8_accum([0.0; 3], 1.0).unwrap(), 2.5).unwrap(), &mut t1);
+    write_float8_transarray(
+        &float8_accum(float8_accum([0.0; 3], 1.0).unwrap(), 2.5).unwrap(),
+        &mut t1,
+    );
     let mut t2 = [0u8; float8_transarray_size(3)];
-    write_float8_transarray(&float8_accum(float8_accum([0.0; 3], 4.25).unwrap(), -3.5).unwrap(), &mut t2);
+    write_float8_transarray(
+        &float8_accum(float8_accum([0.0; 3], 4.25).unwrap(), -3.5).unwrap(),
+        &mut t2,
+    );
     let mut fci = LocalFcinfo::<2>::fresh(0);
     fci.context = agg.fm_node_ptr();
     fci.set_arg(0, Datum::from_usize(t1.as_ptr() as usize));
@@ -947,15 +1067,24 @@ fn float_agg_fmgr_frames() {
         fci.set_arg(0, Datum::from_usize(rp));
         out8(f(None, &mut fci).unwrap().as_f64())
     };
-    assert_eq!(final6(fc_float8_regr_slope), arm("0.5650552218562294", "0.5650552218562295"));
-    assert_eq!(final6(fc_float8_corr), arm("0.9986369273154668", "0.9986369273154669"));
+    assert_eq!(
+        final6(fc_float8_regr_slope),
+        arm("0.5650552218562294", "0.5650552218562295")
+    );
+    assert_eq!(
+        final6(fc_float8_corr),
+        arm("0.9986369273154668", "0.9986369273154669")
+    );
     assert_eq!(final6(fc_float8_covar_samp), "19.441666666666666");
 
     // Wrong-shape transarray: C's elog text.
     let mut fci = LocalFcinfo::<1>::fresh(0);
     fci.set_arg(0, Datum::from_usize(tp));
     let err = fc_float8_regr_sxx(None, &mut fci).unwrap_err();
-    assert_eq!(err.message(), "float8_regr_sxx: expected 6-element float8 array");
+    assert_eq!(
+        err.message(),
+        "float8_regr_sxx: expected 6-element float8 array"
+    );
 }
 
 // fnconf batch-1, OID 2467 (atanh): C calls platform libm atanh; Rust std's
@@ -989,14 +1118,14 @@ fn datanh_matches_platform_libm() {
 #[test]
 fn strtod_c_glibc_erange_model() {
     let cases: &[(&str, bool)] = &[
-        ("1e-322", true),                  // subnormal, inexact
-        ("4.9406564584124654e-324", true), // ~min subnormal, inexact
-        ("1e-308", true),                  // below DBL_MIN -> subnormal
+        ("1e-322", true),                   // subnormal, inexact
+        ("4.9406564584124654e-324", true),  // ~min subnormal, inexact
+        ("1e-308", true),                   // below DBL_MIN -> subnormal
         ("2.2250738585072014e-308", false), // DBL_MIN exactly (normal)
-        ("2.2250738585072011e-308", true), // just below DBL_MIN
+        ("2.2250738585072011e-308", true),  // just below DBL_MIN
         ("2.2250738585072012e-308", true), // below DBL_MIN, rounds up to it: tininess before rounding
         ("0x1.fffffffffffffp-1023", true), // same, hex
-        ("0x1p-1022", false),             // DBL_MIN exactly (hex)
+        ("0x1p-1022", false),              // DBL_MIN exactly (hex)
         ("1e-400", true),                  // rounds to zero
         ("0x1p-1050", false),              // EXACT subnormal (hex)
         ("0x1p-1074", false),              // min subnormal, exact
@@ -1006,11 +1135,10 @@ fn strtod_c_glibc_erange_model() {
         ("1e309", true),                   // overflow -> inf
         ("0", false),
         ("0.0e5", false),
-        ("infinity", false),               // words: no errno
+        ("infinity", false), // words: no errno
     ];
     for (s, want) in cases {
-        let (_, _, range) =
-            io::strtod_c(s.as_bytes()).unwrap_or_else(|| panic!("{s}: no token"));
+        let (_, _, range) = io::strtod_c(s.as_bytes()).unwrap_or_else(|| panic!("{s}: no token"));
         assert_eq!(range, *want, "ERANGE mismatch for {s:?}");
     }
     // decimal spelling of an exact subnormal: 2^-1074 written in full is
@@ -1048,7 +1176,11 @@ fn float4out_results_do_not_alias_across_carriers() {
     let d1 = f1.invoke(&mut fci).unwrap();
     fci.set_arg(0, Datum::from_f32(34.0));
     let d2 = f2.invoke(&mut fci).unwrap();
-    let cstr = |d: Datum| unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }.to_bytes().to_vec();
+    let cstr = |d: Datum| {
+        unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) }
+            .to_bytes()
+            .to_vec()
+    };
     assert_eq!(cstr(d1), b"12");
     assert_eq!(cstr(d2), b"34");
 }
@@ -1060,18 +1192,36 @@ mod dblmin_tests {
     #[test]
     fn long_tokens_stay_bounded_and_exact() {
         // DBL_MIN = 2.2250738585072013830902...e-308; this decimal is above it.
-        assert!(!token_true_value_below_dblmin(b"2.2250738585072014e-308", false));
-        assert!(token_true_value_below_dblmin(b"2.2250738585072013e-308", false));
+        assert!(!token_true_value_below_dblmin(
+            b"2.2250738585072014e-308",
+            false
+        ));
+        assert!(token_true_value_below_dblmin(
+            b"2.2250738585072013e-308",
+            false
+        ));
         // Leading zeros are not stored: 1e-308 and 3e-308 through 100k zeros.
         let z = "0.".to_string() + &"0".repeat(100_000);
-        assert!(token_true_value_below_dblmin(format!("{z}1e+99693").as_bytes(), false));
-        assert!(!token_true_value_below_dblmin(format!("{z}3e+99693").as_bytes(), false));
+        assert!(token_true_value_below_dblmin(
+            format!("{z}1e+99693").as_bytes(),
+            false
+        ));
+        assert!(!token_true_value_below_dblmin(
+            format!("{z}3e+99693").as_bytes(),
+            false
+        ));
         // Significant digits past the cut cannot flip the verdict.
         let ones = "1".repeat(5000);
         // 5000 digits: 1.1...e-308 is below DBL_MIN, 3.3...e-308 is above.
-        assert!(token_true_value_below_dblmin(format!("{ones}e-5307").as_bytes(), false));
+        assert!(token_true_value_below_dblmin(
+            format!("{ones}e-5307").as_bytes(),
+            false
+        ));
         let threes = "3".repeat(5000);
-        assert!(!token_true_value_below_dblmin(format!("{threes}e-5307").as_bytes(), false));
+        assert!(!token_true_value_below_dblmin(
+            format!("{threes}e-5307").as_bytes(),
+            false
+        ));
         assert!(!token_true_value_below_dblmin(b"0.000", false));
     }
 }
@@ -1104,15 +1254,33 @@ fn d400_accum_tmp_fnmsub() {
     for v in [5.4, 9.4, 3.8] {
         t = float8_accum(t, v).unwrap();
     }
-    assert_eq!(out8(float8_var_samp(t).unwrap()), arm("8.320000000000002", "8.320000000000004"));
-    assert_eq!(out8(float8_var_pop(t).unwrap()), arm("5.546666666666668", "5.5466666666666695"));
-    assert_eq!(out8(float8_stddev_samp(t).unwrap()), arm("2.8844410203711917", "2.884441020371192"));
+    assert_eq!(
+        out8(float8_var_samp(t).unwrap()),
+        arm("8.320000000000002", "8.320000000000004")
+    );
+    assert_eq!(
+        out8(float8_var_pop(t).unwrap()),
+        arm("5.546666666666668", "5.5466666666666695")
+    );
+    assert_eq!(
+        out8(float8_stddev_samp(t).unwrap()),
+        arm("2.8844410203711917", "2.884441020371192")
+    );
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn d400_asind_acosd_fmsub() {
-    assert_eq!(out8(dasind(0.91).unwrap()), arm("65.50535152858033", "65.50535152858032"));
-    assert_eq!(out8(dacosd(0.13).unwrap()), arm("82.53040768358308", "82.53040768358306"));
-    assert_eq!(out8(dacosd(0.45).unwrap()), arm("63.256316049597", "63.25631604959699"));
+    assert_eq!(
+        out8(dasind(0.91).unwrap()),
+        arm("65.50535152858033", "65.50535152858032")
+    );
+    assert_eq!(
+        out8(dacosd(0.13).unwrap()),
+        arm("82.53040768358308", "82.53040768358306")
+    );
+    assert_eq!(
+        out8(dacosd(0.45).unwrap()),
+        arm("63.256316049597", "63.25631604959699")
+    );
 }

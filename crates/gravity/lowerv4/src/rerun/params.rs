@@ -13,18 +13,23 @@ use mcx::GrowIn;
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
 
+use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 use crate::face::kinds::{Face, KindId};
 use crate::frame::env::Env;
 use crate::frame::px::{Px, WordKey};
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy, Variant};
 
 /// Every executor parameter a producer of the graph sets, with the producer's kind: a non-CTE InitPlan's results (every
 /// setParam, FACTS-1a: a ROWCOMPARE's or a MULTIEXPR's columns), a nest's NestLoopParam, a SubPlan's parParam, its
 /// paramIds (the columns its test reads) and a MULTIEXPR's setParam, embedded inners included. A CTE's and a worktable's
 /// parameters (M9's) are read by no expression and stay unset.
 fn each(gx: &Gx<'_, '_>, f: &mut dyn FnMut(i32, KindId)) {
-    for i in gx.graph.init_plans.iter().filter(|i| !matches!(i.link, SubLink::Cte)) {
+    for i in gx
+        .graph
+        .init_plans
+        .iter()
+        .filter(|i| !matches!(i.link, SubLink::Cte))
+    {
         i.params.iter().for_each(|id| f(id, KindId::NestInitplan));
     }
     gx.pipelines().iter().for_each(|p| ops(p, f));
@@ -35,11 +40,18 @@ fn ops(p: &PipelineNode<'_>, f: &mut dyn FnMut(i32, KindId)) {
     for op in p.ops.iter() {
         match op {
             Op::Join(JoinDesc::Nest { params, inner, .. }) => {
-                params.iter().filter_map(|n| n.as_nest_loop_param()).for_each(|n| f(n.paramno, KindId::NestParam));
+                params
+                    .iter()
+                    .filter_map(|n| n.as_nest_loop_param())
+                    .for_each(|n| f(n.paramno, KindId::NestParam));
                 ops(inner, f);
             }
             Op::SubPlan(s) => {
-                s.params.iter().chain(s.sets.iter()).chain(s.ids.iter()).for_each(|id| f(id, KindId::NestSubplan));
+                s.params
+                    .iter()
+                    .chain(s.sets.iter())
+                    .chain(s.ids.iter())
+                    .for_each(|id| f(id, KindId::NestSubplan));
                 if let SubForm::Nested { inner } = &s.form {
                     ops(inner, f);
                 }
@@ -74,8 +86,17 @@ pub fn set_before_open(gx: &Gx<'_, '_>, id: i32) -> bool {
     fn walk(p: &PipelineNode<'_>, id: i32) -> bool {
         crate::stack_check(); // D3832
         p.ops.iter().any(|op| match op {
-            Op::Join(JoinDesc::Nest { params, inner, .. }) => params.iter().filter_map(|n| n.as_nest_loop_param()).any(|n| n.paramno == id) || walk(inner, id),
-            Op::SubPlan(s) => s.params.iter().any(|p| p == id) || matches!(&s.form, SubForm::Nested { inner } if walk(inner, id)),
+            Op::Join(JoinDesc::Nest { params, inner, .. }) => {
+                params
+                    .iter()
+                    .filter_map(|n| n.as_nest_loop_param())
+                    .any(|n| n.paramno == id)
+                    || walk(inner, id)
+            }
+            Op::SubPlan(s) => {
+                s.params.iter().any(|p| p == id)
+                    || matches!(&s.form, SubForm::Nested { inner } if walk(inner, id))
+            }
             _ => false,
         })
     }
@@ -83,7 +104,12 @@ pub fn set_before_open(gx: &Gx<'_, '_>, id: i32) -> bool {
 }
 
 fn unset(node: i32) -> ! {
-    crate::refuse!(node, Reason::Shape { why: ShapeWhy("an executor parameter no nest, SubPlan or InitPlan of the graph sets") })
+    crate::refuse!(
+        node,
+        Reason::Shape {
+            why: ShapeWhy("an executor parameter no nest, SubPlan or InitPlan of the graph sets")
+        }
+    )
 }
 
 /// An expression's need of parameter `id` (step/consts.rs, a key arm): its producer's name while that kind is unbuilt (once
@@ -115,7 +141,9 @@ pub const HELD: i64 = 4;
 /// expression's operand): its frame pair when `SET`, else the InitPlan run on the cold path (M8-SUB's nest.initplan
 /// registers it): `(env, node, the InitPlan's handle word (`init_handle`), paramid) -> [value, valid (`Bool`), err (0:
 /// none)]`.
-pub struct InitLoad(pub for<'e, 'p> fn(&mut FunctionBuilder<'_>, &mut Env<'e, 'p>, i32, u16, i32) -> [Value; 3]);
+pub struct InitLoad(
+    pub for<'e, 'p> fn(&mut FunctionBuilder<'_>, &mut Env<'e, 'p>, i32, u16, i32) -> [Value; 3],
+);
 
 /// Face `Nest`'s compile-time state (`Px::ext_mut`), its one type: `init` is each InitPlan's handle word, by its index in
 /// the graph's InitPlans; `sites` each site number held for a nest's owner (pipes.rs `reserve_site`) or, D3493, for an index
@@ -134,14 +162,19 @@ crate::frame::px::ext_g!(NestExt);
 
 /// The graph InitPlan that sets parameter `id` (its index): any of its setParams, so they share its handle word.
 fn init_ix(gx: &Gx<'_, '_>, id: i32) -> Option<usize> {
-    gx.graph.init_plans.iter().position(|i| !matches!(i.link, SubLink::Cte) && i.params.iter().any(|p| p == id))
+    gx.graph
+        .init_plans
+        .iter()
+        .position(|i| !matches!(i.link, SubLink::Cte) && i.params.iter().any(|p| p == id))
 }
 
 /// The handle word of the InitPlan that sets parameter `id` (`Proto` Init's one kernel word, M8-RUNTIME's
 /// `m8_init_run(ctx, h, paramid)`): made on the first call in a lowering, the same word after, so nest.initplan's end and
 /// every reader agree before any emit.
 pub fn init_handle(px: &mut Px<'_, '_>, id: i32) -> u16 {
-    let Some(ix) = init_ix(px.gx, id) else { px.bug("an InitPlan handle for a parameter no InitPlan sets") };
+    let Some(ix) = init_ix(px.gx, id) else {
+        px.bug("an InitPlan handle for a parameter no InitPlan sets")
+    };
     if let Some(h) = init_handle_of(px, id) {
         return h;
     }
@@ -153,7 +186,11 @@ pub fn init_handle(px: &mut Px<'_, '_>, id: i32) -> u16 {
 /// `init_handle`'s word when made (a reader's lookup after its make called it).
 pub(crate) fn init_handle_of(px: &Px<'_, '_>, id: i32) -> Option<u16> {
     let ix = init_ix(px.gx, id)?;
-    px.ext::<NestExt>(Face::Nest)?.init.iter().find(|&&(i, _)| i == ix).map(|&(_, h)| h)
+    px.ext::<NestExt>(Face::Nest)?
+        .init
+        .iter()
+        .find(|&&(i, _)| i == ix)
+        .map(|&(_, h)| h)
 }
 
 /// An InitPlan parameter's expression place (`Place::Exec`): bit 30, its handle word in bits 16..29, `id` in 0..15, so
@@ -167,7 +204,8 @@ pub const fn init_place(id: i32, h: u16) -> Option<i32> {
 
 /// The refusal of an InitPlan parameter whose handle word sits past `init_place`'s 14-bit field (a statement of more than
 /// 16384 words whose InitPlan is placed late; `limits::PARAM_WORDS` is `1 << 15`).
-pub(crate) const INIT_HANDLE_PAST: &str = "an InitPlan's handle word past word 16383 (its tagged place's 14-bit field)";
+pub(crate) const INIT_HANDLE_PAST: &str =
+    "an InitPlan's handle word past word 16383 (its tagged place's 14-bit field)";
 
 /// `init_place`'s `(id, h)`; `None` for a plain parameter id.
 pub const fn init_of(p: i32) -> Option<(i32, u16)> {
@@ -187,8 +225,18 @@ pub fn place(px: &mut Px<'_, '_>, node: i32, id: i32, p: Place) -> Place {
             match init_place(id, h) {
                 Some(t) => Place::Exec(t),
                 // the word plan's bound is wider than the handle's field: a handle made past word 16383 refuses by name
-                None if h >= 1 << 14 => crate::refuse!(node, Reason::Shape { why: ShapeWhy(INIT_HANDLE_PAST) }),
-                None => crate::refuse!(node, Reason::Bug { payload: "an InitPlan parameter past its tagged place's range" }),
+                None if h >= 1 << 14 => crate::refuse!(
+                    node,
+                    Reason::Shape {
+                        why: ShapeWhy(INIT_HANDLE_PAST)
+                    }
+                ),
+                None => crate::refuse!(
+                    node,
+                    Reason::Bug {
+                        payload: "an InitPlan parameter past its tagged place's range"
+                    }
+                ),
             }
         }
         _ => p,
@@ -202,7 +250,12 @@ pub(crate) fn reserve(px: &mut Px<'_, '_>) {
     each(px.gx, &mut |id, _| last = last.max(id));
     for (id, i) in (0..=last).flat_map(|id| [(id, 0u8), (id, 1)]) {
         if px.frame_word(WordKey::Param { id, i }) as i32 * 8 != word(id, i) {
-            crate::refuse!(px.gx.root_node(), Reason::Bug { payload: "an executor parameter's word numbered after another frame word" });
+            crate::refuse!(
+                px.gx.root_node(),
+                Reason::Bug {
+                    payload: "an executor parameter's word numbered after another frame word"
+                }
+            );
         }
     }
 }
@@ -214,18 +267,32 @@ pub fn exec_key(px: &mut Px<'_, '_>, node: i32, id: i32) -> u16 {
     use crate::frame::site::{EXEC_KEY, INIT_KEY};
     let init = producer(px.gx, id) == Some(KindId::NestInitplan);
     match init {
-        true if crate::ops::kind_as::<InitLoad>(KindId::NestInitplan).is_none() => crate::not_built!(node, Variant::Kind(KindId::NestInitplan)),
+        true if crate::ops::kind_as::<InitLoad>(KindId::NestInitplan).is_none() => {
+            crate::not_built!(node, Variant::Kind(KindId::NestInitplan))
+        }
         true => _ = init_handle(px, id),
         false => need(px.gx, node, id),
     }
     match u16::try_from(id).ok().filter(|&i| i < INIT_KEY) {
         Some(i) => EXEC_KEY | if init { INIT_KEY } else { 0 } | i,
-        None => crate::refuse!(node, Reason::Bug { payload: "an executor parameter id past a key cell's range" }),
+        None => crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an executor parameter id past a key cell's range"
+            }
+        ),
     }
 }
 
 fn words(env: &Env, node: i32) -> Value {
-    env.words.unwrap_or_else(|| crate::refuse!(node, Reason::Bug { payload: "an executor parameter without the words site" }))
+    env.words.unwrap_or_else(|| {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an executor parameter without the words site"
+            }
+        )
+    })
 }
 
 /// Parameter `id`'s value (`I64`) and NULL flag (`Bool`), as its producer last wrote them (a nest's or a SubPlan's; an
@@ -236,7 +303,10 @@ pub fn load(b: &mut FunctionBuilder<'_>, env: &Env, node: i32, id: i32) -> (Valu
     let flags = b.load(Type::I64, w, word(id, 1));
     let n = b.iconst(Type::I64, NULL);
     let null = b.int_bin(IntBinOp::And, flags, n);
-    (b.load(Type::I64, w, word(id, 0)), b.icmp(IntCond::Ne, null, env.zero))
+    (
+        b.load(Type::I64, w, word(id, 0)),
+        b.icmp(IntCond::Ne, null, env.zero),
+    )
 }
 
 /// D3008: whether parameter `id`'s producer set it in this context (its flags' `SET`), a `Bool`.
@@ -257,13 +327,23 @@ pub fn store(b: &mut FunctionBuilder<'_>, env: &Env, node: i32, id: i32, v: Valu
 
 /// `store` for a nest's outer row: re-entered after a stop (`fresh` a `Bool`, false) it keeps the row's seen bits, as PG
 /// adds the parameter to chgParam once per outer row (a store reading only a grand-owner's parameter is not filled again).
-pub fn store_row(b: &mut FunctionBuilder<'_>, env: &Env, node: i32, id: i32, (v, null): (Value, Value), fresh: Option<Value>) {
+pub fn store_row(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    node: i32,
+    id: i32,
+    (v, null): (Value, Value),
+    fresh: Option<Value>,
+) {
     let w = words(env, node);
     b.store(w, word(id, 0), v);
     let (is_null, not_null) = (b.iconst(Type::I64, SET | NULL), b.iconst(Type::I64, SET));
     let mut flags = b.select(null, is_null, not_null);
     if let Some(fresh) = fresh {
-        let (old, seen) = (b.load(Type::I64, w, word(id, 1)), b.iconst(Type::I64, !(SET | NULL)));
+        let (old, seen) = (
+            b.load(Type::I64, w, word(id, 1)),
+            b.iconst(Type::I64, !(SET | NULL)),
+        );
         let seen = b.int_bin(IntBinOp::And, old, seen);
         let kept = b.select(fresh, env.zero, seen);
         flags = b.int_bin(IntBinOp::Or, flags, kept);
@@ -279,14 +359,28 @@ pub fn store_row(b: &mut FunctionBuilder<'_>, env: &Env, node: i32, id: i32, (v,
 /// around the store, is not theirs). Elsewhere: UNPASSED.
 pub fn outside<'p>(gx: &Gx<'_, 'p>, k: usize, calls: &[Node<'p>]) -> Option<KindId> {
     let pipes = gx.pipelines();
-    let passed = k >= pipes.len() || gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&p| p as usize == k));
+    let passed = k >= pipes.len()
+        || gx
+            .graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.iter().any(|&p| p as usize == k));
     let mut kind = None;
     for &n in calls {
         gravity_decompose::expr::walk(n, &mut |x| {
-            match x.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC).map(|p| producer(gx, p.paramid)) {
+            match x
+                .as_param()
+                .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+                .map(|p| producer(gx, p.paramid))
+            {
                 Some(Some(KindId::NestInitplan)) => kind = Some(KindId::NestInitplan),
                 Some(_) if passed => kind = kind.or(Some(KindId::NestRerun)),
-                Some(_) => crate::refuse!(pipes[k].node_id, Reason::Shape { why: ShapeWhy(UNPASSED) }),
+                Some(_) => crate::refuse!(
+                    pipes[k].node_id,
+                    Reason::Shape {
+                        why: ShapeWhy(UNPASSED)
+                    }
+                ),
                 None => {}
             }
             true
@@ -304,14 +398,25 @@ pub const UNPASSED: &str = "a set or table function reading an executor paramete
 pub fn key(gx: &Gx<'_, '_>, node: i32, value: Node<'_>) -> ! {
     let mut ids: mcx::PgVec<'_, i32> = mcx::PgVec::new_in(gx.mcx);
     gravity_decompose::expr::walk(value, &mut |x| {
-        ids.extend_in(x.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC).map(|p| p.paramid));
+        ids.extend_in(
+            x.as_param()
+                .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+                .map(|p| p.paramid),
+        );
         true
     });
     ids.iter().for_each(|&id| need(gx, node, id));
     if crate::ops::kind(KindId::NestParam).is_none() {
         crate::not_built!(node, Variant::Kind(KindId::NestParam))
     }
-    crate::refuse!(node, Reason::Shape { why: ShapeWhy("a key or bound computed from executor parameters (not read per re-open)") })
+    crate::refuse!(
+        node,
+        Reason::Shape {
+            why: ShapeWhy(
+                "a key or bound computed from executor parameters (not read per re-open)"
+            )
+        }
+    )
 }
 
 #[cfg(test)]
@@ -347,6 +452,9 @@ mod tests {
         let p = super::init_place(7, 300).expect("in range");
         assert_eq!(super::init_of(p), Some((7, 300)));
         assert_eq!(super::init_of(7), None);
-        assert_eq!((super::init_place(1 << 16, 0), super::init_place(0, 1 << 14)), (None, None));
+        assert_eq!(
+            (super::init_place(1 << 16, 0), super::init_place(0, 1 << 14)),
+            (None, None)
+        );
     }
 }

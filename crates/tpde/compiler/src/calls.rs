@@ -337,10 +337,13 @@ impl<
         while evict != 0 {
             let reg = Reg::new(u64::from(evict.trailing_zeros()));
             evict &= evict - 1;
-            if self.compiler.with_registers(|registers| registers.is_fixed(reg)) {
-                let (local, part) = self
-                    .compiler
-                    .with_registers(|registers| (registers.reg_local_idx(reg), registers.reg_part(reg)));
+            if self
+                .compiler
+                .with_registers(|registers| registers.is_fixed(reg))
+            {
+                let (local, part) = self.compiler.with_registers(|registers| {
+                    (registers.reg_local_idx(reg), registers.reg_part(reg))
+                });
                 self.compiler.call_spill_part(local, part)?;
                 saved |= 1u64 << reg.id();
                 continue;
@@ -353,9 +356,9 @@ impl<
         while saved != 0 {
             let reg = Reg::new(u64::from(saved.trailing_zeros()));
             saved &= saved - 1;
-            let (local, part) = self
-                .compiler
-                .with_registers(|registers| (registers.reg_local_idx(reg), registers.reg_part(reg)));
+            let (local, part) = self.compiler.with_registers(|registers| {
+                (registers.reg_local_idx(reg), registers.reg_part(reg))
+            });
             self.compiler.reload_to_reg(reg, local, part)?;
             self.compiler.regalloc_event(RegallocEvent::CallRestore);
         }

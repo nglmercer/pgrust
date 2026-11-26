@@ -7,7 +7,6 @@ use guc::units::{fmt_g, get_config_unit_name};
 use guc_tables::{config_group_names, config_type_names, GucContext_Names, GucSource_Names};
 use mcx::Mcx;
 use tupdesc::{CreateTemplateTupleDesc, TupleDescInitEntry};
-use types_tuple::TupleDescData;
 use types_core::{Oid, BOOLOID, INT4OID, RECORDOID, TEXTARRAYOID, TEXTOID};
 use types_error::PgResult;
 use types_fmgr::builtin;
@@ -15,6 +14,7 @@ use types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 use types_guc::{GUC_NO_SHOW_ALL, PGC_S_FILE};
+use types_tuple::TupleDescData;
 
 use crate::{ConfigOptionIsVisible, ShowGUCOption, ROLE_PG_READ_ALL_SETTINGS};
 
@@ -69,7 +69,13 @@ fn setting_tuple(mcx: Mcx<'_>, desc: &TupleDescData<'_>, conf: &GucVariable) -> 
 
     values[0] = text_datum(mcx, &gen.name)?;
     values[1] = text_datum(mcx, &ShowGUCOption(conf, false))?;
-    opt_text_datum(mcx, get_config_unit_name(gen.flags), &mut values, &mut nulls, 2)?;
+    opt_text_datum(
+        mcx,
+        get_config_unit_name(gen.flags),
+        &mut values,
+        &mut nulls,
+        2,
+    )?;
     values[3] = text_datum(mcx, config_group_names[gen.group as usize])?;
     opt_text_datum(mcx, gen.short_desc, &mut values, &mut nulls, 4)?;
     opt_text_datum(mcx, gen.long_desc, &mut values, &mut nulls, 5)?;
@@ -110,8 +116,12 @@ fn setting_tuple(mcx: Mcx<'_>, desc: &TupleDescData<'_>, conf: &GucVariable) -> 
         GucVariable::Enum(c) => {
             nulls[9] = true;
             nulls[10] = true;
-            let mut names: Vec<&str> =
-                c.entries().iter().filter(|e| !e.hidden).map(|e| e.name).collect();
+            let mut names: Vec<&str> = c
+                .entries()
+                .iter()
+                .filter(|e| !e.hidden)
+                .map(|e| e.name)
+                .collect();
             // C's config_enum_get_options("{\"", "\"}", "\",\"") yields
             // {""} (one empty element) when every entry is hidden.
             if names.is_empty() {
@@ -151,23 +161,19 @@ fn setting_tuple(mcx: Mcx<'_>, desc: &TupleDescData<'_>, conf: &GucVariable) -> 
     values[16] = Datum::from_bool(gen.status & GUC_PENDING_RESTART != 0);
 
     let tuple = heaptuple::heap_form_tuple(mcx, desc, &values, &nulls)?;
-    let image = ::mcx::std_vec_from_slice("misc",tuple.image())?;
+    let image = ::mcx::std_vec_from_slice("misc", tuple.image())?;
     drop(enum_arr);
     Ok(image)
 }
 
 // C: show_all_settings — value-per-call: the variable list is fixed at the
 // first call, each row is extracted when it is returned.
-pub fn fc_show_all_settings(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_show_all_settings(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let flinfo = flinfo.expect("show_all_settings: resolved FmgrInfo required");
     if !flinfo.has_fn_extra() {
-        let mut names: Vec<String> = guc::store::with_store(|reg| {
-            reg.iter().map(|v| v.gen().name.to_string()).collect()
-        })
-        .expect("GUC store not initialized");
+        let mut names: Vec<String> =
+            guc::store::with_store(|reg| reg.iter().map(|v| v.gen().name.to_string()).collect())
+                .expect("GUC store not initialized");
         names.sort_by(|a, b| guc::guc_name_compare(a, b));
         let fctx = funcapi_srf::init_MultiFuncCall(flinfo, fcinfo)?;
         fctx.max_calls = names.len() as u64;
@@ -325,7 +331,11 @@ pub fn fc_set_config_by_name(
         Some(String::from_utf8_lossy(cstring_bytes(v.data())).into_owned())
     };
     let is_local = !c.isnull && c.value.as_bool();
-    let action: GucAction = if is_local { GUC_ACTION_LOCAL } else { GUC_ACTION_SET };
+    let action: GucAction = if is_local {
+        GUC_ACTION_LOCAL
+    } else {
+        GUC_ACTION_SET
+    };
     guc::set_config_option(
         &name,
         value.as_deref(),
@@ -336,11 +346,10 @@ pub fn fc_set_config_by_name(
         types_error::ErrorLevel(0),
         false,
     )?;
-    let new_value = guc::store::with_store(|reg| {
-        guc::registry::get_config_option_by_name(reg, &name, false)
-    })
-    .expect("GUC store not initialized")?
-    .expect("missing_ok=false returned None");
+    let new_value =
+        guc::store::with_store(|reg| guc::registry::get_config_option_by_name(reg, &name, false))
+            .expect("GUC store not initialized")?
+            .expect("missing_ok=false returned None");
     text_datum(fcinfo.result_mcx(), &new_value)
 }
 
@@ -379,7 +388,13 @@ pub fn fc_pg_settings_get_flags(
         scratch.extend_from_slice(&datum::varlena::set_varsize_4b(4 + name.len()));
         scratch.extend_from_slice(name.as_bytes());
         let d = Datum::from_usize(scratch.as_ptr() as usize);
-        astate = Some(::arrayfuncs::accum_array_result(mcx, astate.take(), d, false, TEXTOID)?);
+        astate = Some(::arrayfuncs::accum_array_result(
+            mcx,
+            astate.take(),
+            d,
+            false,
+            TEXTOID,
+        )?);
     }
     let img = match &astate {
         None => ::arrayfuncs::construct_empty_array(mcx, TEXTOID)?,
@@ -389,10 +404,52 @@ pub fn fc_pg_settings_get_flags(
 }
 
 pub const GUC_FUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    builtin(2084, "show_all_settings", 0, true, true, fc_show_all_settings),
-    builtin(3329, "show_all_file_settings", 0, true, true, fc_show_all_file_settings),
-    builtin(2077, "show_config_by_name", 1, true, false, fc_show_config_by_name),
-    builtin(3294, "show_config_by_name_missing_ok", 2, true, false, fc_show_config_by_name_missing_ok),
-    builtin(2078, "set_config_by_name", 3, false, false, fc_set_config_by_name),
-    builtin(6240, "pg_settings_get_flags", 1, true, false, fc_pg_settings_get_flags),
+    builtin(
+        2084,
+        "show_all_settings",
+        0,
+        true,
+        true,
+        fc_show_all_settings,
+    ),
+    builtin(
+        3329,
+        "show_all_file_settings",
+        0,
+        true,
+        true,
+        fc_show_all_file_settings,
+    ),
+    builtin(
+        2077,
+        "show_config_by_name",
+        1,
+        true,
+        false,
+        fc_show_config_by_name,
+    ),
+    builtin(
+        3294,
+        "show_config_by_name_missing_ok",
+        2,
+        true,
+        false,
+        fc_show_config_by_name_missing_ok,
+    ),
+    builtin(
+        2078,
+        "set_config_by_name",
+        3,
+        false,
+        false,
+        fc_set_config_by_name,
+    ),
+    builtin(
+        6240,
+        "pg_settings_get_flags",
+        1,
+        true,
+        false,
+        fc_pg_settings_get_flags,
+    ),
 ];

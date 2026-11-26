@@ -53,16 +53,30 @@ impl<'g> Above<'g> {
         let p = &gx.pipelines()[k];
         let mut pre = PgVec::new_in(mcx);
         for i in (j + 1..p.ops.len()).rev() {
-            let node = p.node_ops.iter().rev().find(|n| n.first_op as usize <= i).map_or(p.node_id, |n| n.node_id);
+            let node = p
+                .node_ops
+                .iter()
+                .rev()
+                .find(|n| n.first_op as usize <= i)
+                .map_or(p.node_id, |n| n.node_id);
             match &p.ops[i] {
                 Op::Gate(n) if !crate::effects::visible::result::qual_calls(gx, *n) => {
                     let quals: PgVec<'g, ExId> = match n.as_list() {
-                        Some(l) => l.iter().map(|q| crate::step::expr::compile(px, q, None, node)).collect_in(mcx),
-                        None => mcx::pg_vec![in mcx; crate::step::expr::compile(px, *n, None, node)],
+                        Some(l) => l
+                            .iter()
+                            .map(|q| crate::step::expr::compile(px, q, None, node))
+                            .collect_in(mcx),
+                        None => {
+                            mcx::pg_vec![in mcx; crate::step::expr::compile(px, *n, None, node)]
+                        }
                     };
                     pre.push_in(Pre::Gate(quals, node));
                 }
-                op => pre.extend_in(crate::frame::iface::limit_stopping(op).and_then(|(c, o)| bind(px, k, c).zip(bind(px, k, o))).map(|(c, o)| Pre::Limit(c, o))),
+                op => pre.extend_in(
+                    crate::frame::iface::limit_stopping(op)
+                        .and_then(|(c, o)| bind(px, k, c).zip(bind(px, k, o)))
+                        .map(|(c, o)| Pre::Limit(c, o)),
+                ),
             }
         }
         Above(pre)
@@ -80,12 +94,26 @@ impl<'g> Above<'g> {
             b.cond_br(s, (l_stop, &[t]), (l_more, &[]));
             b.switch_to(l_more);
         }
-        let none = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
+        let none = RowVals {
+            row: crate::cell::Row::new_in(env.mcx),
+            vals: mcx::PgVec::new_in(env.mcx),
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry: Carry::new(env.zero, env.mcx),
+            next: env.zero,
+            at: env.zero,
+        };
         for c in self.0.iter() {
             match c {
                 Pre::Limit(count, offset) => {
-                    let (o, n) = (soft(b, env, *offset, IntCond::Slt), soft(b, env, *count, IntCond::Sle));
-                    let (stop, l_more, t) = (b.int_bin(IntBinOp::Or, o, n), b.create_block(&[]), b.bconst(true));
+                    let (o, n) = (
+                        soft(b, env, *offset, IntCond::Slt),
+                        soft(b, env, *count, IntCond::Sle),
+                    );
+                    let (stop, l_more, t) = (
+                        b.int_bin(IntBinOp::Or, o, n),
+                        b.create_block(&[]),
+                        b.bconst(true),
+                    );
                     b.cond_br(stop, (l_stop, &[t]), (l_more, &[]));
                     b.switch_to(l_more);
                 }
@@ -107,7 +135,6 @@ impl<'g> Above<'g> {
     }
 }
 
-
 /// A feeder's bound in pipeline `q`: a constant or a bind-time word (a per-open parameter is read only after the feeders
 /// run: `None`). A bound a rerun set re-reads per open (D1634 `rebinds`) is never a bind-time word: PG evaluates it only
 /// when the Limit runs, so a word bound at bind would evaluate it once more per statement.
@@ -118,7 +145,11 @@ pub(crate) fn bind<'p>(px: &mut Px<'_, 'p>, q: usize, b: &Bound<'p>) -> Option<L
         Bound::Expr(_) if bound::rebinds(px.gx, q, b) => None,
         Bound::Expr(e) => {
             let node = px.gx.pipelines()[q].node_id;
-            if let Place::Word(w) = bound::word(px, Feed::Limit, q, e, node) { Some(Lim::Word(w)) } else { None }
+            if let Place::Word(w) = bound::word(px, Feed::Limit, q, e, node) {
+                Some(Lim::Word(w))
+            } else {
+                None
+            }
         }
     }
 }
@@ -130,7 +161,10 @@ pub(crate) fn soft(b: &mut FunctionBuilder<'_>, env: &Env, l: Lim, cond: IntCond
         Lim::Const(n) => (b.iconst(Type::I64, n), b.bconst(true)),
         Lim::Word(w) => {
             let nb = b.load_zext(Type::I8, env.params_null, w as i32);
-            (b.load(Type::I64, env.params, w as i32 * 8), b.icmp(IntCond::Eq, nb, env.zero))
+            (
+                b.load(Type::I64, env.params, w as i32 * 8),
+                b.icmp(IntCond::Eq, nb, env.zero),
+            )
         }
     };
     let hit = b.icmp(cond, v, env.zero);
@@ -162,11 +196,20 @@ pub(crate) fn cte_lock_cap(gx: &crate::graph::Gx<'_, '_>, k: usize) -> Option<(u
         return None;
     }
     let mut readers = (0..ps.len()).filter(|&q| q != k && ps[q].desc.consumes.contains(&s));
-    let (Some(r), None) = (readers.next(), readers.next()) else { return None };
+    let (Some(r), None) = (readers.next(), readers.next()) else {
+        return None;
+    };
     let p = &ps[r];
-    let insert = p.ops.iter().any(|o| matches!(o, Op::Write(w) if w.cmd == gravity_program::Cmd::Insert));
+    let insert = p
+        .ops
+        .iter()
+        .any(|o| matches!(o, Op::Write(w) if w.cmd == gravity_program::Cmd::Insert));
     let inits = gx.with_producers(gx.graph.init_plans.iter().map(|i| i.pipeline as usize));
-    if inits.contains(&r) || !insert || !matches!(p.source, gravity_decompose::Source::Breaker { slot } if slot == s) || ps.inners().iter().any(|x| x.1.desc.consumes.contains(&s)) {
+    if inits.contains(&r)
+        || !insert
+        || !matches!(p.source, gravity_decompose::Source::Breaker { slot } if slot == s)
+        || ps.inners().iter().any(|x| x.1.desc.consumes.contains(&s))
+    {
         return None;
     }
     let n = p.ops.iter().find(|o| !proj(o)).and_then(rows)?;

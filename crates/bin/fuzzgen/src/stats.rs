@@ -65,7 +65,10 @@ struct Prof {
     gucs: &'static [(&'static str, &'static str)],
 }
 
-const DEFAULTP: Prof = Prof { name: "default", gucs: &[] };
+const DEFAULTP: Prof = Prof {
+    name: "default",
+    gucs: &[],
+};
 const SEQ: Prof = Prof {
     name: "seq",
     gucs: &[
@@ -80,7 +83,11 @@ const IDX: Prof = Prof {
 };
 const BITMAP: Prof = Prof {
     name: "bitmap",
-    gucs: &[("enable_seqscan", "off"), ("enable_indexscan", "off"), ("enable_indexonlyscan", "off")],
+    gucs: &[
+        ("enable_seqscan", "off"),
+        ("enable_indexscan", "off"),
+        ("enable_indexonlyscan", "off"),
+    ],
 };
 const HASHJ: Prof = Prof {
     name: "hashj",
@@ -92,15 +99,28 @@ const MERGEJ: Prof = Prof {
 };
 const NESTL: Prof = Prof {
     name: "nestl",
-    gucs: &[("enable_hashjoin", "off"), ("enable_mergejoin", "off"), ("enable_memoize", "off")],
+    gucs: &[
+        ("enable_hashjoin", "off"),
+        ("enable_mergejoin", "off"),
+        ("enable_memoize", "off"),
+    ],
 };
-const HASHAGG: Prof = Prof { name: "hashagg", gucs: &[("enable_sort", "off")] };
-const GROUPAGG: Prof = Prof { name: "groupagg", gucs: &[("enable_hashagg", "off")] };
+const HASHAGG: Prof = Prof {
+    name: "hashagg",
+    gucs: &[("enable_sort", "off")],
+};
+const GROUPAGG: Prof = Prof {
+    name: "groupagg",
+    gucs: &[("enable_hashagg", "off")],
+};
 
 /// SET/body/RESET bracket, RESETs in reverse order, one group.
 fn bracket(p: &Prof, body: Vec<StmtKind>) -> Vec<StmtKind> {
-    let mut v: Vec<StmtKind> =
-        p.gucs.iter().map(|(n, val)| raw(format!("SET {n} = {val};"))).collect();
+    let mut v: Vec<StmtKind> = p
+        .gucs
+        .iter()
+        .map(|(n, val)| raw(format!("SET {n} = {val};")))
+        .collect();
     v.extend(body);
     for (n, _) in p.gucs.iter().rev() {
         v.push(raw(format!("RESET {n};")));
@@ -188,7 +208,9 @@ fn gen_dep(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT pk FROM fz_st_dep WHERE a = 55 AND b = 5 AND grp = 0 ORDER BY pk;".into(),
     ];
     v.extend(sweep(g, &[DEFAULTP, SEQ, IDX], &queries));
-    v.push(raw(ex("SELECT count(*) FROM fz_st_dep WHERE a = 37 AND b = 3 AND grp = 2;")));
+    v.push(raw(ex(
+        "SELECT count(*) FROM fz_st_dep WHERE a = 37 AND b = 3 AND grp = 2;",
+    )));
     v.push(raw("DROP TABLE fz_st_dep;"));
     v
 }
@@ -263,7 +285,9 @@ fn gen_mcv(g: &mut Gen) -> Vec<StmtKind> {
         "SELECT pk FROM fz_st_mcv WHERE hot = 7 AND cat = 7 AND opt = 2 ORDER BY pk;".into(),
     ];
     v.extend(sweep(g, &[DEFAULTP, SEQ], &queries));
-    v.push(raw(ex("SELECT count(*) FROM fz_st_mcv WHERE hot = 0 AND cat = 0 AND opt IS NULL;")));
+    v.push(raw(ex(
+        "SELECT count(*) FROM fz_st_mcv WHERE hot = 0 AND cat = 0 AND opt IS NULL;",
+    )));
     v.push(raw("DROP TABLE fz_st_mcv;"));
     v
 }
@@ -439,7 +463,9 @@ fn gen_index(g: &mut Gen) -> Vec<StmtKind> {
         &[BITMAP],
         &["SELECT count(*)::int8 FROM fz_st_ix WHERE a BETWEEN 100 AND 140;".into()],
     ));
-    v.push(raw(ex("SELECT count(*) FROM fz_st_ix WHERE arr @> ARRAY[3];")));
+    v.push(raw(ex(
+        "SELECT count(*) FROM fz_st_ix WHERE arr @> ARRAY[3];",
+    )));
     v.push(raw("DROP TABLE fz_st_ix;"));
     v
 }
@@ -522,7 +548,7 @@ mod tests {
             for s in &group {
                 let sql = s.to_sql();
                 if let Some(rest) = sql.strip_prefix("CREATE TABLE ") {
-                    let name = rest.split([ ' ', '(']).next().unwrap();
+                    let name = rest.split([' ', '(']).next().unwrap();
                     created.push(name.to_string());
                 }
                 if let Some(rest) = sql.strip_prefix("DROP TABLE ") {
@@ -533,7 +559,10 @@ mod tests {
             }
             created.sort();
             dropped.sort();
-            assert_eq!(created, dropped, "unbalanced create/drop in group: {group:?}");
+            assert_eq!(
+                created, dropped,
+                "unbalanced create/drop in group: {group:?}"
+            );
         }
     }
 

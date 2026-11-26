@@ -12,8 +12,8 @@ use types_storage::waiteventset::{WaitEvent, WL_LATCH_SET, WL_SOCKET_ACCEPT};
 
 use crate::statemachine::{signal_child, ExitPostmaster, StartChildProcess, TerminateChildren};
 use crate::{
-    btmask_all_except, loc, pmstate_name, report, report_internal, with_pm, PMState, FastShutdown,
-    ImmediateShutdown, NoShutdown, FORCED_EXIT_AFTER_LETHAL_SECS, MAXLISTEN,
+    btmask_all_except, loc, pmstate_name, report, report_internal, with_pm, FastShutdown,
+    ImmediateShutdown, NoShutdown, PMState, FORCED_EXIT_AFTER_LETHAL_SECS, MAXLISTEN,
     SIGKILL_CHILDREN_AFTER_SECS,
 };
 use elog::PCT_M;
@@ -25,7 +25,11 @@ pub fn ConfigurePostmasterWaitSet(accept_connections: bool) -> PgResult<()> {
         if let Some(set) = pm.pm_wait_set.take() {
             waiteventset::FreeWaitEventSet(set);
         }
-        let n = if accept_connections { 1 + pm.listen_sockets.len() } else { 1 };
+        let n = if accept_connections {
+            1 + pm.listen_sockets.len()
+        } else {
+            1
+        };
         let set = waiteventset::CreateWaitEventSet(n as i32)?;
         waiteventset::AddWaitEventToSet(
             set,
@@ -48,7 +52,12 @@ pub fn ConfigurePostmasterWaitSet(accept_connections: bool) -> PgResult<()> {
 /// just long enough that they restart on schedule.
 pub fn DetermineSleepTime() -> i64 {
     let (shutdown, abort_start_time, start_worker_needed, have_crashed_worker) = with_pm(|pm| {
-        (pm.shutdown, pm.abort_start_time, pm.start_worker_needed, pm.have_crashed_worker)
+        (
+            pm.shutdown,
+            pm.abort_start_time,
+            pm.start_worker_needed,
+            pm.have_crashed_worker,
+        )
     });
     if shutdown > NoShutdown || (!start_worker_needed && !have_crashed_worker) {
         if abort_start_time != 0 {
@@ -72,10 +81,21 @@ pub fn DetermineSleepTime() -> i64 {
         // uptime passed the bound and spun the postmaster at 100% CPU.
         let stall_bound = crate::pm_shutdown_stall_secs();
         let (fatal_error, escalated, pm_state, state_since) = with_pm(|pm| {
-            (pm.fatal_error, pm.stall_escalated, pm.pm_state, pm.pm_state_since)
+            (
+                pm.fatal_error,
+                pm.stall_escalated,
+                pm.pm_state,
+                pm.pm_state_since,
+            )
         });
-        if shutdown_stall_armed(shutdown, fatal_error, escalated, pm_state, state_since, stall_bound)
-        {
+        if shutdown_stall_armed(
+            shutdown,
+            fatal_error,
+            escalated,
+            pm_state,
+            state_since,
+            stall_bound,
+        ) {
             let seconds = stall_bound - (now_secs() - state_since);
             #[allow(clippy::manual_clamp)]
             return (seconds * 1000).max(0).min(60 * 1000);
@@ -186,7 +206,9 @@ pub(crate) fn shutdown_stall_due(
 
 /// D4812: the postmaster's exit callback: the memory threads' queued log writes drained (bounded) before the process exits.
 fn drain_memory_log_at_exit(_code: i32, _arg: usize) {
-    let _ = memruntime::memlog::drain(core::time::Duration::from_millis(memruntime::memlog::SHUTDOWN_WAIT_MS));
+    let _ = memruntime::memlog::drain(core::time::Duration::from_millis(
+        memruntime::memlog::SHUTDOWN_WAIT_MS,
+    ));
 }
 
 pub fn ServerLoop() -> PgResult<i32> {
@@ -369,7 +391,11 @@ pub fn ServerLoop() -> PgResult<i32> {
             let send_abort = guc_tables::vars::send_abort_for_kill.read();
             // D4816: act, then log (handle_child_crash's note): the kill broadcast and the forced-exit floor's arm
             // before this LOG line's synchronous write. Do not restore C's order.
-            TerminateChildren(if send_abort { procsignal::signums::SIGABRT } else { procsignal::signums::SIGKILL });
+            TerminateChildren(if send_abort {
+                procsignal::signums::SIGABRT
+            } else {
+                procsignal::signums::SIGKILL
+            });
             with_pm(|pm| {
                 pm.abort_start_time = 0;
                 // Arm the forced-exit floor: the thread rendering of SIGKILL
@@ -471,9 +497,8 @@ pub fn canAcceptConnections(backend_type: BackendType) -> CacState {
         backend_type == BackendType::Backend || backend_type == BackendType::AutovacWorker
     );
 
-    let (pm_state, shutdown, fatal_error, conns_allowed) = with_pm(|pm| {
-        (pm.pm_state, pm.shutdown, pm.fatal_error, pm.conns_allowed)
-    });
+    let (pm_state, shutdown, fatal_error, conns_allowed) =
+        with_pm(|pm| (pm.pm_state, pm.shutdown, pm.fatal_error, pm.conns_allowed));
 
     if pm_state != PMState::PM_RUN && pm_state != PMState::PM_HOT_STANDBY {
         if shutdown > NoShutdown {
@@ -536,7 +561,9 @@ pub fn BackendStartup(client_sock: ClientSocket) -> i32 {
         pmchild_seams::release_postmaster_child_slot::call(child_slot);
         let _ = elog::ereport(LOG)
             .with_saved_errno(save_errno)
-            .errmsg(format!("could not fork new process for connection: {PCT_M}"))
+            .errmsg(format!(
+                "could not fork new process for connection: {PCT_M}"
+            ))
             .finish(loc(3608, "BackendStartup"));
         report_fork_failure_to_client(&client_sock, save_errno);
         return STATUS_ERROR;
@@ -701,14 +728,15 @@ pub fn LaunchMissingBackgroundProcesses() {
                     PMState::PM_STARTUP | PMState::PM_RECOVERY | PMState::PM_HOT_STANDBY
                 )
                 && pm.shutdown <= crate::SmartShutdown
-        }) {
-            let c = StartChildProcess(BackendType::WalReceiver);
-            with_pm(|pm| {
-                pm.walreceiver = c;
-                if c.is_some() {
-                    pm.wal_receiver_requested = false;
-                }
-            });
+        })
+    {
+        let c = StartChildProcess(BackendType::WalReceiver);
+        with_pm(|pm| {
+            pm.walreceiver = c;
+            if c.is_some() {
+                pm.wal_receiver_requested = false;
+            }
+        });
     }
 
     if guc_tables::vars::summarize_wal.read()

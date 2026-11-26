@@ -36,30 +36,34 @@
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::modifytable::partwrite::root_attno;
 use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_UPDATE};
-use gravity_decompose::ops::shared::modifytable::{MergeDesc, Member, RouteDesc, Target, WriteDesc};
+use gravity_decompose::ops::shared::modifytable::{
+    Member, MergeDesc, RouteDesc, Target, WriteDesc,
+};
 use gravity_decompose::{Am, Op, Source};
 use gravity_ir::Value;
 use gravity_program::{ArenaVec, Cmd, WritePlan};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 use types_nodes::jointype::JoinType;
 
+use crate::admit::refusal::Reason;
 use crate::face::end::TargetsRoad;
 use crate::face::kinds::KindId;
 use crate::face::strategy::WRITE_ROUTE;
 use crate::frame::frame::StepMaker;
 use crate::frame::px::Px;
 use crate::graph::Gx;
-use crate::admit::refusal::Reason;
 
 use crate::ops::modifytable::merge::admit::{fires, shape};
 use crate::ops::modifytable::merge::nm::insert_only;
 use crate::ops::modifytable::strategies::route::Route;
 
 /// D1082 (M7 I48): what stays refused of a MERGE through a root (write/merge_admit.rs's name, kept for the census).
-pub(crate) const ROUTED: &str = "a MERGE through a partitioned or inheritance root (write.route's MERGE form)";
+pub(crate) const ROUTED: &str =
+    "a MERGE through a partitioned or inheritance root (write.route's MERGE form)";
 pub(crate) const TABLEOID: &str = "a MERGE through a root whose target rows reach the write through a sort, a hash build or a nest inner over several result relations (the junk tableoid form)";
 pub(crate) const INSERT_BESIDE: &str = "a MERGE through a root with a NOT MATCHED INSERT beside UPDATE / DELETE (the routed INSERT beside the target host)";
-pub(crate) const RETURNING: &str = "a MERGE through a root with RETURNING over several result relations";
+pub(crate) const RETURNING: &str =
+    "a MERGE through a root with RETURNING over several result relations";
 pub(crate) const NEST: &str = "a MERGE through a root over a nested loop's rows (write.route's nest form: D1933's recheck names one target's inner scan)";
 pub(crate) const INHERIT_INDEXED: &str = "an INSERT-only MERGE through an inheritance root with indexes (the root's own INSERT maintains them)";
 pub(crate) const INHERIT_TRIGGERS: &str = "an INSERT-only MERGE through an inheritance root with triggers (the root's own INSERT fires them)";
@@ -67,14 +71,24 @@ pub(crate) const INHERIT_CHECKS: &str = "an INSERT-only MERGE through an inherit
 
 /// write/merge_admit.rs's routed check: the result relation whose own scan rows reach pipeline `k`'s write `(rti, relid)`
 /// (the arm's own target under (b); the write's own target otherwise), or a refusal by name.
-pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDesc<'_>), node: i32, dummy: bool) -> (u32, u32) {
+pub(crate) fn admit(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    (w, m): (&WriteDesc<'_>, &MergeDesc<'_>),
+    node: i32,
+    dummy: bool,
+) -> (u32, u32) {
     let own = (w.rti, w.plan.target_rel);
     let (Some(_r), false) = (w.route.as_ref(), insert_only(m)) else {
         // unrouted, or V4R-498's INSERT-only form (member Route; one updating a key stays ROUTED); mergecmd INHERIT-ROOT
         if inherit_root(gx, w, m, node).is_some() {
             return own;
         }
-        if w.targets.len() != 1 && w.route.is_none() || w.members.has(Member::Targets) || w.members.has(Member::CrossPartition) || w.route.is_some_and(|r| r.cross_partition) {
+        if w.targets.len() != 1 && w.route.is_none()
+            || w.members.has(Member::Targets)
+            || w.members.has(Member::CrossPartition)
+            || w.route.is_some_and(|r| r.cross_partition)
+        {
             shape(node, ROUTED);
         }
         return own;
@@ -95,7 +109,11 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDe
     // writesubplan (gen mg-0179): an arm of the (b) form projects its own result relation's list (ExecInitMerge gives
     // each its returningList, the first's mapped onto its attnos) over the row its host hands back (`b_arm`); beside
     // the routed INSERT, whose row is the root's read at the first relation's attnos (nm.rs `returned`), it stays refused
-    if w.returning.is_some() && w.targets.len() > 1 && !union && !(b_arm(gx, k, w) && insert_beside(gx, k, w).is_none()) {
+    if w.returning.is_some()
+        && w.targets.len() > 1
+        && !union
+        && !(b_arm(gx, k, w) && insert_beside(gx, k, w).is_none())
+    {
         shape(node, RETURNING);
     }
     // the design review's condition for D1933 (write/nest_write.rs admits a nest under ONE target's recheck): no routed
@@ -104,19 +122,35 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDe
     // its nest is nest_write.rs's as an unrouted target's (`merge`: the leaf's scan the outer of REFERENCE-marked inners,
     // or the leaf's scan the inner); every other form there by name
     let p = &gx.pipelines()[k];
-    let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
+    let wi = p
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Write(_)))
+        .unwrap_or(p.ops.len());
     // (G2(c) part 2: over the union form, nest_write.rs `union_nest` admits the nest or refuses it by name)
-    if p.ops[..wi].iter().any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. }))) && !union && w.targets.len() != 1 {
+    if p.ops[..wi]
+        .iter()
+        .any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+        && !union
+        && w.targets.len() != 1
+    {
         shape(node, NEST);
     }
     // write.transition's plan names the target's and the root's; every other result relation's here (merge.rs `fires`)
     for relid in relids(w, gx.mcx) {
-        if let Some(why) = crate::ops::modifytable::triggers::refusal(gx.facts.trig_ext(relid), Cmd::Merge, false, false) {
+        if let Some(why) = crate::ops::modifytable::triggers::refusal(
+            gx.facts.trig_ext(relid),
+            Cmd::Merge,
+            false,
+            false,
+        ) {
             shape(node, why);
         }
     }
-    let scans = |rti: u32, relid: u32| matches!(&p.source, Source::Range { am, scanrelid, relid: r, .. } | Source::Index { am, scanrelid, relid: r, .. } | Source::Bitmap { am, scanrelid, relid: r, .. } | Source::Tid { am, scanrelid, relid: r, .. }
-        if *am == Am::Heap && u32::from(*scanrelid) == rti && *r == relid);
+    let scans = |rti: u32, relid: u32| {
+        matches!(&p.source, Source::Range { am, scanrelid, relid: r, .. } | Source::Index { am, scanrelid, relid: r, .. } | Source::Bitmap { am, scanrelid, relid: r, .. } | Source::Tid { am, scanrelid, relid: r, .. }
+        if *am == Am::Heap && u32::from(*scanrelid) == rti && *r == relid)
+    };
     if w.targets.len() == 1 {
         // (a): the one result relation's own scan rows, or the planner's dummy relation (its row never comes: D3367, D829's
         // root pruned to no leaf among them, `pruned`); mergecmd
@@ -129,7 +163,12 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDe
         // hash build the emit's REFERENCE-marked source probes, D776, or a merge join's sorted input, D1249), as an
         // unrouted target's: the position the leaf's junk ctid, the recheck rerunning that producer at its newest version
         let built = || crate::ops::modifytable::merge::admit::built_target(gx, k, w).is_some();
-        if !(scans(own.0, own.1) || matches!(p.source, Source::Const) && dummy || crate::ops::modifytable::nest_write::material_target(gx, k, w) || insert_beside(gx, k, w).is_some() || built()) {
+        if !(scans(own.0, own.1)
+            || matches!(p.source, Source::Const) && dummy
+            || crate::ops::modifytable::nest_write::material_target(gx, k, w)
+            || insert_beside(gx, k, w).is_some()
+            || built())
+        {
             shape(node, ROUTED);
         }
         return own;
@@ -153,7 +192,11 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDe
 /// (ExecLookupResultRelByOid) and its position from the junk ctid; an EvalPlanQual recheck substitutes that relation's
 /// scan with the newest version and leaves every other result relation's scan empty (EvalPlanQualStart's
 /// relsubs_blocked). The feeds by target index (`targets` order), else `None`.
-pub(crate) fn union_targets<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<PgVec<'g, usize>> {
+pub(crate) fn union_targets<'g>(
+    gx: &Gx<'g, '_>,
+    k: usize,
+    w: &WriteDesc<'_>,
+) -> Option<PgVec<'g, usize>> {
     let ps = gx.pipelines();
     // D2015 NEST-ARMS: or the result relations' arms of a union a nest's inner embeds (merge/nest_arms.rs)
     if let Some(arms) = crate::ops::modifytable::merge::nest_arms::arms(gx, k, w) {
@@ -171,8 +214,18 @@ pub(crate) fn union_targets<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) ->
     // TABLEOID-HASH (merge#425): or the union a hash build reads, the write's pipeline probing it (`hashed_union`).
     // D3290: an UPDATE's or DELETE's probing pipeline may read a COPY-marked row first (a data-modifying CTE's CteScan,
     // copy_row.rs's entry): EvalPlanQual hands it the stored row and probes the rebuilt Hash with it
-    let reads = |q: usize| ps[q].ops.first().is_some_and(|o| crate::graph::step_kind(o) == KindId::SrcAppend && !crate::graph::is_arm(o));
-    let copied = || w.merge.is_none() && gx.graph.record_rows.iter().any(|r| crate::rerun::epq::marks::copied(gx, r.scanrelid) && crate::rerun::epq::copy_row::boundary(gx, k, r).is_some());
+    let reads = |q: usize| {
+        ps[q].ops.first().is_some_and(|o| {
+            crate::graph::step_kind(o) == KindId::SrcAppend && !crate::graph::is_arm(o)
+        })
+    };
+    let copied = || {
+        w.merge.is_none()
+            && gx.graph.record_rows.iter().any(|r| {
+                crate::rerun::epq::marks::copied(gx, r.scanrelid)
+                    && crate::rerun::epq::copy_row::boundary(gx, k, r).is_some()
+            })
+    };
     // D3483 / D3673: or the union a drained write's hash build reads (hashjoin/drain/lower.rs `hashed_union_build`)
     let k = match (gx.hashed_union_build(k), &ps.get(k)?.source) {
         (Some(b), _) => b,
@@ -194,18 +247,38 @@ pub(crate) fn union_targets<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) ->
 fn hashed_union(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
     let ps = gx.pipelines();
     let pre = || ps[k].ops.iter().take_while(|o| !matches!(o, Op::Write(_)));
-    if pre().any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. } | JoinDesc::Merge { .. } | JoinDesc::Drain { .. }))) {
+    if pre().any(|o| {
+        matches!(
+            o,
+            Op::Join(JoinDesc::Nest { .. } | JoinDesc::Merge { .. } | JoinDesc::Drain { .. })
+        )
+    }) {
         return None;
     }
-    let mut probes = pre().filter_map(|o| match o { Op::Join(JoinDesc::Probe { slot, jointype: JoinType::JOIN_INNER, .. }) => Some(*slot), _ => None });
-    let (Some(slot), None) = (probes.next(), probes.next()) else { return None };
+    let mut probes = pre().filter_map(|o| match o {
+        Op::Join(JoinDesc::Probe {
+            slot,
+            jointype: JoinType::JOIN_INNER,
+            ..
+        }) => Some(*slot),
+        _ => None,
+    });
+    let (Some(slot), None) = (probes.next(), probes.next()) else {
+        return None;
+    };
     if pre().any(|o| matches!(o, Op::Join(JoinDesc::Probe { jointype, .. }) if *jointype != JoinType::JOIN_INNER)) {
         return None;
     }
     let b = (0..ps.len()).find(|&q| q != k && ps[q].desc.produces() == Some(slot))?;
     let (last, body) = ps[b].ops.split_last()?;
-    let simple = body.iter().skip(1).all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
-    (matches!(last, Op::Join(JoinDesc::Build { .. })) && simple && matches!(ps[b].source, Source::Breaker { .. })).then_some(b)
+    let simple = body
+        .iter()
+        .skip(1)
+        .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)));
+    (matches!(last, Op::Join(JoinDesc::Build { .. }))
+        && simple
+        && matches!(ps[b].source, Source::Breaker { .. }))
+    .then_some(b)
 }
 
 /// SORT-UNION (merge#364 group): PostgreSQL 18.6 plans a MERGE of several result relations with a NOT MATCHED
@@ -221,17 +294,32 @@ fn hashed_union(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
 /// arms by target index (`targets` order), else `None`.
 fn sorted_arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<PgVec<'g, usize>> {
     let ps = gx.pipelines();
-    let Source::Breaker { slot: outer } = ps.get(k)?.source else { return None };
+    let Source::Breaker { slot: outer } = ps.get(k)?.source else {
+        return None;
+    };
     if w.targets.len() < 2 || w.tableoid_col <= 0 {
         return None;
     }
     let pre = || ps[k].ops.iter().take_while(|o| !matches!(o, Op::Write(_)));
-    if pre().any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. } | JoinDesc::Probe { .. } | JoinDesc::Drain { .. }))) {
+    if pre().any(|o| {
+        matches!(
+            o,
+            Op::Join(JoinDesc::Nest { .. } | JoinDesc::Probe { .. } | JoinDesc::Drain { .. })
+        )
+    }) {
         return None;
     }
-    let mut merges = pre().filter_map(|o| match o { Op::Join(JoinDesc::Merge { slot, jointype, .. }) => Some((*slot, *jointype)), _ => None });
-    let (Some((slot, jt)), None) = (merges.next(), merges.next()) else { return None };
-    if !matches!(jt, JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_FULL) {
+    let mut merges = pre().filter_map(|o| match o {
+        Op::Join(JoinDesc::Merge { slot, jointype, .. }) => Some((*slot, *jointype)),
+        _ => None,
+    });
+    let (Some((slot, jt)), None) = (merges.next(), merges.next()) else {
+        return None;
+    };
+    if !matches!(
+        jt,
+        JoinType::JOIN_INNER | JoinType::JOIN_LEFT | JoinType::JOIN_FULL
+    ) {
         return None;
     }
     // the arms that sort into `slot`, by target index: each its relation's heap scan under filters and projections, one arm op
@@ -240,15 +328,36 @@ fn sorted_arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<PgVec
         for q in (0..ps.len()).filter(|&q| q != k && ps[q].desc.produces() == Some(slot)) {
             let p = &ps[q];
             let (rti, relid) = match &p.source {
-                Source::Range { am: Am::Heap, scanrelid, relid, .. } | Source::Index { am: Am::Heap, scanrelid, relid, only: false, .. } => (u32::from(*scanrelid), *relid),
+                Source::Range {
+                    am: Am::Heap,
+                    scanrelid,
+                    relid,
+                    ..
+                }
+                | Source::Index {
+                    am: Am::Heap,
+                    scanrelid,
+                    relid,
+                    only: false,
+                    ..
+                } => (u32::from(*scanrelid), *relid),
                 _ => return None,
             };
             let (last, body) = p.ops.split_last()?;
             let arms = body.iter().filter(|o| crate::graph::is_arm(o)).count();
-            if !matches!(last, Op::Sort(_)) || arms != 1 || !p.desc.consumes.is_empty() || !body.iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_)) || crate::graph::is_arm(o)) {
+            if !matches!(last, Op::Sort(_))
+                || arms != 1
+                || !p.desc.consumes.is_empty()
+                || !body
+                    .iter()
+                    .all(|o| matches!(o, Op::Filter(_) | Op::Project(_)) || crate::graph::is_arm(o))
+            {
                 return None;
             }
-            let i = w.targets.iter().position(|t| t.rti == rti && t.relid == relid)?;
+            let i = w
+                .targets
+                .iter()
+                .position(|t| t.rti == rti && t.relid == relid)?;
             if by[i] != usize::MAX {
                 return None;
             }
@@ -256,7 +365,13 @@ fn sorted_arms<'g>(gx: &Gx<'g, '_>, k: usize, w: &WriteDesc<'_>) -> Option<PgVec
         }
         by.iter().all(|&q| q != usize::MAX).then_some(by)
     };
-    sorted_into(slot).or_else(|| if jt == JoinType::JOIN_INNER { sorted_into(outer) } else { None })
+    sorted_into(slot).or_else(|| {
+        if jt == JoinType::JOIN_INNER {
+            sorted_into(outer)
+        } else {
+            None
+        }
+    })
 }
 
 /// SORT-UNION: the root `(relid, natts)` a NOT MATCHED INSERT beside the UPDATE / DELETE actions of the
@@ -266,57 +381,115 @@ pub(crate) fn insert_beside(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Opt
     // a partitioned root, or (writesubplan, merge#514) an inheritance root, a plain heap: its INSERT is the root's own
     // (ExecInitMerge's rootRelInfo over the root itself: no tuple routing, the root's row triggers fire, as merge.sql's
     // measurement tree's BEFORE INSERT trigger redirecting the row), hosts RouteHost's own-root leg
-    let r = w.route.as_ref().filter(|r| gx.facts.rel(r.root_relid).is_some_and(|f| f.relkind == b'p' || f.relkind == b'r' && f.am == Am::Heap))?;
-    let inserts = w.merge.as_ref().is_some_and(|m| !insert_only(m) && m.actions.iter().any(|a| a.cmd == Some(Cmd::Insert)));
+    let r = w.route.as_ref().filter(|r| {
+        gx.facts
+            .rel(r.root_relid)
+            .is_some_and(|f| f.relkind == b'p' || f.relkind == b'r' && f.am == Am::Heap)
+    })?;
+    let inserts = w
+        .merge
+        .as_ref()
+        .is_some_and(|m| !insert_only(m) && m.actions.iter().any(|a| a.cmd == Some(Cmd::Insert)));
     // writesubplan (updatable_views#961-963): or the one result relation's drained form (drain's `merge_drained_target`:
     // the leaf's own scan probes the hashed source, the NOT MATCHED rows drained after), MultiTargetHost over that leaf
     // mergecmd (held-out tw-part-022): or that leaf over a nested loop (nest_write.rs `merge`: W6's F1, a one-row Result
     // outer and the leaf's own scan the inner, LEFT; the position the leaf's junk ctid, its recheck the inner's site)
-    let nest = gx.pipelines()[k].ops.iter().take_while(|o| !matches!(o, Op::Write(_))).any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })));
+    let nest = gx.pipelines()[k]
+        .ops
+        .iter()
+        .take_while(|o| !matches!(o, Op::Write(_)))
+        .any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })));
     let one = w.targets.len() == 1 && (gx.merge_drained_target(k).is_some() || nest);
     // writesubplan (merge#368 group): or the drained arms' union form (`union_targets`), as SORT-UNION's; writesubplan
     // D2015 NEST-ARMS: or the arms of a union a nest's inner embeds (merge/nest_arms.rs)
     // D3483: or the drained form over the result relations' hashed union (`hashed_union_build`)
-    let arms = gx.merge_drained_arms(k).is_some() || crate::ops::modifytable::merge::nest_arms::arms(gx, k, w).is_some() || gx.hashed_union_build(k).is_some();
-    (sorted_arms(gx, k, w).is_some() || one || arms).then_some(()).filter(|_| inserts).map(|_| (r.root_relid, r.root_natts as usize))
+    let arms = gx.merge_drained_arms(k).is_some()
+        || crate::ops::modifytable::merge::nest_arms::arms(gx, k, w).is_some()
+        || gx.hashed_union_build(k).is_some();
+    (sorted_arms(gx, k, w).is_some() || one || arms)
+        .then_some(())
+        .filter(|_| inserts)
+        .map(|_| (r.root_relid, r.root_natts as usize))
 }
 
 /// The relations whose triggers a routed MERGE's UPDATE / DELETE fires besides its first target (`transition`): the
 /// root and every result relation; none for an unrouted or V4R-498 INSERT-only MERGE (route.rs admits its leaves).
 fn relids<'g>(w: &WriteDesc<'_>, mcx: Mcx<'g>) -> PgVec<'g, u32> {
     let on = w.route.is_some() && w.merge.as_ref().is_some_and(|m| !insert_only(m));
-    w.route.iter().map(|r| r.root_relid).chain(w.targets.iter().map(|t| t.relid)).filter(|_| on).collect_in(mcx)
+    w.route
+        .iter()
+        .map(|r| r.root_relid)
+        .chain(w.targets.iter().map(|t| t.relid))
+        .filter(|_| on)
+        .collect_in(mcx)
 }
 
 /// merge.rs's write.transition: its plan refuses by name what the host does not fire (INSTEAD OF, unknown facts), over
 /// the first target's triggers and, for write.route's UPDATE / DELETE forms, the root's and every result relation's.
 pub(crate) fn transition(px: &mut Px<'_, '_>, k: usize, j: usize, relid: u32, w: &WriteDesc<'_>) {
     let (gx, node) = (px.gx, px.gx.pipelines()[k].node_id);
-    if core::iter::once(relid).chain(relids(w, px.mcx())).any(|r| fires(gx.facts.trig_ext(r))) {
-        drop((crate::frame::iface::kind_impl::<StepMaker>(&node, KindId::WriteTransition).0)(px, k, j));
+    if core::iter::once(relid)
+        .chain(relids(w, px.mcx()))
+        .any(|r| fires(gx.facts.trig_ext(r)))
+    {
+        drop((crate::frame::iface::kind_impl::<StepMaker>(
+            &node,
+            KindId::WriteTransition,
+        )
+        .0)(px, k, j));
     }
 }
 
 /// merge.rs's row op: its relation, cell count, plan and (b)'s `pick`. V4R-498's INSERT-only form routes its INSERTs
 /// (write.route `Route::plan`); (a) names the root with no leaves; (b) is the arm's target under the plan write.route
 /// routed over every target (`TargetsRoad`), its cells the updated columns (`pick`); unrouted, as given.
-pub(crate) fn plan<'g>(px: &mut Px<'g, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDesc<'_>), (relid, natts): (u32, usize), plan: WritePlan) -> (u32, usize, WritePlan, Option<PgVec<'g, usize>>) {
+pub(crate) fn plan<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    (w, m): (&WriteDesc<'_>, &MergeDesc<'_>),
+    (relid, natts): (u32, usize),
+    plan: WritePlan,
+) -> (u32, usize, WritePlan, Option<PgVec<'g, usize>>) {
     let (gx, node) = (px.gx, px.gx.pipelines()[k].node_id);
     // INHERIT-ROOT: the root's own INSERT (no route, no indexes: `inherit_root` refused a root with any)
     if let Some((root, root_natts)) = inherit_root(gx, w, m, node) {
         // its RLS checks are the first result relation's list, which the host maps onto the root's attnos (`checks_of`)
-        let checks_of = if w.checks.is_empty() || w.targets[0].relid == root { 0 } else { w.targets[0].relid };
-        return (root, root_natts, WritePlan { target_rel: root, indexes: ArenaVec::new_in(px.arena), route: None, checks_of, ..plan }, None);
+        let checks_of = if w.checks.is_empty() || w.targets[0].relid == root {
+            0
+        } else {
+            w.targets[0].relid
+        };
+        return (
+            root,
+            root_natts,
+            WritePlan {
+                target_rel: root,
+                indexes: ArenaVec::new_in(px.arena),
+                route: None,
+                checks_of,
+                ..plan
+            },
+            None,
+        );
     }
     if crate::ops::modifytable::merge::nm::routed(w).is_some() {
-        return (relid, natts, crate::ops::modifytable::merge::nm::route_plan(gx, node, w, plan, px.arena), None);
+        return (
+            relid,
+            natts,
+            crate::ops::modifytable::merge::nm::route_plan(gx, node, w, plan, px.arena),
+            None,
+        );
     }
-    let Some(r) = w.route.as_ref() else { return (relid, natts, plan, None) };
+    let Some(r) = w.route.as_ref() else {
+        return (relid, natts, plan, None);
+    };
     // MOVE: a row that may leave its leaf gets write.route's destinations (`Route::moves`, as write/update.rs's
     // `moving`): the host deletes it from its leaf and inserts it through the root (hosts write_move.rs)
     // (D3367: a root pruned to no leaf moves no row, its dummy Result yields none, as write/update.rs's)
     let pruned = crate::ops::shared::dummy::pruned_root(gx, k, w);
-    let moves = (!pruned && moving(gx, w, r)).then(|| crate::frame::iface::need_strategy::<Route>(&node, WRITE_ROUTE).moves(gx, node, w));
+    let moves = (!pruned && moving(gx, w, r)).then(|| {
+        crate::frame::iface::need_strategy::<Route>(&node, WRITE_ROUTE).moves(gx, node, w)
+    });
     let moved = |p: WritePlan| match moves.as_deref() {
         Some(m) => p.with_moves(px.arena, m),
         None => p,
@@ -327,18 +500,40 @@ pub(crate) fn plan<'g>(px: &mut Px<'g, '_>, k: usize, (w, m): (&WriteDesc<'_>, &
         // (`pick`) first, as SORT-UNION's below. D3479: under RETURNING also as wide as the leaf's row, which the host hands
         // back for a MATCHED action (`ret_width`)
         if let Some((_, root_natts)) = insert_beside(gx, k, w) {
-            let Some(pick) = pick(w, m, natts, px.mcx()) else { crate::refuse!(node, Reason::Bug { payload: "a routed MERGE's updated column the leaf does not map to the root, or a generated one" }) };
+            let Some(pick) = pick(w, m, natts, px.mcx()) else {
+                crate::refuse!(node, Reason::Bug { payload: "a routed MERGE's updated column the leaf does not map to the root, or a generated one" })
+            };
             let leaves = crate::ops::modifytable::strategies::route::leaves(gx, w);
-            let checks_of = if w.checks.is_empty() { 0 } else { w.targets[0].relid };
+            let checks_of = if w.checks.is_empty() {
+                0
+            } else {
+                w.targets[0].relid
+            };
             let routed = moved(plan.with_route(px.arena, r.root_relid, &leaves));
             let wide = ret_width(gx, k, w).unwrap_or(0);
-            return (relid, root_natts.max(pick.len()).max(wide), WritePlan { checks_of, ..routed }, Some(pick));
+            return (
+                relid,
+                root_natts.max(pick.len()).max(wide),
+                WritePlan {
+                    checks_of,
+                    ..routed
+                },
+                Some(pick),
+            );
         }
-        return (relid, natts, moved(plan.with_route(px.arena, r.root_relid, &[])), None);
+        return (
+            relid,
+            natts,
+            moved(plan.with_route(px.arena, r.root_relid, &[])),
+            None,
+        );
     }
-    let (_, arm, routed) = (crate::frame::iface::need_strategy::<TargetsRoad>(&node, WRITE_ROUTE).0)(gx, k, w, px.arena);
+    let (_, arm, routed) = (crate::frame::iface::need_strategy::<TargetsRoad>(&node, WRITE_ROUTE)
+        .0)(gx, k, w, px.arena);
     let mut routed = moved(routed);
-    let Some(pick) = pick(w, m, natts, px.mcx()) else { crate::refuse!(node, Reason::Bug { payload: "a routed MERGE's updated column the first target does not map to the root, or a generated one" }) };
+    let Some(pick) = pick(w, m, natts, px.mcx()) else {
+        crate::refuse!(node, Reason::Bug { payload: "a routed MERGE's updated column the first target does not map to the root, or a generated one" })
+    };
     // G2(c): the union form is no Append arm, so write/rowop.rs `claim` adds no leaves: the plan's are every
     // target's, for the multi-target host (hosts write_route.rs), here
     let union = union_targets(gx, k, w).is_some();
@@ -359,10 +554,27 @@ pub(crate) fn plan<'g>(px: &mut Px<'g, '_>, k: usize, (w, m): (&WriteDesc<'_>, &
     // (gen mg-0179: an arm of the (b) form likewise, the row its own relation's, which its RETURNING projects)
     if let Some(wide) = ret_width(gx, k, w) {
         let wide = wide.max(pick.len());
-        let routed = WritePlan { old: plan.old, sys: plan.sys, sys_header: plan.sys_header, ..routed };
+        let routed = WritePlan {
+            old: plan.old,
+            sys: plan.sys,
+            sys_header: plan.sys_header,
+            ..routed
+        };
         if let Some((_, root_natts)) = insert_beside(gx, k, w) {
-            let checks_of = if w.checks.is_empty() { 0 } else { w.targets[0].relid };
-            return (arm, wide.max(root_natts), WritePlan { checks_of, ..routed }, Some(pick));
+            let checks_of = if w.checks.is_empty() {
+                0
+            } else {
+                w.targets[0].relid
+            };
+            return (
+                arm,
+                wide.max(root_natts),
+                WritePlan {
+                    checks_of,
+                    ..routed
+                },
+                Some(pick),
+            );
         }
         return (arm, wide, routed, Some(pick));
     }
@@ -370,8 +582,20 @@ pub(crate) fn plan<'g>(px: &mut Px<'g, '_>, k: usize, (w, m): (&WriteDesc<'_>, &
     // come first, the rest NULL (merge/lower.rs `image`; the host reads the statement's updated columns). Its check
     // options: the first result relation's list mapped onto each routed leaf (G2(d), nm.rs `route_plan`)
     if let Some((_, root_natts)) = insert_beside(gx, k, w) {
-        let checks_of = if w.checks.is_empty() { 0 } else { w.targets[0].relid };
-        return (arm, root_natts.max(pick.len()), WritePlan { checks_of, ..routed }, Some(pick));
+        let checks_of = if w.checks.is_empty() {
+            0
+        } else {
+            w.targets[0].relid
+        };
+        return (
+            arm,
+            root_natts.max(pick.len()),
+            WritePlan {
+                checks_of,
+                ..routed
+            },
+            Some(pick),
+        );
     }
     (arm, pick.len(), routed, Some(pick))
 }
@@ -387,7 +611,8 @@ pub(crate) fn plan<'g>(px: &mut Px<'g, '_>, k: usize, (w, m): (&WriteDesc<'_>, &
 /// attnos). `None` for every other MERGE.
 pub(crate) fn ret_width(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<usize> {
     let one = || w.targets.len() == 1 && insert_beside(gx, k, w).is_some();
-    let several = w.returning.is_some() && (union_targets(gx, k, w).is_some() || b_arm(gx, k, w) || one());
+    let several =
+        w.returning.is_some() && (union_targets(gx, k, w).is_some() || b_arm(gx, k, w) || one());
     let redo = || crate::ops::modifytable::merge::nest_arms::first(gx, k, w).is_some();
     (several || redo()).then(|| w.targets.iter().map(|t| t.site.natts()).max().unwrap_or(0))
 }
@@ -396,17 +621,31 @@ pub(crate) fn ret_width(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<
 /// an arm of the Append it streams into, over one result relation's own heap scan, no nested loop before it.
 pub(crate) fn b_arm(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> bool {
     let p = &gx.pipelines()[k];
-    let wi = p.ops.iter().position(|o| matches!(o, Op::Write(_))).unwrap_or(p.ops.len());
-    let own = |t: &Target<'_>| matches!(&p.source, Source::Range { am, scanrelid, relid, .. } | Source::Index { am, scanrelid, relid, .. } | Source::Bitmap { am, scanrelid, relid, .. } | Source::Tid { am, scanrelid, relid, .. }
-        if *am == Am::Heap && u32::from(*scanrelid) == t.rti && *relid == t.relid);
-    w.targets.len() > 1 && w.route.is_some() && crate::ops::modifytable::merge::nm::routed(w).is_none()
+    let wi = p
+        .ops
+        .iter()
+        .position(|o| matches!(o, Op::Write(_)))
+        .unwrap_or(p.ops.len());
+    let own = |t: &Target<'_>| {
+        matches!(&p.source, Source::Range { am, scanrelid, relid, .. } | Source::Index { am, scanrelid, relid, .. } | Source::Bitmap { am, scanrelid, relid, .. } | Source::Tid { am, scanrelid, relid, .. }
+        if *am == Am::Heap && u32::from(*scanrelid) == t.rti && *relid == t.relid)
+    };
+    w.targets.len() > 1
+        && w.route.is_some()
+        && crate::ops::modifytable::merge::nm::routed(w).is_none()
         && p.ops[..wi].iter().any(crate::graph::is_arm)
-        && !p.ops[..wi].iter().any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
+        && !p.ops[..wi]
+            .iter()
+            .any(|o| matches!(o, Op::Join(JoinDesc::Nest { .. })))
         && w.targets.iter().any(own)
 }
 
 /// merge.rs's UPDATE image under (b): the cells `pick` names, in its order (the host's `set`); every cell otherwise.
-pub(crate) fn picked<'e>(cells: PgVec<'e, (Value, Value)>, pick: Option<&[usize]>, mcx: Mcx<'e>) -> PgVec<'e, (Value, Value)> {
+pub(crate) fn picked<'e>(
+    cells: PgVec<'e, (Value, Value)>,
+    pick: Option<&[usize]>,
+    mcx: Mcx<'e>,
+) -> PgVec<'e, (Value, Value)> {
     match pick {
         Some(p) => p.iter().map(|&i| cells[i]).collect_in(mcx),
         None => cells,
@@ -417,9 +656,25 @@ pub(crate) fn picked<'e>(cells: PgVec<'e, (Value, Value)>, pick: Option<&[usize]
 /// leave out generated columns, as hosts `MultiTargetHost` leaves them out of updatedCols) in the root's attno order,
 /// each as its index among the first target's attributes (write/merge.rs's image); `None`: a column the first target
 /// does not map to the root, or a generated one.
-fn pick<'g>(w: &WriteDesc<'_>, m: &MergeDesc<'_>, natts: usize, mcx: Mcx<'g>) -> Option<PgVec<'g, usize>> {
+fn pick<'g>(
+    w: &WriteDesc<'_>,
+    m: &MergeDesc<'_>,
+    natts: usize,
+    mcx: Mcx<'g>,
+) -> Option<PgVec<'g, usize>> {
     let t = &w.targets[0];
-    let sets: PgVec<'_, PgVec<'_, i16>> = m.actions.iter().filter(|a| a.cmd == Some(Cmd::Update)).map(|a| a.set.iter().flat_map(|s| s.iter()).map(|x| x as i16).collect_in(mcx)).collect_in(mcx);
+    let sets: PgVec<'_, PgVec<'_, i16>> = m
+        .actions
+        .iter()
+        .filter(|a| a.cmd == Some(Cmd::Update))
+        .map(|a| {
+            a.set
+                .iter()
+                .flat_map(|s| s.iter())
+                .map(|x| x as i16)
+                .collect_in(mcx)
+        })
+        .collect_in(mcx);
     let generated: PgVec<'_, i16> = t.generated.iter().map(|g| g.0).collect_in(mcx);
     cells_of(&sets[..], &|a| root_attno(t, a), &generated[..], natts, mcx)
 }
@@ -427,7 +682,13 @@ fn pick<'g>(w: &WriteDesc<'_>, m: &MergeDesc<'_>, natts: usize, mcx: Mcx<'g>) ->
 /// `pick`'s rule over the first target's SET attnos per UPDATE action, its attno -> root attno map (0: none) and its
 /// generated attnos: the root attnos, unique and ascending, each as the index of the first target's attribute that maps
 /// to it.
-fn cells_of<'g, S: AsRef<[i16]>>(sets: &[S], root: &dyn Fn(i16) -> i16, generated: &[i16], natts: usize, mcx: Mcx<'g>) -> Option<PgVec<'g, usize>> {
+fn cells_of<'g, S: AsRef<[i16]>>(
+    sets: &[S],
+    root: &dyn Fn(i16) -> i16,
+    generated: &[i16],
+    natts: usize,
+    mcx: Mcx<'g>,
+) -> Option<PgVec<'g, usize>> {
     let mut r: PgVec<'_, i16> = PgVec::new_in(mcx);
     for &a in sets.iter().flat_map(|s| s.as_ref().iter()) {
         if generated.contains(&a) {
@@ -450,9 +711,23 @@ fn cells_of<'g, S: AsRef<[i16]>>(sets: &[S], root: &dyn Fn(i16) -> i16, generate
 /// constraints, a NO INHERIT one too), the result relation's rows only telling a matched source row from a not-matched
 /// one (its ctid's NULL, as V4R-498's form reads it). `(root relid, root natts)`, or `None` for every other MERGE; a root
 /// with indexes (or facts not readable now), triggers or a view's check options refuses by name.
-fn inherit_root(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, m: &MergeDesc<'_>, node: i32) -> Option<(u32, usize)> {
-    let r = w.route.as_ref().filter(|r| insert_only(m) && !r.cross_partition && w.targets.len() == 1 && w.members.has(Member::Targets) && !w.members.has(Member::Route) && !w.members.has(Member::CrossPartition))?;
-    gx.facts.rel(r.root_relid).filter(|f| f.relkind == b'r' && f.am == Am::Heap)?;
+fn inherit_root(
+    gx: &Gx<'_, '_>,
+    w: &WriteDesc<'_>,
+    m: &MergeDesc<'_>,
+    node: i32,
+) -> Option<(u32, usize)> {
+    let r = w.route.as_ref().filter(|r| {
+        insert_only(m)
+            && !r.cross_partition
+            && w.targets.len() == 1
+            && w.members.has(Member::Targets)
+            && !w.members.has(Member::Route)
+            && !w.members.has(Member::CrossPartition)
+    })?;
+    gx.facts
+        .rel(r.root_relid)
+        .filter(|f| f.relkind == b'r' && f.am == Am::Heap)?;
     let mut n = 0usize;
     if !gx.facts.indexes_all(r.root_relid, &mut |_| n += 1) || n > 0 {
         shape(node, INHERIT_INDEXED);
@@ -478,14 +753,32 @@ fn inherit_root(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, m: &MergeDesc<'_>, node: i32
 fn moving(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, r: &RouteDesc) -> bool {
     let may = |t: TrigExt| !t.known || t.before_row & TRIG_UPDATE != 0;
     let root = gx.facts.rel_ext(r.root_relid);
-    w.members.has(Member::Route) && (r.cross_partition || !w.leaves_known || !root.known || root.is_partition || may(gx.facts.trig_ext(r.root_relid)) || w.leaves.iter().any(|l| l.has_triggers && may(l.trig)))
+    w.members.has(Member::Route)
+        && (r.cross_partition
+            || !w.leaves_known
+            || !root.known
+            || root.is_partition
+            || may(gx.facts.trig_ext(r.root_relid))
+            || w.leaves.iter().any(|l| l.has_triggers && may(l.trig)))
 }
 
 #[cfg(test)]
 mod tests {
     /// `super::cells_of` over a test context, its answer copied out.
-    fn cells_of(sets: &[Vec<i16>], root: &dyn Fn(i16) -> i16, generated: &[i16], natts: usize) -> Option<Vec<usize>> {
-        super::cells_of(sets, root, generated, natts, mcx::MemoryContext::new("test").mcx()).map(|v| v.to_vec())
+    fn cells_of(
+        sets: &[Vec<i16>],
+        root: &dyn Fn(i16) -> i16,
+        generated: &[i16],
+        natts: usize,
+    ) -> Option<Vec<usize>> {
+        super::cells_of(
+            sets,
+            root,
+            generated,
+            natts,
+            mcx::MemoryContext::new("test").mcx(),
+        )
+        .map(|v| v.to_vec())
     }
 
     /// The cells are the root attnos every UPDATE action sets, unique and ascending, whatever each action's SET order
@@ -493,7 +786,10 @@ mod tests {
     #[test]
     fn cells_are_the_updated_root_columns_ascending() {
         let id = |a: i16| a;
-        assert_eq!(cells_of(&[vec![3, 1], vec![2, 3]], &id, &[], 4), Some(vec![0, 1, 2]));
+        assert_eq!(
+            cells_of(&[vec![3, 1], vec![2, 3]], &id, &[], 4),
+            Some(vec![0, 1, 2])
+        );
         assert_eq!(cells_of(&[vec![4]], &id, &[], 4), Some(vec![3]));
         assert_eq!(cells_of(&[], &id, &[], 4), Some(vec![]));
     }
@@ -503,7 +799,10 @@ mod tests {
     #[test]
     fn a_reordered_or_dropped_first_target_maps_by_root_attno() {
         let reordered = |a: i16| [3, 1, 2].get(a as usize - 1).copied().unwrap_or(0);
-        assert_eq!(cells_of(&[vec![1], vec![2]], &reordered, &[], 3), Some(vec![1, 0]));
+        assert_eq!(
+            cells_of(&[vec![1], vec![2]], &reordered, &[], 3),
+            Some(vec![1, 0])
+        );
         let dropped = |a: i16| [1, 0, 2].get(a as usize - 1).copied().unwrap_or(0);
         assert_eq!(cells_of(&[vec![3, 1]], &dropped, &[], 3), Some(vec![0, 2]));
     }

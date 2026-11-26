@@ -12,12 +12,28 @@ mod write_rig;
 
 fn lowers(fixture: &str) -> Result<(), String> {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
-    let path = common::plans_dir().join("regress-full").join(format!("{fixture}.plan"));
+    let path = common::plans_dir()
+        .join("regress-full")
+        .join(format!("{fixture}.plan"));
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     write_rig::declared(&text, |a, graph, facts| {
-        assert!(graph.reruns.iter().any(|r| graph.kept.iter().any(|k| r.pipelines.contains(k))), "{fixture}: no kept rerun set");
+        assert!(
+            graph
+                .reruns
+                .iter()
+                .any(|r| graph.kept.iter().any(|k| r.pipelines.contains(k))),
+            "{fixture}: no kept rerun set"
+        );
         gravity_expr::nodes::func::acl_defer_begin();
-        let l = gravity_lowerv4::lower_graph(a.handle(), rig.mcx(), graph, facts, common::RigCatalog::get(), &mut gravity_lower::Sequential::new(a.handle()), gravity_lower::LowerOpts::default());
+        let l = gravity_lowerv4::lower_graph(
+            a.handle(),
+            rig.mcx(),
+            graph,
+            facts,
+            common::RigCatalog::get(),
+            &mut gravity_lower::Sequential::new(a.handle()),
+            gravity_lower::LowerOpts::default(),
+        );
         gravity_expr::nodes::func::acl_defer_end();
         l.map(|_| ()).map_err(|e| e.to_string())
     })

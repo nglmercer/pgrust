@@ -20,7 +20,9 @@ use crate::graph::Gx;
 /// module doc).
 pub(crate) fn build_first(gx: &Gx<'_, '_>, q: usize, j: usize) -> bool {
     let ps = gx.pipelines();
-    q < gx.graph.pipelines.len() && ps[q].ops[j + 1..].iter().all(plain) && (q == usize::from(gx.graph.root) || drains(gx, q))
+    q < gx.graph.pipelines.len()
+        && ps[q].ops[j + 1..].iter().all(plain)
+        && (q == usize::from(gx.graph.root) || drains(gx, q))
 }
 
 /// Build pipeline `emit`'s probe pipeline when the build has two readers, the probe's pipeline and the root draining it
@@ -29,8 +31,17 @@ pub(crate) fn drained_reader(gx: &Gx<'_, '_>, emit: usize) -> Option<usize> {
     let ps = gx.pipelines();
     let n = gx.graph.pipelines.len();
     let root = usize::from(gx.graph.root);
-    let mut readers = (0..n).filter(|&c| c != emit && ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s) == Some(LifeId(emit as u16))));
-    let (Some(a), Some(b), None) = (readers.next(), readers.next(), readers.next()) else { return None };
+    let mut readers = (0..n).filter(|&c| {
+        c != emit
+            && ps[c]
+                .desc
+                .consumes
+                .iter()
+                .any(|&s| gx.life_of(c, s) == Some(LifeId(emit as u16)))
+    });
+    let (Some(a), Some(b), None) = (readers.next(), readers.next(), readers.next()) else {
+        return None;
+    };
     let q = match (a == root, b == root) {
         (false, true) => a,
         (true, false) => b,
@@ -44,9 +55,19 @@ pub(crate) fn drained_reader(gx: &Gx<'_, '_>, emit: usize) -> Option<usize> {
 fn drains(gx: &Gx<'_, '_>, q: usize) -> bool {
     let ps = gx.pipelines();
     let (n, root) = (gx.graph.pipelines.len(), usize::from(gx.graph.root));
-    let Some((Op::Join(JoinDesc::Drain { matches, .. }), rest)) = ps[root].ops.split_first() else { return false };
+    let Some((Op::Join(JoinDesc::Drain { matches, .. }), rest)) = ps[root].ops.split_first() else {
+        return false;
+    };
     let life = Some(LifeId(q as u16));
-    let only = (0..n).all(|c| c == root || c == q || !ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s) == life));
+    let only = (0..n).all(|c| {
+        c == root
+            || c == q
+            || !ps[c]
+                .desc
+                .consumes
+                .iter()
+                .any(|&s| gx.life_of(c, s) == life)
+    });
     q < n && q != root && gx.life_of(root, *matches) == life && rest.iter().all(plain) && only
 }
 

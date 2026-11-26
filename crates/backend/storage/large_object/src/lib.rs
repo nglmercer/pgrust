@@ -68,7 +68,12 @@ struct LoPageBuf {
     data: [u8; LOBLKSIZE_USZ],
 }
 
-fn scankey(attno: AttrNumber, strategy: u16, func: types_core::RegProcedure, arg: Datum) -> ScanKeyData {
+fn scankey(
+    attno: AttrNumber,
+    strategy: u16,
+    func: types_core::RegProcedure,
+    arg: Datum,
+) -> ScanKeyData {
     let mut key = ScanKeyData::empty();
     key.sk_attno = attno;
     key.sk_strategy = strategy;
@@ -80,7 +85,12 @@ fn scankey(attno: AttrNumber, strategy: u16, func: types_core::RegProcedure, arg
 }
 
 fn oid_eq_key(attno: AttrNumber, value: Oid) -> ScanKeyData {
-    scankey(attno, BTEqualStrategyNumber, types_core::fmgr::F_OIDEQ, Datum::from_oid(value))
+    scankey(
+        attno,
+        BTEqualStrategyNumber,
+        types_core::fmgr::F_OIDEQ,
+        Datum::from_oid(value),
+    )
 }
 
 fn int4_ge_key(attno: AttrNumber, value: i32) -> ScanKeyData {
@@ -133,7 +143,8 @@ pub fn close_lo_relation(isCommit: bool) -> PgResult<()> {
     if isCommit {
         let current_owner = resowner::CurrentResourceOwner();
         resowner::SetCurrentResourceOwner(resowner::TopTransactionResourceOwner());
-        let closed = indexam::index_close(lo_index_r, NoLock).and_then(|()| lo_heap_r.close(NoLock));
+        let closed =
+            indexam::index_close(lo_index_r, NoLock).and_then(|()| lo_heap_r.close(NoLock));
         resowner::SetCurrentResourceOwner(current_owner);
         closed?;
     }
@@ -224,25 +235,30 @@ fn read_lo_page<'mcx>(
                 varatt::varsize_1b(p) - varatt::VARHDRSZ_SHORT + VARHDRSZ,
             )?;
             out.len = len;
-            out.data[..len]
-                .copy_from_slice(core::slice::from_raw_parts(p.add(varatt::VARHDRSZ_SHORT), len));
+            out.data[..len].copy_from_slice(core::slice::from_raw_parts(
+                p.add(varatt::VARHDRSZ_SHORT),
+                len,
+            ));
         } else {
             let len = datafield_len(loid, pageno, varatt::varsize_4b(p))?;
             out.len = len;
-            out.data[..len]
-                .copy_from_slice(core::slice::from_raw_parts(p.add(VARHDRSZ), len));
+            out.data[..len].copy_from_slice(core::slice::from_raw_parts(p.add(VARHDRSZ), len));
         }
     }
     Ok(())
 }
-
 
 pub fn inv_create<'mcx>(mcx: Mcx<'mcx>, lobjId: Oid) -> PgResult<Oid> {
     let lobjId_new = pg_largeobject::LargeObjectCreate(mcx, lobjId)?;
 
     // LO dependencies are recorded under LargeObjectRelationId (heap classid)
     // for backwards-compatibility reasons.
-    pg_depend::recordDependencyOnOwner(mcx, LargeObjectRelationId, lobjId_new, miscinit::GetUserId())?;
+    pg_depend::recordDependencyOnOwner(
+        mcx,
+        LargeObjectRelationId,
+        lobjId_new,
+        miscinit::GetUserId(),
+    )?;
 
     // Post creation hook for new large object (inv_api.c:194).
     objectaccess::InvokeObjectPostCreateHook(LargeObjectRelationId, lobjId_new, 0)?;
@@ -336,7 +352,12 @@ pub fn inv_close(obj_desc: LargeObjectDesc) -> PgResult<()> {
 
 pub fn inv_drop<'mcx>(mcx: Mcx<'mcx>, lobjId: Oid) -> PgResult<i32> {
     let object = pg_depend::ObjectAddress::set(LargeObjectRelationId, lobjId);
-    catalog_dependency::performDeletion(mcx, &object, catalog_dependency::DropBehavior::DROP_CASCADE, 0)?;
+    catalog_dependency::performDeletion(
+        mcx,
+        &object,
+        catalog_dependency::DropBehavior::DROP_CASCADE,
+        0,
+    )?;
 
     xact::CommandCounterIncrement()?;
 
@@ -400,7 +421,7 @@ pub fn inv_seek<'mcx>(
         }
     };
 
-    if !( 0..= MAX_LARGE_OBJECT_SIZE).contains(&newoffset) {
+    if !(0..=MAX_LARGE_OBJECT_SIZE).contains(&newoffset) {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
             .errmsg_internal(format!("invalid large object seek target: {newoffset}"))
@@ -623,7 +644,12 @@ pub fn inv_write<'mcx>(
 
             let d = workbuf.datum(len);
             let mut newtup = form_lo_tuple(mcx, &lo_heap_r, obj_desc.id, pageno, d)?;
-            catalog_indexing::CatalogTupleInsertWithInfo(mcx, &lo_heap_r, &mut newtup, &mut indstate)?;
+            catalog_indexing::CatalogTupleInsertWithInfo(
+                mcx,
+                &lo_heap_r,
+                &mut newtup,
+                &mut indstate,
+            )?;
         }
         pageno += 1;
     }
@@ -653,7 +679,7 @@ pub fn inv_truncate<'mcx>(
         return Err(permission_denied(obj_desc.id));
     }
 
-    if !( 0..= MAX_LARGE_OBJECT_SIZE).contains(&len) {
+    if !(0..=MAX_LARGE_OBJECT_SIZE).contains(&len) {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
             .errmsg_internal(format!("invalid large object truncation target: {len}"))
@@ -684,18 +710,15 @@ pub fn inv_truncate<'mcx>(
         len: 0,
         data: [0; LOBLKSIZE_USZ],
     };
-    let have_old = match genam::systable_getnext_ordered(
-        mcx,
-        &mut sd,
-        ScanDirection::ForwardScanDirection,
-    )? {
-        Some(tuple) => {
-            read_lo_page(mcx, &lo_heap_r, tuple, obj_desc.id, &mut oldpage)?;
-            debug_assert!(oldpage.pageno >= pageno);
-            true
-        }
-        None => false,
-    };
+    let have_old =
+        match genam::systable_getnext_ordered(mcx, &mut sd, ScanDirection::ForwardScanDirection)? {
+            Some(tuple) => {
+                read_lo_page(mcx, &lo_heap_r, tuple, obj_desc.id, &mut oldpage)?;
+                debug_assert!(oldpage.pageno >= pageno);
+                true
+            }
+            None => false,
+        };
 
     if have_old && oldpage.pageno == pageno {
         let pagelen = oldpage.len;
@@ -770,6 +793,9 @@ mod tests {
             );
         }
         assert_eq!(datafield_len(1234, 7, VARHDRSZ).unwrap(), 0);
-        assert_eq!(datafield_len(1234, 7, LOBLKSIZE_USZ + VARHDRSZ).unwrap(), LOBLKSIZE_USZ);
+        assert_eq!(
+            datafield_len(1234, 7, LOBLKSIZE_USZ + VARHDRSZ).unwrap(),
+            LOBLKSIZE_USZ
+        );
     }
 }

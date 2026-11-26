@@ -25,7 +25,11 @@ pub fn decrypt_symmetric(ctx: &mut PgpContext, data: &[u8], passphrase: &[u8]) -
     decrypt_message(ctx, data, passphrase, None)
 }
 
-pub fn decrypt_pubkey(ctx: &mut PgpContext, data: &[u8], pubenc: &mut PubencParser) -> PRes<Vec<u8>> {
+pub fn decrypt_pubkey(
+    ctx: &mut PgpContext,
+    data: &[u8],
+    pubenc: &mut PubencParser,
+) -> PRes<Vec<u8>> {
     decrypt_message(ctx, data, &[], Some(pubenc))
 }
 
@@ -117,14 +121,18 @@ fn parse_symenc_sesskey(cx: &mut Dcx, pkt: &mut dyn Pull, passphrase: &[u8]) -> 
     ctx.s2k_mode = s2k.mode;
     ctx.s2k_count = s2k_decode_count(s2k.iter as i32);
     ctx.s2k_digest_algo = s2k.digest_algo;
-    s2k.process(s2k_cipher, passphrase).map_err(|e| e.to_string())?;
+    s2k.process(s2k_cipher, passphrase)
+        .map_err(|e| e.to_string())?;
 
     let rest = read_max(pkt, cx, PGP_MAX_KEY + 2)?;
     let ctx = &mut *cx.ctx;
     if rest.is_empty() {
         ctx.use_sess_key = 0;
         ctx.cipher_algo = s2k_cipher;
-        return Ok(SessKey { cipher: s2k_cipher, key: s2k.key });
+        return Ok(SessKey {
+            cipher: s2k_cipher,
+            key: s2k.key,
+        });
     }
     if rest.len() < 17 || rest.len() > PGP_MAX_KEY + 1 {
         return Err(cx.corrupt("expect key, but bad data"));
@@ -136,7 +144,8 @@ fn parse_symenc_sesskey(cx: &mut Dcx, pkt: &mut dyn Pull, passphrase: &[u8]) -> 
 /// pgp-decrypt.c:593 decrypt_key.
 fn decrypt_key(ctx: &mut PgpContext, s2k: &S2k, s2k_cipher: i32, src: &[u8]) -> PRes<SessKey> {
     let ignore = ctx.ignore_cipher_failure != 0;
-    let mut cfb = PgpCfb::create(s2k_cipher, &s2k.key, false, None, ignore).map_err(|e| e.to_string())?;
+    let mut cfb =
+        PgpCfb::create(s2k_cipher, &s2k.key, false, None, ignore).map_err(|e| e.to_string())?;
     let dec = cfb.decrypt(src);
     let cipher = dec[0] as i32;
     ctx.cipher_algo = cipher;
@@ -148,7 +157,10 @@ fn decrypt_key(ctx: &mut PgpContext, s2k: &S2k, s2k_cipher: i32, src: &[u8]) -> 
         ));
         return Err(CORRUPT_DATA.to_string());
     }
-    Ok(SessKey { cipher, key: dec[1..].to_vec() })
+    Ok(SessKey {
+        cipher,
+        key: dec[1..].to_vec(),
+    })
 }
 
 /// pgp-decrypt.c:223 prefix_init: the random prefix and its two-byte
@@ -272,7 +284,11 @@ impl<'a> MdcBuf<'a> {
             *at += bytes.len();
         };
         if res >= MDC_TAIL {
-            load(&mut self.buf, &mut self.avail, &self.mdc_buf[..self.mdc_avail]);
+            load(
+                &mut self.buf,
+                &mut self.avail,
+                &self.mdc_buf[..self.mdc_avail],
+            );
             load(&mut self.buf, &mut self.avail, &data[..res - MDC_TAIL]);
             self.mdc_buf.copy_from_slice(&data[res - MDC_TAIL..]);
             self.mdc_avail = MDC_TAIL;
@@ -304,23 +320,41 @@ impl Pull for MdcBuf<'_> {
 }
 
 /// pgp-decrypt.c:971 parse_symenc_data.
-fn parse_symenc_data(cx: &mut Dcx, pkt: &mut dyn Pull, sk: &SessKey, dst: &mut Vec<u8>) -> PRes<()> {
+fn parse_symenc_data(
+    cx: &mut Dcx,
+    pkt: &mut dyn Pull,
+    sk: &SessKey,
+    dst: &mut Vec<u8>,
+) -> PRes<()> {
     let ignore = cx.ctx.ignore_cipher_failure != 0;
     let cfb = PgpCfb::create(sk.cipher, &sk.key, true, None, ignore).map_err(|e| e.to_string())?;
-    let mut dec = DecryptPull { src: pkt, cfb, buf: vec![0u8; DECRYPT_BUF] };
+    let mut dec = DecryptPull {
+        src: pkt,
+        cfb,
+        buf: vec![0u8; DECRYPT_BUF],
+    };
     prefix_init(&mut dec, cx, sk.cipher)?;
     process_data_packets(cx, dst, &mut dec, true, false)
 }
 
 /// pgp-decrypt.c:1015 parse_symenc_mdc_data.
-fn parse_symenc_mdc_data(cx: &mut Dcx, pkt: &mut dyn Pull, sk: &SessKey, dst: &mut Vec<u8>) -> PRes<()> {
+fn parse_symenc_mdc_data(
+    cx: &mut Dcx,
+    pkt: &mut dyn Pull,
+    sk: &SessKey,
+    dst: &mut Vec<u8>,
+) -> PRes<()> {
     let ver = getbyte(pkt, cx)?;
     if ver != 1 {
         return Err(cx.corrupt("parse_symenc_mdc_data: pkt ver != 1"));
     }
     let ignore = cx.ctx.ignore_cipher_failure != 0;
     let cfb = PgpCfb::create(sk.cipher, &sk.key, false, None, ignore).map_err(|e| e.to_string())?;
-    let mut dec = DecryptPull { src: pkt, cfb, buf: vec![0u8; DECRYPT_BUF] };
+    let mut dec = DecryptPull {
+        src: pkt,
+        cfb,
+        buf: vec![0u8; DECRYPT_BUF],
+    };
     cx.mdc = Some(Digest::load(PGP_DIGEST_SHA1)?);
     let mut mdc = MdcPull { src: &mut dec };
     prefix_init(&mut mdc, cx, sk.cipher)?;
@@ -410,7 +444,11 @@ fn mdc_finish(cx: &mut Dcx, pkt: &mut dyn Pull, hdr: &PktHdr) -> PRes<()> {
     if data.len() != MDC_DIGEST_LEN {
         return Err(cx.corrupt(&format!("mdc_finish: read failed, res={}", data.len())));
     }
-    let hash = cx.mdc.as_mut().ok_or_else(|| PGCRYPTO_BUG.to_string())?.finish();
+    let hash = cx
+        .mdc
+        .as_mut()
+        .ok_or_else(|| PGCRYPTO_BUG.to_string())?
+        .finish();
     if hash != data {
         return Err(cx.corrupt("mdc_finish: mdc failed"));
     }
@@ -477,7 +515,9 @@ impl<'a> DecompressPull<'a> {
             self.in_pos = 0;
         }
         let finish = self.in_pos == self.input.len();
-        let (code, used, written) = self.inf.inflate(&self.input[self.in_pos..], &mut self.buf, finish);
+        let (code, used, written) =
+            self.inf
+                .inflate(&self.input[self.in_pos..], &mut self.buf, finish);
         self.in_pos += used;
         if code != Z_OK && code != Z_STREAM_END {
             return Err(cx.corrupt(&format!("decompress_read: inflate error: {code}")));
@@ -638,10 +678,13 @@ mod tests {
             .1
         };
         assert_eq!(run(b"b\x02a"), ["dbg: mdc_read: unexpected eof"]);
-        assert_eq!(run(b"b\x01a\x00\x00"), [
-            "dbg: mdc_read: unexpected eof",
-            "dbg: parse_literal_data: unexpected eof",
-        ]);
+        assert_eq!(
+            run(b"b\x01a\x00\x00"),
+            [
+                "dbg: mdc_read: unexpected eof",
+                "dbg: parse_literal_data: unexpected eof",
+            ]
+        );
     }
 
     #[test]

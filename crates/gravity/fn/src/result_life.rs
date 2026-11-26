@@ -38,7 +38,10 @@ pub static FRESH: [FreshEntry; 0] = [];
 pub const FMGR_SITE_ALLOWANCE: usize = 8192;
 
 pub fn fresh_entry(proc_oid: u32) -> Option<&'static FreshEntry> {
-    FRESH.binary_search_by_key(&proc_oid, |e| e.oid).ok().map(|i| &FRESH[i])
+    FRESH
+        .binary_search_by_key(&proc_oid, |e| e.oid)
+        .ok()
+        .map(|i| &FRESH[i])
 }
 
 pub fn shim_site(proc_oid: u32, nargs: usize, strict: bool) -> Option<&'static Shim> {
@@ -118,7 +121,12 @@ pub mod scribble {
             2 => true,
             _ => {
                 let on = crate::inputs::scribble();
-                let _ = STATE.compare_exchange(0, if on { 2 } else { 1 }, Ordering::Relaxed, Ordering::Relaxed);
+                let _ = STATE.compare_exchange(
+                    0,
+                    if on { 2 } else { 1 },
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
                 STATE.load(Ordering::Relaxed) == 2
             }
         }
@@ -148,12 +156,25 @@ pub mod scribble {
 
     /// # Safety — as `result_bytes`.
     #[cold]
-    pub unsafe fn quarantine(oid: u32, owner: usize, v: Datum, typlen: i16, cx: mcx::Mcx<'_>) -> Datum {
+    pub unsafe fn quarantine(
+        oid: u32,
+        owner: usize,
+        v: Datum,
+        typlen: i16,
+        cx: mcx::Mcx<'_>,
+    ) -> Datum {
         let bytes = result_bytes(v, typlen);
         let mut img = mcx::PgVec::<u8>::with_capacity_in(bytes.len(), cx);
         img.extend_from_slice(bytes);
         let ptr = img.leak().as_mut_ptr();
-        let _ = LIVE.try_with(|l| l.borrow_mut().push(Live { oid, owner, ptr, len: bytes.len() })); // alloc: Cold
+        let _ = LIVE.try_with(|l| {
+            l.borrow_mut().push(Live {
+                oid,
+                owner,
+                ptr,
+                len: bytes.len(),
+            })
+        }); // alloc: Cold
         Datum::from_usize(ptr as usize)
     }
 

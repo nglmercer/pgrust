@@ -27,7 +27,9 @@ fn synonym_sample_parse() {
     let idx = find(b"indices").unwrap();
     assert_eq!(idx.output.as_slice(), b"index");
     assert_eq!(idx.flags, TSL_PREFIX);
-    assert!(syn.windows(2).all(|w| w[0].input.as_slice() <= w[1].input.as_slice()));
+    assert!(syn
+        .windows(2)
+        .all(|w| w[0].input.as_slice() <= w[1].input.as_slice()));
     assert_eq!(syn.len(), 5);
 }
 
@@ -77,8 +79,11 @@ fn thesaurus_errors_carry_readline_context() {
     assert_eq!(
         err.context(),
         Some(
-            format!("line 2 of configuration file \"{}\": \": bad\n\"", path("b213_ths_delim.ths"))
-                .as_str()
+            format!(
+                "line 2 of configuration file \"{}\": \": bad\n\"",
+                path("b213_ths_delim.ths")
+            )
+            .as_str()
         )
     );
 
@@ -100,20 +105,30 @@ fn thesaurus_errors_carry_readline_context() {
     assert_eq!(
         err.context(),
         Some(
-            format!("line 2 of configuration file \"{}\": \"alpha : *\n\"", path("b213_ths_lex.ths"))
-                .as_str()
+            format!(
+                "line 2 of configuration file \"{}\": \"alpha : *\n\"",
+                path("b213_ths_lex.ths")
+            )
+            .as_str()
         )
     );
 
     let err = read("b213_ths_enc");
     assert!(
-        err.message().starts_with("invalid byte sequence for encoding"),
+        err.message()
+            .starts_with("invalid byte sequence for encoding"),
         "{:?}",
         err.message()
     );
     assert_eq!(
         err.context(),
-        Some(format!("line 2 of configuration file \"{}\"", path("b213_ths_enc.ths")).as_str())
+        Some(
+            format!(
+                "line 2 of configuration file \"{}\"",
+                path("b213_ths_enc.ths")
+            )
+            .as_str()
+        )
     );
 }
 
@@ -135,11 +150,20 @@ fn synonym_duplicate_keys_follow_c_sort_and_bsearch() {
 
     // Five rows, three of them "foo": sorted [alpha, foo, foo, foo, zeta];
     // bsearch probes index (0 + 5) / 2 = 2, the middle "foo" line.
-    let lines = to_lines(mcx, "zeta last\nfoo alpha\nfoo beta*\nfoo gamma\nalpha first\n");
+    let lines = to_lines(
+        mcx,
+        "zeta last\nfoo alpha\nfoo beta*\nfoo gamma\nalpha first\n",
+    );
     let syn = crate::synonym::load_synonyms(mcx, &lines, false).unwrap();
     let outputs: Vec<&[u8]> = syn.iter().map(|s| s.output.as_slice()).collect();
-    assert_eq!(outputs, [&b"first"[..], b"alpha", b"beta", b"gamma", b"last"]);
-    let d = crate::synonym::DictSyn { syn, case_sensitive: false };
+    assert_eq!(
+        outputs,
+        [&b"first"[..], b"alpha", b"beta", b"gamma", b"last"]
+    );
+    let d = crate::synonym::DictSyn {
+        syn,
+        case_sensitive: false,
+    };
     assert_eq!(lex(&d, b"foo"), Some((b"beta".to_vec(), TSL_PREFIX)));
     assert_eq!(lex(&d, b"FOO"), Some((b"beta".to_vec(), TSL_PREFIX)));
     assert_eq!(lex(&d, b"alpha"), Some((b"first".to_vec(), 0)));
@@ -151,11 +175,17 @@ fn synonym_duplicate_keys_follow_c_sort_and_bsearch() {
     let syn = crate::synonym::load_synonyms(mcx, &lines, false).unwrap();
     let outputs: Vec<&[u8]> = syn.iter().map(|s| s.output.as_slice()).collect();
     assert_eq!(outputs, [&b"one"[..], b"two", b"three", b"four"]);
-    let d = crate::synonym::DictSyn { syn, case_sensitive: false };
+    let d = crate::synonym::DictSyn {
+        syn,
+        case_sensitive: false,
+    };
     assert_eq!(lex(&d, b"bar"), Some((b"three".to_vec(), 0)));
 
     let syn = crate::synonym::load_synonyms(mcx, &lines, true).unwrap();
-    let d = crate::synonym::DictSyn { syn, case_sensitive: true };
+    let d = crate::synonym::DictSyn {
+        syn,
+        case_sensitive: true,
+    };
     assert_eq!(lex(&d, b"bar"), Some((b"three".to_vec(), 0)));
     assert_eq!(lex(&d, b"BAR"), None);
 }
@@ -180,7 +210,7 @@ fn readline_drops_bytes_after_an_embedded_nul_like_fgets() {
     };
     assert_eq!(read_all("b109_nul.syn"), vec![b"foo barbaz qux\n".to_vec()]);
     let mut chunked = b"x ".to_vec();
-    chunked.extend(std::iter::repeat_n(b'a',1500));
+    chunked.extend(std::iter::repeat_n(b'a', 1500));
     assert_eq!(read_all("b109_nul_chunk.syn"), vec![chunked]);
 }
 

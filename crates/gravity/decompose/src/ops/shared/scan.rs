@@ -20,9 +20,21 @@ pub const TSM_SYSTEM: u32 = 3314;
 /// The bitmap the heap scan drives over (D5): the index AM's bitmap build is the source's host (as the
 /// incumbent's `tbm_*`), so a probe tree is a desc on the source, not a graph breaker (decision 38).
 pub enum BitmapPlan<'p> {
-    Index { node_id: i32, indexid: u32, keys: ArenaVec<IndexKey<'p>>, rows: u64, iam: crate::catalog::IndexAm },
-    And { node_id: i32, plans: ArenaVec<BitmapPlan<'p>> },
-    Or { node_id: i32, plans: ArenaVec<BitmapPlan<'p>> },
+    Index {
+        node_id: i32,
+        indexid: u32,
+        keys: ArenaVec<IndexKey<'p>>,
+        rows: u64,
+        iam: crate::catalog::IndexAm,
+    },
+    And {
+        node_id: i32,
+        plans: ArenaVec<BitmapPlan<'p>>,
+    },
+    Or {
+        node_id: i32,
+        plans: ArenaVec<BitmapPlan<'p>>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,8 +130,12 @@ pub fn same_type_zone_op(opno: u32) -> Option<(ZoneOp, u32)> {
 /// `zone_constants`): one shape test for both.
 pub fn or_of_ands(q: types_nodes::Node<'_>) -> bool {
     use types_nodes::primnodes::BoolExprType;
-    let and = |a: types_nodes::Node<'_>| a.as_bool_expr().is_some_and(|a| a.boolop == BoolExprType::AND_EXPR);
-    q.as_bool_expr().is_some_and(|b| b.boolop == BoolExprType::OR_EXPR && b.args.iter().all(and))
+    let and = |a: types_nodes::Node<'_>| {
+        a.as_bool_expr()
+            .is_some_and(|a| a.boolop == BoolExprType::AND_EXPR)
+    };
+    q.as_bool_expr()
+        .is_some_and(|b| b.boolop == BoolExprType::OR_EXPR && b.args.iter().all(and))
 }
 
 /// What a zone record's integer counts for a type's lane ([`zone_op`]): two types compare by their stored integers only
@@ -142,7 +158,9 @@ fn stored_units(typid: u32) -> Option<Units> {
     match typid {
         INT2OID | INT4OID | INT8OID => Some(Units::Integer),
         TEXTOID => Some(Units::Text),
-        t => row_of(t).filter(|r| r.image.is_signed_word() || unsigned_word(r)).map(|_| Units::Own(t)),
+        t => row_of(t)
+            .filter(|r| r.image.is_signed_word() || unsigned_word(r))
+            .map(|_| Units::Own(t)),
     }
 }
 
@@ -185,14 +203,20 @@ pub fn zone_word_of(typid: u32, len: i32, word: u64) -> Option<i64> {
 /// (`sources::zone`), the content key skips the constant (lower key.rs `zone_constants`), the front key keys it as a word
 /// (exec front.rs), and lowerv4 binds it per execution over a by-value word lane (verdict_zone.rs `of`) and declares
 /// nothing over any other.
-pub fn bound_form<'p>(q: types_nodes::Node<'p>, varno: i32, lane_word: &dyn Fn(i16) -> bool) -> Option<(i16, ZoneOp, types_nodes::Node<'p>)> {
+pub fn bound_form<'p>(
+    q: types_nodes::Node<'p>,
+    varno: i32,
+    lane_word: &dyn Fn(i16) -> bool,
+) -> Option<(i16, ZoneOp, types_nodes::Node<'p>)> {
     let o = q.as_op_expr().filter(|o| o.args.len() == 2)?;
     let col = |n: types_nodes::Node<'_>| {
         let n = match n.as_func_expr() {
             Some(f) if f.args.len() == 1 && types_core::quiet::int_widen(f.funcid) => f.args.nth(0),
             _ => n,
         };
-        n.as_var().filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0).map(|v| v.varattno)
+        n.as_var()
+            .filter(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno > 0)
+            .map(|v| v.varattno)
     };
     let (a0, a1) = (o.args.nth(0), o.args.nth(1));
     let (attno, c, flipped) = match (col(a0), col(a1)) {
@@ -200,7 +224,12 @@ pub fn bound_form<'p>(q: types_nodes::Node<'p>, varno: i32, lane_word: &dyn Fn(i
         (None, Some(a)) => (a, a0, true),
         _ => return None,
     };
-    c.as_const().filter(|k| k.constbyval && !k.constisnull && [1, 2, 4, 8].contains(&k.constlen) && !zero_extended(k.consttype))?;
+    c.as_const().filter(|k| {
+        k.constbyval
+            && !k.constisnull
+            && [1, 2, 4, 8].contains(&k.constlen)
+            && !zero_extended(k.consttype)
+    })?;
     let op = match (zone_op(o.opno)?, flipped) {
         (ZoneOp::Lt, true) => ZoneOp::Gt,
         (ZoneOp::Le, true) => ZoneOp::Ge,
@@ -222,7 +251,12 @@ pub fn bound_form<'p>(q: types_nodes::Node<'p>, varno: i32, lane_word: &dyn Fn(i
 /// Agg with no group keys, the one argument of a numeric -> float4 / float8 cast within an aggregate's arguments (no
 /// DISTINCT, ORDER BY or FILTER) reads the column too: the cast reads the code at its scale (lowerv4
 /// rep/packednum/float_cast.rs), any other read of that argument renders the code's image at the row.
-pub fn packed_minmax_only<'p>(b: &mut crate::walk::Builder<'p, '_>, scan: &'p types_nodes::plannodes::Plan<'p>, varno: i32, attno: i16) -> bool {
+pub fn packed_minmax_only<'p>(
+    b: &mut crate::walk::Builder<'p, '_>,
+    scan: &'p types_nodes::plannodes::Plan<'p>,
+    varno: i32,
+    attno: i16,
+) -> bool {
     use types_nodes::primnodes::OUTER_VAR;
     use types_nodes::Node;
     // whether `n` reads a node `hit` names, `None` past a node the walk does not know
@@ -234,13 +268,18 @@ pub fn packed_minmax_only<'p>(b: &mut crate::walk::Builder<'p, '_>, scan: &'p ty
         });
         known.then_some(found)
     }
-    let col = |n: Node<'_>| n.as_var().is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == attno);
+    let col = |n: Node<'_>| {
+        n.as_var()
+            .is_some_and(|v| v.varno == varno && v.varlevelsup == 0 && v.varattno == attno)
+    };
     if !scan.qual.iter().all(|q| reads(q, &col) == Some(false)) {
         return false;
     }
     let mut outs: ArenaVec<i16> = ArenaVec::new_in(b.arena); // alloc: Cold
     for (i, t) in scan.targetlist.iter().enumerate() {
-        let Some(e) = t.as_target_entry().map(|t| t.expr) else { return false };
+        let Some(e) = t.as_target_entry().map(|t| t.expr) else {
+            return false;
+        };
         if col(e) {
             outs.push(i as i16 + 1);
         } else if reads(e, &col) != Some(false) {
@@ -252,11 +291,17 @@ pub fn packed_minmax_only<'p>(b: &mut crate::walk::Builder<'p, '_>, scan: &'p ty
     }
     // the parent's reads, from the demand home's one per-parent table (an Agg with grouping sets, a chain or a rewrite is
     // not in it: fail closed)
-    let Some(pr) = crate::facts::demand::parent_reads(b, scan) else { return false };
+    let Some(pr) = crate::facts::demand::parent_reads(b, scan) else {
+        return false;
+    };
     if pr.side != OUTER_VAR || pr.parent.as_agg().is_none() {
         return false;
     }
-    let out = |n: Node<'_>| n.as_var().is_some_and(|v| v.varno == OUTER_VAR && v.varlevelsup == 0 && outs.contains(&v.varattno));
+    let out = |n: Node<'_>| {
+        n.as_var().is_some_and(|v| {
+            v.varno == OUTER_VAR && v.varlevelsup == 0 && outs.contains(&v.varattno)
+        })
+    };
     let keys = &pr.keys[..];
     if keys.iter().any(|k| outs.contains(k)) {
         return false;
@@ -264,15 +309,29 @@ pub fn packed_minmax_only<'p>(b: &mut crate::walk::Builder<'p, '_>, scan: &'p ty
     // every Var of the column in the Agg's lists is the one argument of a min / max over numeric, plain, or (D3139, no
     // group keys) the one argument of a numeric -> float cast within the arguments of an aggregate with no DISTINCT,
     // ORDER BY or FILTER (evaluated at the row, as the extreme's)
-    let cast = |e: Node<'_>| e.as_func_expr().is_some_and(|f| crate::catalog::numeric::float_cast(f.funcid).is_some() && f.args.len() == 1 && f.args.iter().next().is_some_and(out));
+    let cast = |e: Node<'_>| {
+        e.as_func_expr().is_some_and(|f| {
+            crate::catalog::numeric::float_cast(f.funcid).is_some()
+                && f.args.len() == 1
+                && f.args.iter().next().is_some_and(out)
+        })
+    };
     let (mut seen, mut calls, mut known, mut deep) = (0usize, 0usize, true, true);
     for &n in pr.exprs.iter() {
         known &= crate::expr::walk(n, &mut |x| {
             seen += out(x) as usize;
             if let Some(r) = x.as_aggref() {
-                let arg = r.args.iter().next().and_then(|t| t.as_target_entry()).map(|t| t.expr);
+                let arg = r
+                    .args
+                    .iter()
+                    .next()
+                    .and_then(|t| t.as_target_entry())
+                    .map(|t| t.expr);
                 let free = r.aggdistinct.is_nil() && r.aggorder.is_nil() && r.aggfilter.is_none();
-                calls += (crate::catalog::agg::numeric_extreme(r.aggfnoid) && free && r.args.iter().count() == 1 && arg.is_some_and(out)) as usize;
+                calls += (crate::catalog::agg::numeric_extreme(r.aggfnoid)
+                    && free
+                    && r.args.iter().count() == 1
+                    && arg.is_some_and(out)) as usize;
                 if free && keys.is_empty() {
                     for t in r.args.iter() {
                         deep &= crate::expr::walk(t, &mut |y| {

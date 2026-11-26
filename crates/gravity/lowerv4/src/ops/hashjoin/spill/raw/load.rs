@@ -12,19 +12,27 @@
 //! refuses a stream its caller still stages). Each owner writes only its own `Partials` and its own regions; the shared
 //! `more` table is never written, the owner's copy of it is (in its pair region's header).
 #![allow(unsafe_code)]
-use gravity_abi::PtrWord;
 use gravity_abi::ctx::{Ctx, Partials};
+use gravity_abi::PtrWord;
 use gravity_driver::mem::spill_host::v4;
 use gravity_driver::Error;
 use gravity_fn::arena::OpArena;
 
 #[allow(unused_imports)]
-use crate::ops::hashjoin::build::{region, END, FLAGS, F_FP128, F_RANGE, F_RANGE0, HI, LIMIT, LO, LOW, N, NULLKEY, PHASE, REC, TOP, WORDS};
+use crate::ops::hashjoin::build::{
+    region, END, FLAGS, F_FP128, F_RANGE, F_RANGE0, HI, LIMIT, LO, LOW, N, NULLKEY, PHASE, REC,
+    TOP, WORDS,
+};
+use crate::ops::hashjoin::drain::spill::write_drain;
 use crate::ops::hashjoin::layout;
 use crate::ops::hashjoin::rt::{lay_out, rd, tail, wr, Rt};
-use crate::ops::hashjoin::spill::build::{put_record, serialized_len, PBITS, ROW_STACK, SPILL, SPILLED};
-use crate::ops::hashjoin::drain::spill::write_drain;
-use crate::ops::hashjoin::spill::pair::{DRAIN, FILL, FIRST, MAGIC, META, M_BND, M_DP, M_GRP, M_HI, M_KBND, M_KEPT, M_KOFF, M_MORE, M_NKEPT, M_OFFS, M_ORIG, M_PART, M_SBITS, M_SUB};
+use crate::ops::hashjoin::spill::build::{
+    put_record, serialized_len, PBITS, ROW_STACK, SPILL, SPILLED,
+};
+use crate::ops::hashjoin::spill::pair::{
+    DRAIN, FILL, FIRST, MAGIC, META, M_BND, M_DP, M_GRP, M_HI, M_KBND, M_KEPT, M_KOFF, M_MORE,
+    M_NKEPT, M_OFFS, M_ORIG, M_PART, M_SBITS, M_SUB,
+};
 use crate::ops::hashjoin::spill::raw as split;
 
 /// The partition bits of the hosts' `bits` argument (its flags above them: `FILL`, `DRAIN`, `DRAIN_MARKED`).
@@ -77,9 +85,16 @@ impl Buf {
     pub(crate) unsafe fn new(ctx: *mut Ctx, cap: usize) -> gravity_driver::Result<Buf> {
         let p = v4::take_reload(ctx, cap);
         if p.is_null() {
-            return Err(Error::host("gravity: a spill pair's reload buffer was refused"));
+            return Err(Error::host(
+                "gravity: a spill pair's reload buffer was refused",
+            ));
         }
-        Ok(Buf { ctx, p, cap, len: 0 })
+        Ok(Buf {
+            ctx,
+            p,
+            cap,
+            len: 0,
+        })
     }
 
     unsafe fn reserve(&mut self, more: usize) -> gravity_driver::Result<()> {
@@ -102,7 +117,12 @@ impl Buf {
     }
 
     /// Owner `o`'s part `part` of `stream` appended.
-    pub(crate) unsafe fn read_owner(&mut self, stream: u64, o: usize, part: u32) -> gravity_driver::Result<()> {
+    pub(crate) unsafe fn read_owner(
+        &mut self,
+        stream: u64,
+        o: usize,
+        part: u32,
+    ) -> gravity_driver::Result<()> {
         let h = match v4::open(self.ctx, stream, o, part) {
             v4::FAILED => return Err(Error::host("gravity: a spill pair's part did not open")),
             0 => return Ok(()),
@@ -110,7 +130,11 @@ impl Buf {
         };
         loop {
             self.reserve(FIRST)?;
-            let got = v4::read(self.ctx, h, core::slice::from_raw_parts_mut(self.p.add(self.len), self.cap - self.len));
+            let got = v4::read(
+                self.ctx,
+                h,
+                core::slice::from_raw_parts_mut(self.p.add(self.len), self.cap - self.len),
+            );
             match got {
                 v4::FAILED => return Err(Error::host("gravity: a spill pair's part read failed")),
                 0 => return Ok(()),
@@ -128,7 +152,11 @@ pub(crate) unsafe fn owners(ctx: *mut Ctx, stream: u64) -> gravity_driver::Resul
 }
 
 unsafe fn consumed_at(pp: *mut Partials, i: usize) -> *mut u8 {
-    if i < 2 { (*pp).consumed[i].ptr() } else { (*(*pp).more.ptr().add(i)).ptr() }
+    if i < 2 {
+        (*pp).consumed[i].ptr()
+    } else {
+        (*(*pp).more.ptr().add(i)).ptr()
+    }
 }
 
 /// The pair region's header whose build region is `cur`, when `cur` is one (this owner took it and it carries `MAGIC`).
@@ -141,7 +169,15 @@ unsafe fn meta_of(ctx: *mut Ctx, cur: *mut u8) -> Option<*mut u8> {
 /// rows' offsets (a D2715 split's are its partition's), and with `all` (the partition's end) the kept rows and the split's
 /// groups and drain records. At its end a drained build's partition first writes its drain part (`write_drain`; a split
 /// one's gathered, `split::drain_end`). 0, or `FAILED` with the error held.
-pub(crate) unsafe fn close(ctx: *mut Ctx, pp: *mut Partials, i: usize, m: *mut u8, stream: u64, arg: u64, all: bool) -> i64 {
+pub(crate) unsafe fn close(
+    ctx: *mut Ctx,
+    pp: *mut Partials,
+    i: usize,
+    m: *mut u8,
+    stream: u64,
+    arg: u64,
+    all: bool,
+) -> i64 {
     let split = rd::<u64>(m, M_SBITS) != 0;
     let st = match all && arg & DRAIN != 0 {
         true if split => split::drain_end(ctx, stream, arg, m),
@@ -151,8 +187,17 @@ pub(crate) unsafe fn close(ctx: *mut Ctx, pp: *mut Partials, i: usize, m: *mut u
     if i < 2 {
         (*pp).consumed[i] = gravity_abi::word(rd::<u64>(m, M_ORIG) as usize as *mut u8);
     }
-    (*pp).more = gravity_abi::word(rd::<u64>(m, M_MORE) as usize as *const gravity_abi::Word<*mut u8>);
-    for (off, give) in [(M_OFFS, !split), (M_KEPT, all), (M_GRP, all), (M_BND, all), (M_KOFF, all), (M_KBND, all), (M_DP, all)] {
+    (*pp).more =
+        gravity_abi::word(rd::<u64>(m, M_MORE) as usize as *const gravity_abi::Word<*mut u8>);
+    for (off, give) in [
+        (M_OFFS, !split),
+        (M_KEPT, all),
+        (M_GRP, all),
+        (M_BND, all),
+        (M_KOFF, all),
+        (M_KBND, all),
+        (M_DP, all),
+    ] {
         let p = rd::<u64>(m, off) as usize as *mut u8;
         if give && !p.is_null() {
             v4::give(ctx, p);
@@ -164,13 +209,22 @@ pub(crate) unsafe fn close(ctx: *mut Ctx, pp: *mut Partials, i: usize, m: *mut u
 }
 
 /// The serialized records of `raw` under header `orig`: (count, their image bytes).
-pub(crate) unsafe fn records(orig: *const u8, raw: &[u8]) -> gravity_driver::Result<(usize, usize)> {
+pub(crate) unsafe fn records(
+    orig: *const u8,
+    raw: &[u8],
+) -> gravity_driver::Result<(usize, usize)> {
     let rec = rd::<u32>(orig, REC) as usize;
     let (mut n, mut imgs, mut o) = (0usize, 0usize, 0usize);
     while o < raw.len() {
-        let l = if raw.len() - o < rec { usize::MAX } else { serialized_len(orig, raw.as_ptr().add(o)) };
+        let l = if raw.len() - o < rec {
+            usize::MAX
+        } else {
+            serialized_len(orig, raw.as_ptr().add(o))
+        };
         if l > raw.len() - o {
-            return Err(Error::host("gravity: a spill pair's build part ends inside a record"));
+            return Err(Error::host(
+                "gravity: a spill pair's build part ends inside a record",
+            ));
         }
         (n, imgs, o) = (n + 1, imgs + (l - rec), o + l);
     }
@@ -181,36 +235,71 @@ pub(crate) unsafe fn records(orig: *const u8, raw: &[u8]) -> gravity_driver::Res
 pub(crate) fn part_len(orig: *const u8, n: usize, imgs: usize, base: usize) -> usize {
     // SAFETY: `orig` is a laid-out build region's header (the caller's).
     let rec = unsafe { rd::<u32>(orig, REC) } as usize;
-    (base + n * rec + imgs + (8 << crate::ops::hashjoin::rt::dir_bits(n as u64)) + 64).next_multiple_of(64)
+    (base + n * rec + imgs + (8 << crate::ops::hashjoin::rt::dir_bits(n as u64)) + 64)
+        .next_multiple_of(64)
 }
 
 /// Region `d` (`len` bytes) headed as the original build `orig` with `raw`'s `n` records put in, before its lay-out. The
 /// original's ALLOW and record shape stay (lay_out splits a keeping build's NULL-key records and lays the marks of a
 /// marking one as the original's did); its lay-out words and flags but F_RANGE, F_RANGE0 and F_FP128 are cleared.
 unsafe fn fill_part(orig: *const u8, raw: &[u8], n: usize, d: *mut u8, len: usize) {
-    let (rec, base) = (rd::<u32>(orig, REC) as usize, layout::base(layout::pay_of(orig)));
+    let (rec, base) = (
+        rd::<u32>(orig, REC) as usize,
+        layout::base(layout::pay_of(orig)),
+    );
     core::ptr::copy_nonoverlapping(orig, d, base);
-    for off in [N, crate::ops::hashjoin::build::DIR, crate::ops::hashjoin::build::SLOTS, crate::ops::hashjoin::build::KEPT, crate::ops::hashjoin::build::MARKS] {
+    for off in [
+        N,
+        crate::ops::hashjoin::build::DIR,
+        crate::ops::hashjoin::build::SLOTS,
+        crate::ops::hashjoin::build::KEPT,
+        crate::ops::hashjoin::build::MARKS,
+    ] {
         wr::<u64>(d, off, 0);
-    }wr::<u8>(d, PHASE, 1); wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0); wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0);
-wr::<u8>(d, FLAGS, rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128)); wr::<u8>(d, SPILL, 0); wr::<u8>(d, PBITS, 0); wr::<u64>(d, SPILLED, (n == 0) as u64);
-wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
-    let (range, mut lo, mut hi) = (rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0) != 0, i64::MAX, i64::MIN);
+    }
+    wr::<u8>(d, PHASE, 1);
+    wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0);
+    wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0);
+    wr::<u8>(
+        d,
+        FLAGS,
+        rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128),
+    );
+    wr::<u8>(d, SPILL, 0);
+    wr::<u8>(d, PBITS, 0);
+    wr::<u64>(d, SPILLED, (n == 0) as u64);
+    wr::<u64>(d, TOP, len as u64);
+    wr::<u64>(d, END, len as u64);
+    wr::<u32>(d, LIMIT, len as u32);
+    let (range, mut lo, mut hi) = (
+        rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0) != 0,
+        i64::MAX,
+        i64::MIN,
+    );
     let mut o = 0;
     for k in 0..n {
         o += put_record(d, &raw[o..]);
         // the build's range leaves a NULL-key record out (build.rs: a NULL row keeps lo / hi), and so does the partition's
-        if range && rd::<u64>(d, base + k * rec + 8 * rd::<u8>(orig, WORDS) as usize) & LOW != NULLKEY {
+        if range
+            && rd::<u64>(d, base + k * rec + 8 * rd::<u8>(orig, WORDS) as usize) & LOW != NULLKEY
+        {
             let w = rd::<i64>(d, base + k * rec);
             (lo, hi) = (lo.min(w), hi.max(w));
         }
-    }wr::<i64>(d, LO, lo); wr::<i64>(d, HI, hi);
+    }
+    wr::<i64>(d, LO, lo);
+    wr::<i64>(d, HI, hi);
 }
 
 /// A laid-out partition region of `raw`'s records under `orig`, `head` bytes into a region of its own (`take_pair`):
 /// (the region, its build region, its length, its records). Its directory grows the region when the records leave it no
 /// room.
-pub(crate) unsafe fn part_region(ctx: *mut Ctx, head: usize, orig: *const u8, raw: &[u8]) -> gravity_driver::Result<(*mut u8, *mut u8, usize, usize)> {
+pub(crate) unsafe fn part_region(
+    ctx: *mut Ctx,
+    head: usize,
+    orig: *const u8,
+    raw: &[u8],
+) -> gravity_driver::Result<(*mut u8, *mut u8, usize, usize)> {
     let (n, imgs) = records(orig, raw)?;
     let len = part_len(orig, n, imgs, layout::base(layout::pay_of(orig)));
     let (mut m, mut len) = (take_pair(ctx, head, len)?, len);
@@ -221,10 +310,16 @@ pub(crate) unsafe fn part_region(ctx: *mut Ctx, head: usize, orig: *const u8, ra
     if need > len {
         let len2 = need.next_multiple_of(64);
         let m2 = take_pair(ctx, head, len2)?;
-        let (d2, top, tl) = (m2.add(head), layout::base(layout::pay_of(orig)) + n * rd::<u32>(orig, REC) as usize, tail(d));
+        let (d2, top, tl) = (
+            m2.add(head),
+            layout::base(layout::pay_of(orig)) + n * rd::<u32>(orig, REC) as usize,
+            tail(d),
+        );
         core::ptr::copy_nonoverlapping(d, d2, top);
         core::ptr::copy_nonoverlapping(d.add(len - tl), d2.add(len2 - tl), tl);
-        wr::<u64>(d2, TOP, (len2 - tl) as u64); wr::<u64>(d2, END, len2 as u64); wr::<u32>(d2, LIMIT, len2 as u32);
+        wr::<u64>(d2, TOP, (len2 - tl) as u64);
+        wr::<u64>(d2, END, len2 as u64);
+        wr::<u32>(d2, LIMIT, len2 as u32);
         v4::give(ctx, m);
         (m, len) = (m2, len2);
     }
@@ -287,7 +382,15 @@ gravity_abi::host! {
 /// of their own, headed as the original build (`M_ORIG`), and its kept rows with their offsets. The probe's build `i` and
 /// the owner's `more` table then point at it; a pair still open (an unfinished claim, the previous partition) is closed
 /// first. `p == end` (a claim past the partitions) opens an empty pair. `Err(None)`: an error already held (`close`).
-unsafe fn open_pair(ctx: *mut Ctx, stream: u64, i: usize, arg: u64, ncons: usize, p: u32, end: u64) -> Result<(), Option<Error>> {
+unsafe fn open_pair(
+    ctx: *mut Ctx,
+    stream: u64,
+    i: usize,
+    arg: u64,
+    ncons: usize,
+    p: u32,
+    end: u64,
+) -> Result<(), Option<Error>> {
     let (bits, fill) = (arg_bits(arg), arg & FILL != 0);
     let pp = (*(*ctx).program.ptr()).partial.ptr();
     let mut cur = consumed_at(pp, i);
@@ -307,7 +410,9 @@ unsafe fn open_pair(ctx: *mut Ctx, stream: u64, i: usize, arg: u64, ncons: usize
         (rows, o) = (rows + 1, o + rd::<u32>(kept.p, o) as usize);
     }
     if o != kept.len || rows > u32::MAX as usize {
-        return Err(Some(Error::host("gravity: a spill pair's kept part ends inside a row")));
+        return Err(Some(Error::host(
+            "gravity: a spill pair's kept part ends inside a row",
+        )));
     }
     // a partition no probe row reached needs no build region: an empty one (EMPTY ends the probe)
     let mut raw = Buf::new(ctx, if rows == 0 { 8 } else { FIRST })?;
@@ -316,13 +421,33 @@ unsafe fn open_pair(ctx: *mut Ctx, stream: u64, i: usize, arg: u64, ncons: usize
     }
     let bytes = core::slice::from_raw_parts(raw.p, raw.len);
     // D2715: a partition whose region would pass its length joins in sub-passes
-    let sbits = if rows > 0 { split::split_bits(orig, bytes, bits, split::part_cap(), OpArena::slot_owner_kind(ctx)) } else { Ok(0) };
+    let sbits = if rows > 0 {
+        split::split_bits(
+            orig,
+            bytes,
+            bits,
+            split::part_cap(),
+            OpArena::slot_owner_kind(ctx),
+        )
+    } else {
+        Ok(0)
+    };
     if let Ok(s @ 1..) = sbits {
         let grouped = split::group(ctx, orig, bytes, bits, s);
         v4::give(ctx, raw.p);
         let (grp, bnd) = grouped?;
         let (koff, kbnd) = split::kept_groups(ctx, (kept.p, kept.len, rows), bits, s)?;
-        return split::open_sub(ctx, pp, i, arg, ncons, orig, kept.p, (p, end), split::Split::of(0, s, [grp.p, bnd.p, koff.p, kbnd.p]));
+        return split::open_sub(
+            ctx,
+            pp,
+            i,
+            arg,
+            ncons,
+            orig,
+            kept.p,
+            (p, end),
+            split::Split::of(0, s, [grp.p, bnd.p, koff.p, kbnd.p]),
+        );
     }
     let built = sbits.and_then(|_| part_region(ctx, META, orig, bytes));
     v4::give(ctx, raw.p);
@@ -337,7 +462,16 @@ unsafe fn open_pair(ctx: *mut Ctx, stream: u64, i: usize, arg: u64, ncons: usize
         wr::<u64>(offs.p, 8 * r, o as u64);
         o += rd::<u32>(kept.p, o) as usize;
     }
-    split::install(pp, i, ncons, (m, d), orig, (kept.p, offs.p, rows), (p, end), split::Split::NONE);
+    split::install(
+        pp,
+        i,
+        ncons,
+        (m, d),
+        orig,
+        (kept.p, offs.p, rows),
+        (p, end),
+        split::Split::NONE,
+    );
     Ok(())
 }
 
@@ -363,7 +497,17 @@ mod tests {
     #[test]
     fn a_kept_row_holds_words_nulls_and_images_by_offset() {
         let text = [(7u32 << 2).to_le_bytes().as_slice(), b"abc"].concat();
-        let cells = [0u64, 42, 0, 0, 0, 1, D_VARLENA as u64, text.as_ptr() as u64, 0];
+        let cells = [
+            0u64,
+            42,
+            0,
+            0,
+            0,
+            1,
+            D_VARLENA as u64,
+            text.as_ptr() as u64,
+            0,
+        ];
         // SAFETY: the varlena cell's datum is `text`, a 4-byte-header varlena of 7 bytes.
         let row = unsafe { kept_row(&cells, 0x1234) };
         let fixed = 8 + 8 + 8 * 3;
@@ -374,12 +518,17 @@ mod tests {
             assert_eq!(rd::<u64>(row.as_ptr(), 8), 0b010);
             let off = rd::<u64>(row.as_ptr(), 32) as usize;
             assert_eq!((off, &row[off..off + 7]), (fixed, &text[..]));
-            assert_eq!(split::kept_mix(row.as_ptr()), crate::ops::hashjoin::spill::build::remix(0x1234) & !0xFFFF_FFFF);
+            assert_eq!(
+                split::kept_mix(row.as_ptr()),
+                crate::ops::hashjoin::spill::build::remix(0x1234) & !0xFFFF_FFFF
+            );
         }
         assert_eq!(row.len() % 8, 0);
     }
 
-    use crate::ops::hashjoin::build::{ALLOW, A_KEEP, A_MARKS, A_TAGS, DIR, FORM, F_SPLIT, HASH, HDR, KEPT, MARKS};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_KEEP, A_MARKS, A_TAGS, DIR, FORM, F_SPLIT, HASH, HDR, KEPT, MARKS,
+    };
     use crate::ops::hashjoin::drain::spill::{drain_records, drain_set, u_part, MAGIC_U};
     use crate::ops::hashjoin::spill::pair::DRAIN_MARKED;
 
@@ -391,8 +540,17 @@ mod tests {
         let mut buf = vec![0u64; HDR / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` covers the header.
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
-wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 24);
+            crate::ops::hashjoin::layout::set_pay(d, 1);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, 99);
+            wr::<u64>(d, KEPT, 7);
+            wr::<u64>(d, MARKS, 4096);
+            wr::<u64>(d, DIR, 4096);
         }
         buf
     }
@@ -410,7 +568,10 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
 
     /// The rows' numbers of serialized records `raw`, sorted.
     fn numbers(raw: &[u8]) -> Vec<u64> {
-        let mut v: Vec<u64> = raw.chunks(24).map(|r| u64::from_ne_bytes(r[16..24].try_into().unwrap())).collect();
+        let mut v: Vec<u64> = raw
+            .chunks(24)
+            .map(|r| u64::from_ne_bytes(r[16..24].try_into().unwrap()))
+            .collect();
         v.sort_unstable();
         v
     }
@@ -440,15 +601,34 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             let mut buf = laid(o.as_ptr() as *const u8, &keys);
             let d = buf.as_mut_ptr() as *mut u8;
             let t = Rt::of(d, LEN);
-            assert_eq!((t.n, t.kept, rd::<u8>(d, FLAGS) & F_SPLIT, rd::<u8>(d, FORM), rd::<u8>(d, ALLOW)), (4, 4, F_SPLIT, HASH, A_TAGS | A_KEEP | A_MARKS));
+            assert_eq!(
+                (
+                    t.n,
+                    t.kept,
+                    rd::<u8>(d, FLAGS) & F_SPLIT,
+                    rd::<u8>(d, FORM),
+                    rd::<u8>(d, ALLOW)
+                ),
+                (4, 4, F_SPLIT, HASH, A_TAGS | A_KEEP | A_MARKS)
+            );
             assert_eq!((rd::<i64>(d, LO), rd::<i64>(d, HI)), (5, 9), "the range of the keyed records, as the build's (a NULL-key record's word 0 left out)");
             let m = rd::<u64>(d, MARKS) as usize;
-            assert!(m == t.marks_at() && m >= HDR + 8 * 24 && (m..m + 8).all(|o| *d.add(o) == 0), "one zeroed mark per record");
-            assert!(rd::<u64>(d, DIR) as usize >= m + 8, "the directory follows the marks");
+            assert!(
+                m == t.marks_at() && m >= HDR + 8 * 24 && (m..m + 8).all(|o| *d.add(o) == 0),
+                "one zeroed mark per record"
+            );
+            assert!(
+                rd::<u64>(d, DIR) as usize >= m + 8,
+                "the directory follows the marks"
+            );
             let rec = |i: usize| rd::<u64>(t.rec(i), 16);
             let mut keyed: Vec<u64> = (0..4).map(rec).collect();
             keyed.sort_unstable();
-            assert_eq!(keyed, vec![0, 2, 5, 6], "the keyed records first (the split moves, it keeps no order)");
+            assert_eq!(
+                keyed,
+                vec![0, 2, 5, 6],
+                "the keyed records first (the split moves, it keeps no order)"
+            );
             let mut nulls: Vec<u64> = (4..8).map(rec).collect();
             nulls.sort_unstable();
             assert_eq!(nulls, vec![1, 3, 4, 7]);
@@ -481,19 +661,39 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             }
             let row = |i: usize| rd::<u64>(t.rec(i), 16);
             let (mut sent, mut kept): (Vec<u64>, Vec<u64>) = (Vec::new(), Vec::new());
-            (0..6).for_each(|i| if i == 1 || i == 4 { kept.push(row(i)) } else { sent.push(row(i)) });
-            sent.sort_unstable(); kept.sort_unstable();
+            (0..6).for_each(|i| {
+                if i == 1 || i == 4 {
+                    kept.push(row(i))
+                } else {
+                    sent.push(row(i))
+                }
+            });
+            sent.sort_unstable();
+            kept.sort_unstable();
             for (marked, want) in [(false, sent), (true, kept)] {
                 let part = drain_set(d, marked);
-                assert_eq!((&part[..4], u32::from_le_bytes(part[4..8].try_into().unwrap()) as usize), (&MAGIC_U[..], want.len()));
-                let body = drain_records(op, &[&[], &part, &[]]).unwrap().expect("one owner wrote it");
+                assert_eq!(
+                    (
+                        &part[..4],
+                        u32::from_le_bytes(part[4..8].try_into().unwrap()) as usize
+                    ),
+                    (&MAGIC_U[..], want.len())
+                );
+                let body = drain_records(op, &[&[], &part, &[]])
+                    .unwrap()
+                    .expect("one owner wrote it");
                 assert_eq!(numbers(body), want, "marked {marked}");
             }
             // a partition nothing reached still writes its header: zero records, not None
             let mut buf = laid(op, &[Some(1)]);
-            *buf.as_mut_ptr().cast::<u8>().add(Rt::of(buf.as_mut_ptr() as *mut u8, LEN).marks_at()) = 1;
+            *buf.as_mut_ptr()
+                .cast::<u8>()
+                .add(Rt::of(buf.as_mut_ptr() as *mut u8, LEN).marks_at()) = 1;
             let part = drain_set(buf.as_mut_ptr() as *mut u8, false);
-            assert_eq!(drain_records(op, &[&part]).unwrap().map(<[u8]>::len), Some(0));
+            assert_eq!(
+                drain_records(op, &[&part]).unwrap().map(<[u8]>::len),
+                Some(0)
+            );
         }
     }
 
@@ -507,9 +707,19 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
         let fixed = |i: u64| (0xB00 + i).to_ne_bytes().to_vec();
         let text = |i: u64| {
             let body = format!("boo{}", "o".repeat(i as usize * 5));
-            [((4 + body.len()) as u32).wrapping_shl(2).to_le_bytes().as_slice(), body.as_bytes()].concat()
+            [
+                ((4 + body.len()) as u32)
+                    .wrapping_shl(2)
+                    .to_le_bytes()
+                    .as_slice(),
+                body.as_bytes(),
+            ]
+            .concat()
         };
-        for (kind, img) in [(8u16, &fixed as &dyn Fn(u64) -> Vec<u8>), (D_VARLENA, &text)] {
+        for (kind, img) in [
+            (8u16, &fixed as &dyn Fn(u64) -> Vec<u8>),
+            (D_VARLENA, &text),
+        ] {
             let mut o = orig(A_TAGS | A_KEEP | A_MARKS);
             let op = o.as_mut_ptr() as *mut u8;
             let (mut r, mut want) = (Vec::new(), Vec::new());
@@ -524,7 +734,10 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
                 want.push((i as u64, b));
             }
             // SAFETY: the header above (payload 1 an image of `kind`) and the regions below, ours alone.
-            unsafe {crate::ops::hashjoin::layout::set_pay(op, 2); wr::<u32>(op, REC, 32); wr::<u16>(op, DESC + 2, kind);
+            unsafe {
+                crate::ops::hashjoin::layout::set_pay(op, 2);
+                wr::<u32>(op, REC, 32);
+                wr::<u16>(op, DESC + 2, kind);
                 let lay = |raw: &[u8]| {
                     let (n, _) = records(op, raw).unwrap();
                     assert_eq!(n, 3);
@@ -539,8 +752,15 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
                     let mut v: Vec<(u64, Vec<u8>)> = (0..3)
                         .map(|i| {
                             let p = d.add(rd::<u64>(t.rec(i), 24) as usize);
-                            let len = if kind == D_VARLENA { varlena_len(p) } else { kind as usize };
-                            (rd::<u64>(t.rec(i), 16), core::slice::from_raw_parts(p, len).to_vec())
+                            let len = if kind == D_VARLENA {
+                                varlena_len(p)
+                            } else {
+                                kind as usize
+                            };
+                            (
+                                rd::<u64>(t.rec(i), 16),
+                                core::slice::from_raw_parts(p, len).to_vec(),
+                            )
                         })
                         .collect();
                     v.sort_unstable();
@@ -548,12 +768,26 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
                 };
                 let mut buf = lay(&r);
                 let d = buf.as_mut_ptr() as *mut u8;
-                assert_eq!(images(d), want, "kind {kind}: a laid-out region reads its images at base + word");
+                assert_eq!(
+                    images(d),
+                    want,
+                    "kind {kind}: a laid-out region reads its images at base + word"
+                );
                 let part = drain_set(d, false);
-                assert_eq!(images(d), want, "kind {kind}: the region keeps its settled words");
-                let body = drain_records(op, &[&part]).unwrap().expect("one owner wrote it");
+                assert_eq!(
+                    images(d),
+                    want,
+                    "kind {kind}: the region keeps its settled words"
+                );
+                let body = drain_records(op, &[&part])
+                    .unwrap()
+                    .expect("one owner wrote it");
                 let mut back = lay(body);
-                assert_eq!(images(back.as_mut_ptr() as *mut u8), want, "kind {kind}: the drain part loads back to the same images");
+                assert_eq!(
+                    images(back.as_mut_ptr() as *mut u8),
+                    want,
+                    "kind {kind}: the drain part loads back to the same images"
+                );
             }
         }
     }
@@ -577,11 +811,21 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             let fixed = (0xC00 + i as u64).to_ne_bytes();
             // record 6's text passes the drain's 8 KiB batch (`serialize_each`'s pieces)
             let body = format!("t{}", "x".repeat(if i == 6 { 9000 } else { i * 7 }));
-            let text = [((4 + body.len()) as u32).wrapping_shl(2).to_le_bytes().as_slice(), body.as_bytes()].concat();
+            let text = [
+                ((4 + body.len()) as u32)
+                    .wrapping_shl(2)
+                    .to_le_bytes()
+                    .as_slice(),
+                body.as_bytes(),
+            ]
+            .concat();
             // payload 2 (the varlena) NULL in every third record: link bit 32 + 2
             let null = i % 3 == 1;
             r.extend(k.unwrap_or(0).to_ne_bytes());
-            r.extend(((if k.is_none() { NULLKEY } else { 0 }) | if null { 1 << 34 } else { 0 }).to_ne_bytes());
+            r.extend(
+                ((if k.is_none() { NULLKEY } else { 0 }) | if null { 1 << 34 } else { 0 })
+                    .to_ne_bytes(),
+            );
             r.extend((i as u64).to_ne_bytes());
             r.extend(8u64.to_ne_bytes());
             r.extend((if null { 0 } else { text.len() as u64 }).to_ne_bytes());
@@ -592,7 +836,11 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             }
         }
         // SAFETY: the header above (payload 1 a fixed 8-byte image, payload 2 a varlena) and the region below, ours alone.
-        unsafe {crate::ops::hashjoin::layout::set_pay(op, 3); wr::<u32>(op, REC, 40); wr::<u16>(op, DESC + 2, 8); wr::<u16>(op, DESC + 4, D_VARLENA);
+        unsafe {
+            crate::ops::hashjoin::layout::set_pay(op, 3);
+            wr::<u32>(op, REC, 40);
+            wr::<u16>(op, DESC + 2, 8);
+            wr::<u16>(op, DESC + 4, D_VARLENA);
             let (n, _) = records(op, &r).unwrap();
             assert_eq!(n, keys.len());
             let mut buf = vec![0u64; LEN / 8];
@@ -618,27 +866,50 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
                 let before = buf.clone();
                 let d = buf.as_mut_ptr() as *mut u8;
                 let (mut got, mut puts) = (Vec::new(), Vec::new());
-                drain_pieces(d, marked, &mut |b| -> Result<(), ()> {got.extend_from_slice(b); puts.push(b.len());
+                drain_pieces(d, marked, &mut |b| -> Result<(), ()> {
+                    got.extend_from_slice(b);
+                    puts.push(b.len());
                     Ok(())
                 })
                 .unwrap();
-                assert_eq!(got, [&drain_head(sent)[..], &want].concat(), "marked {marked}");
-                assert!(puts.iter().all(|&p| p <= JOIN_SPILL_EPOCH), "marked {marked}: puts {puts:?}");
+                assert_eq!(
+                    got,
+                    [&drain_head(sent)[..], &want].concat(),
+                    "marked {marked}"
+                );
+                assert!(
+                    puts.iter().all(|&p| p <= JOIN_SPILL_EPOCH),
+                    "marked {marked}: puts {puts:?}"
+                );
                 // each record's `serialize_each` pieces are its `serialize_over` bytes
                 let mut each = Vec::new();
                 drain_each(d, marked, &mut |t, i| {
-                    crate::ops::hashjoin::spill::raw::serialize_each(t, i, &mut |b| -> Result<(), ()> {
-                        each.extend_from_slice(b);
-                        Ok(())
-                    })
+                    crate::ops::hashjoin::spill::raw::serialize_each(
+                        t,
+                        i,
+                        &mut |b| -> Result<(), ()> {
+                            each.extend_from_slice(b);
+                            Ok(())
+                        },
+                    )
                 })
                 .unwrap();
                 assert_eq!(each, want, "marked {marked}");
                 assert_eq!(drain_bytes(d, marked), want.len(), "marked {marked}");
                 assert_eq!(drain_set(d, marked), got, "marked {marked}");
-                assert!(buf == before, "marked {marked}: the region's words are settled back");
-                let body = drain_records(op, &[&drain_set(buf.as_mut_ptr() as *mut u8, marked)]).unwrap().expect("one owner wrote it").to_vec();
-                assert_eq!(records(op, &body).unwrap().0, sent as usize, "marked {marked}: the part reads back whole");
+                assert!(
+                    buf == before,
+                    "marked {marked}: the region's words are settled back"
+                );
+                let body = drain_records(op, &[&drain_set(buf.as_mut_ptr() as *mut u8, marked)])
+                    .unwrap()
+                    .expect("one owner wrote it")
+                    .to_vec();
+                assert_eq!(
+                    records(op, &body).unwrap().0,
+                    sent as usize,
+                    "marked {marked}: the part reads back whole"
+                );
             }
         }
     }
@@ -658,16 +929,32 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
         // SAFETY: `op` is the header above.
         unsafe {
             assert_eq!(drain_records(op, &[]).unwrap(), None, "no owner");
-            assert_eq!(drain_records(op, &[&[], &[]]).unwrap(), None, "no owner wrote bytes");
-            assert_eq!(drain_records(op, &[&part(1, &one)]).unwrap(), Some(&one[..]));
+            assert_eq!(
+                drain_records(op, &[&[], &[]]).unwrap(),
+                None,
+                "no owner wrote bytes"
+            );
+            assert_eq!(
+                drain_records(op, &[&part(1, &one)]).unwrap(),
+                Some(&one[..])
+            );
         }
         err(&[&part(1, &one)[..6]], "has no header");
-        err(&[&[b'X', b'7', b'U', b'1', 1, 0, 0, 0][..]], "has no header");
+        err(
+            &[&[b'X', b'7', b'U', b'1', 1, 0, 0, 0][..]],
+            "has no header",
+        );
         err(&[&part(1, &one[..10])], "ends inside a record");
-        err(&[&part(1, &[one.clone(), one[..20].to_vec()].concat())], "ends inside a record");
+        err(
+            &[&part(1, &[one.clone(), one[..20].to_vec()].concat())],
+            "ends inside a record",
+        );
         err(&[&part(2, &one)], "does not match its header");
         err(&[&part(0, &one)], "does not match its header");
-        err(&[&part(1, &one), &[], &part(0, &[])], "written by two claims");
+        err(
+            &[&part(1, &one), &[], &part(0, &[])],
+            "written by two claims",
+        );
     }
 
     /// The drain parts sit past the kept probe rows, and the drain variant rides the arg bits above the partition bits.
@@ -687,7 +974,11 @@ wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>
             (JoinType::JOIN_ANTI, 0),
         ] {
             let arg = bits | crate::ops::hashjoin::spill::pair::drain_of(jt);
-            assert_eq!((arg & (DRAIN | DRAIN_MARKED), arg_bits(arg)), (want, 5), "{jt:?}");
+            assert_eq!(
+                (arg & (DRAIN | DRAIN_MARKED), arg_bits(arg)),
+                (want, 5),
+                "{jt:?}"
+            );
         }
     }
 }

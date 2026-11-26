@@ -25,7 +25,10 @@ fn serialized() -> std::sync::MutexGuard<'static, ()> {
 
 fn capture(err: &PgError, output_to_server: &mut bool) {
     if err.level() == WARNING {
-        warnings().lock().unwrap_or_else(|e| e.into_inner()).push(err.message().to_string());
+        warnings()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(err.message().to_string());
     }
     *output_to_server = false;
 }
@@ -57,7 +60,10 @@ fn signal_failure_warning_carries_strerror_text() {
         },
     );
     assert!(!found);
-    assert_eq!(w, vec!["could not send signal to process 4242: No such process".to_string()]);
+    assert_eq!(
+        w,
+        vec!["could not send signal to process 4242: No such process".to_string()]
+    );
 }
 
 #[test]
@@ -68,7 +74,10 @@ fn unknown_pid_is_not_a_server_process_warning() {
         |_, _, _| panic!("no signal is sent for an unknown pid"),
     );
     assert!(!found);
-    assert_eq!(w, vec!["PID 4243 is not a PostgreSQL server process".to_string()]);
+    assert_eq!(
+        w,
+        vec!["PID 4243 is not a PostgreSQL server process".to_string()]
+    );
 }
 
 #[test]
@@ -89,7 +98,10 @@ fn context_id_table_is_visible_during_walk_and_destroyed_afterward() {
             assert_eq!(root.children.len(), 1);
             let table = &root.children[0];
             assert_eq!(table.name, "dynahash");
-            assert_eq!(table.ident.as_deref(), Some("pg_get_backend_memory_contexts"));
+            assert_eq!(
+                table.ident.as_deref(),
+                Some("pg_get_backend_memory_contexts")
+            );
             assert_eq!(table.kind, "AllocSet");
             assert!(table.used > 0);
             if fail {

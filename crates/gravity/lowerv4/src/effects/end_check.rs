@@ -54,7 +54,10 @@ pub(crate) struct Disagreement {
 const KNOWN: &[(Kind, &str, u32, &str)] = &[];
 
 fn known(d: &Disagreement) -> Option<&'static str> {
-    KNOWN.iter().find(|k| k.0 == d.kind && k.1 == d.tag && (k.2 == 0 || k.2 == d.funcid)).map(|k| k.3)
+    KNOWN
+        .iter()
+        .find(|k| k.0 == d.kind && k.1 == d.tag && (k.2 == 0 || k.2 == d.funcid))
+        .map(|k| k.3)
 }
 
 /// The expressions op `o` evaluates per row that the check reads: a filter's or gate's qual, a projection's items.
@@ -71,7 +74,11 @@ fn first_call(n: Node<'_>) -> u32 {
     let mut f = 0;
     gravity_decompose::expr::walk(n, &mut |x| {
         if f == 0 {
-            f = x.as_func_expr().map(|c| c.funcid).or_else(|| x.as_op_expr().map(|o| o.opfuncid)).unwrap_or(0);
+            f = x
+                .as_func_expr()
+                .map(|c| c.funcid)
+                .or_else(|| x.as_op_expr().map(|o| o.opfuncid))
+                .unwrap_or(0);
         }
         f == 0
     });
@@ -96,7 +103,15 @@ pub(crate) fn disagreements<'g>(gx: &Gx<'g, '_>, arena: ArenaRef) -> PgVec<'g, D
                 };
                 let node_raises = of_expr(&cx, n, &PLAIN).may_raise || !found.raise_free;
                 let lowering_user = gx.fx(n).user_calls();
-                let mut push = |kind| out.push_in(Disagreement { pipeline: q, op: j, kind, tag: format!("{:?}", n.node_tag()), funcid: first_call(n) }); // alloc: Cold
+                let mut push = |kind| {
+                    out.push_in(Disagreement {
+                        pipeline: q,
+                        op: j,
+                        kind,
+                        tag: format!("{:?}", n.node_tag()),
+                        funcid: first_call(n),
+                    })
+                }; // alloc: Cold
                 if node_raises && gx.fx(n).quiet() {
                     push(Kind::QuietOverRaise);
                 }
@@ -121,7 +136,18 @@ pub(crate) fn check(gx: &Gx<'_, '_>, arena: ArenaRef) {
     }
     for d in disagreements(gx, arena) {
         let k = known(&d);
-        eprintln!("gravity effects agree: {:?} pipeline {} op {} node {} call {}{}", d.kind, d.pipeline, d.op, d.tag, d.funcid, k.map_or(String::new(), |id| format!(" known {id}"))); // alloc: Cold
-        debug_assert!(mode != Mode::Assert || k.is_some(), "gravity effects agree: {d:?} (C1: book it, then name it in end_check.rs KNOWN)");
+        eprintln!(
+            "gravity effects agree: {:?} pipeline {} op {} node {} call {}{}",
+            d.kind,
+            d.pipeline,
+            d.op,
+            d.tag,
+            d.funcid,
+            k.map_or(String::new(), |id| format!(" known {id}"))
+        ); // alloc: Cold
+        debug_assert!(
+            mode != Mode::Assert || k.is_some(),
+            "gravity effects agree: {d:?} (C1: book it, then name it in end_check.rs KNOWN)"
+        );
     }
 }

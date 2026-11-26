@@ -6,23 +6,23 @@
 //! name here, and D2071's run-ahead is closed for the key by D439's declaration (`user_code`). Row 2's forms refuse the
 //! D2193 form anywhere in their graph (`no_widen`). Owner M8-NEST.
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::sort::{SortDesc, SortForm};
 use gravity_decompose::ops::shared::subplan::SubSite;
-use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::{Bound, Op, PipelineNode, Source};
 use gravity_program::protos::{Proto, ProtoKind};
 use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
 
+use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::effects::visible::nestloop::{loud, loud_sub};
 use crate::face::kinds::KindId;
 use crate::frame::iface;
 use crate::frame::px::Px;
-use crate::effects::visible::nestloop::{loud, loud_sub};
-use crate::graph::Gx;
 use crate::frame::site::{EXEC_KEY, HOST_KEY, INIT_KEY};
+use crate::graph::Gx;
 use crate::rerun::params::exec_key;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 /// D1016 (M6-REPS): an index key computed from executor parameters (a cast, a subscript, arithmetic over them, not a
 /// bare parameter), evaluated by the host at every seek with PostgreSQL's evaluator (ExecIndexEvalRuntimeKeys at
@@ -37,28 +37,43 @@ pub fn hosts_bound(keys: &[gravity_decompose::IndexKey<'_>], slots: &[i16]) -> b
     use gravity_decompose::graph::KeyForm;
     let mut w = 0usize;
     keys.iter().any(|k| {
-        let row = k.value.as_row_compare_expr().filter(|_| k.form == KeyForm::Row);
+        let row = k
+            .value
+            .as_row_compare_expr()
+            .filter(|_| k.form == KeyForm::Row);
         let (members, single) = match k.form {
             KeyForm::Null | KeyForm::NotNull => (None, None),
             KeyForm::Row => (row, None),
             _ => (None, Some(k.value)),
         };
-        members.into_iter().flat_map(|rc| rc.rargs.iter()).chain(single).any(|v| {
-            w += 1;
-            crate::lifetime::bound::at_bind(v) && slots.get(w - 1).is_some_and(|&s| s < 0)
-        })
+        members
+            .into_iter()
+            .flat_map(|rc| rc.rargs.iter())
+            .chain(single)
+            .any(|v| {
+                w += 1;
+                crate::lifetime::bound::at_bind(v) && slots.get(w - 1).is_some_and(|&s| s < 0)
+            })
     })
 }
 
 /// D1016: the executor parameters key `value` reads into `ids`, each once in key then walk order (the site's input cells);
 /// `false` when the walk meets a node `kids` does not know (a parameter under it would be missed).
 pub fn key_ids(value: Node<'_>, ids: &mut Vec<i32>) -> bool {
-    key_ids_by(value, &mut |id| if !ids.contains(&id) { ids.push(id) }) // alloc: Program
+    key_ids_by(value, &mut |id| {
+        if !ids.contains(&id) {
+            ids.push(id)
+        }
+    }) // alloc: Program
 }
 
 /// `key_ids` into a list in the planning context (the lowering's own callers).
 pub fn key_ids_in(value: Node<'_>, ids: &mut PgVec<'_, i32>) -> bool {
-    key_ids_by(value, &mut |id| if !ids.contains(&id) { ids.push_in(id) })
+    key_ids_by(value, &mut |id| {
+        if !ids.contains(&id) {
+            ids.push_in(id)
+        }
+    })
 }
 
 /// `key_ids`'s walk: each executor parameter `value` reads to `put`, as the walk meets it (repeats included), with no list
@@ -66,7 +81,10 @@ pub fn key_ids_in(value: Node<'_>, ids: &mut PgVec<'_, i32>) -> bool {
 /// against the template's with none); `false` over a node the walk does not know.
 pub fn key_ids_by(value: Node<'_>, put: &mut dyn FnMut(i32)) -> bool {
     gravity_decompose::expr::walk(value, &mut |x| {
-        if let Some(p) = x.as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC) {
+        if let Some(p) = x
+            .as_param()
+            .filter(|p| p.paramkind == ParamKind::PARAM_EXEC)
+        {
             put(p.paramid);
         }
         true
@@ -76,7 +94,12 @@ pub fn key_ids_by(value: Node<'_>, put: &mut dyn FnMut(i32)) -> bool {
 /// D1016: computed key `value`'s cell, the host's (`HOST_KEY`), its parameters into `ids`; a SubPlan in it keeps a Shape.
 pub fn computed_key(node: i32, value: Node<'_>, ids: &mut PgVec<'_, i32>) -> u16 {
     if gravity_decompose::expr::has_subplan(value) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy("an index key computed by a SubPlan over executor parameters") })
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy("an index key computed by a SubPlan over executor parameters")
+            }
+        )
     }
     if !key_ids_in(value, ids) {
         crate::refuse!(node, Reason::Shape { why: ShapeWhy("an index key computed from executor parameters over a node the key walk does not know") })
@@ -97,7 +120,15 @@ pub(crate) const SEEK_KEY_PROBE: &str = "a computed index key on a walk that pro
 /// So does one beside a key word bound at bind (lifetime/bound.rs `at_bind`) or when the pipeline starts (key values `vals`), before the host's seek;
 /// then `beside`'s forms anywhere in the graph, and `ahead`'s beside a key that may raise. `true`: the walk has a host key
 /// (lifetime/bound.rs `per_open`).
-pub fn input_cells<'v>(px: &mut Px<'_, '_>, node: i32, ids: &[i32], scalar: &[i32], vals: impl Iterator<Item = Node<'v>> + Clone, slots: &mut PgVec<'_, u16>, attnos: &mut PgVec<'_, i16>) -> bool {
+pub fn input_cells<'v>(
+    px: &mut Px<'_, '_>,
+    node: i32,
+    ids: &[i32],
+    scalar: &[i32],
+    vals: impl Iterator<Item = Node<'v>> + Clone,
+    slots: &mut PgVec<'_, u16>,
+    attnos: &mut PgVec<'_, i16>,
+) -> bool {
     input_cells_opening(px, node, ids, scalar, vals, slots, attnos, |_| false)
 }
 
@@ -105,34 +136,78 @@ pub fn input_cells<'v>(px: &mut Px<'_, '_>, node: i32, ids: &[i32], scalar: &[i3
 /// parameter (D1643: a TABLESAMPLE value that is VOLATILE or may raise, decompose `SampleDesc::per_open`): they are
 /// `per_open` keys for every rule here.
 #[allow(clippy::too_many_arguments)]
-pub fn input_cells_opening<'v>(px: &mut Px<'_, '_>, node: i32, ids: &[i32], scalar: &[i32], vals: impl Iterator<Item = Node<'v>> + Clone, slots: &mut PgVec<'_, u16>, attnos: &mut PgVec<'_, i16>, opens: impl Fn(Node<'v>) -> bool) -> bool {
+pub fn input_cells_opening<'v>(
+    px: &mut Px<'_, '_>,
+    node: i32,
+    ids: &[i32],
+    scalar: &[i32],
+    vals: impl Iterator<Item = Node<'v>> + Clone,
+    slots: &mut PgVec<'_, u16>,
+    attnos: &mut PgVec<'_, i16>,
+    opens: impl Fn(Node<'v>) -> bool,
+) -> bool {
     let opened = |px: &Px<'_, '_>, v: Node<'v>| crate::lifetime::bound::per_open(px, v) || opens(v);
     let init = |&w: &u16| w != HOST_KEY && w & EXEC_KEY != 0 && w & INIT_KEY != 0;
     // D1016 row 2: PG evaluates the runtime keys in index-qual order (ExecIndexEvalRuntimeKeys); the key cells load in that
     // order at the open (frame/site.rs store_keys, an InitPlan key's `init_key` running its InitPlan), the computed keys'
     // input cells after them, the host's keys at the seek. So an InitPlan key before every computed key runs where PG runs
     // it, and one after a computed key runs ahead of it: licensed as a guarded InitPlan key's (D2174 `init_ahead`)
-    for id in slots.iter().copied().skip_while(|&w| w != HOST_KEY).filter(|w| init(w)).map(|w| (w & !(EXEC_KEY | INIT_KEY)) as i32) {
+    for id in slots
+        .iter()
+        .copied()
+        .skip_while(|&w| w != HOST_KEY)
+        .filter(|w| init(w))
+        .map(|w| (w & !(EXEC_KEY | INIT_KEY)) as i32)
+    {
         init_ahead(px, node, id, INIT_AFTER_HOST);
     }
     let host = vals.clone().any(|v| opened(px, v));
-    let probes = |p: &gravity_decompose::PipelineNode<'_>| p.ops.iter().any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })));
+    let probes = |p: &gravity_decompose::PipelineNode<'_>| {
+        p.ops
+            .iter()
+            .any(|op| matches!(op, Op::Join(JoinDesc::Probe { .. })))
+    };
     // D3609: served where every probe of the walk's pipeline may take D1902's `Order` (probe_calls.rs `seek_orders`): its
     // close keeps the walk from seeking at a call PG builds first over an empty table; a probe that takes none after all
     // refuses by this name at its make (probe.rs), reading `Px::seek_keyed`
     let k = px.making.0;
-    if host && px.gx.pipelines().get(k).is_none_or(|p| probes(p) && !crate::ops::hashjoin::probe_calls::seek_orders(px.gx, k) && !crate::ops::hashjoin::probe_calls::seek_calls(px.gx, k)) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(SEEK_KEY_PROBE) })
+    if host
+        && px.gx.pipelines().get(k).is_none_or(|p| {
+            probes(p)
+                && !crate::ops::hashjoin::probe_calls::seek_orders(px.gx, k)
+                && !crate::ops::hashjoin::probe_calls::seek_calls(px.gx, k)
+        })
+    {
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(SEEK_KEY_PROBE)
+            }
+        )
     }
     if host && px.gx.pipelines().get(k).is_some_and(probes) {
         px.seek_keyed.push(k); // alloc: Program
     }
-    if slots.contains(&HOST_KEY) && vals.clone().any(|v| crate::lifetime::bound::at_bind(v) && !opened(px, v)) {
+    if slots.contains(&HOST_KEY)
+        && vals
+            .clone()
+            .any(|v| crate::lifetime::bound::at_bind(v) && !opened(px, v))
+    {
         crate::refuse!(node, Reason::Shape { why: ShapeWhy("a computed index key beside a key over no executor parameter (PG evaluates the runtime keys in index-qual order at each rescan; D1016 row 2)") })
     }
     for &id in ids {
-        if scalar.contains(&id) && crate::rerun::params::producer(px.gx, id) == Some(KindId::NestInitplan) && (vals.clone().any(|v| skippable(v, id)) || !reached_first(px.gx, vals.clone(), id)) {
-            crate::refuse!(node, Reason::Shape { why: ShapeWhy("an index key computed over an InitPlan's parameter (D1016 row 2)") })
+        if scalar.contains(&id)
+            && crate::rerun::params::producer(px.gx, id) == Some(KindId::NestInitplan)
+            && (vals.clone().any(|v| skippable(v, id)) || !reached_first(px.gx, vals.clone(), id))
+        {
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(
+                        "an index key computed over an InitPlan's parameter (D1016 row 2)"
+                    )
+                }
+            )
         }
         let w = exec_key(px, node, id);
         slots.push_in(w);
@@ -145,7 +220,11 @@ pub fn input_cells_opening<'v>(px: &mut Px<'_, '_>, node: i32, ids: &[i32], scal
         if keys().any(|v| gx.pipelines().get(k).is_some_and(|p| loud(gx, p, v))) {
             ahead(gx, px.arena, node, k);
         }
-        let under_guard: PgVec<'_, i32> = ids.iter().copied().filter(|&id| keys().any(|v| guarded(v, id, px.mcx()))).collect_in(px.mcx());
+        let under_guard: PgVec<'_, i32> = ids
+            .iter()
+            .copied()
+            .filter(|&id| keys().any(|v| guarded(v, id, px.mcx())))
+            .collect_in(px.mcx());
         if keys().any(|v| crate::effects::visible::rerun::key_user_code(gx, v)) {
             px.declare_proto(Proto::new(ProtoKind::Volatile, k as u16));
         }
@@ -163,7 +242,9 @@ pub fn input_cells_opening<'v>(px: &mut Px<'_, '_>, node: i32, ids: &[i32], scal
 fn skippable(v: Node<'_>, id: i32) -> bool {
     let mut hit = false;
     gravity_decompose::ops::shared::subplan::walk_cond(v, false, &mut |x, cond| {
-        hit |= cond && x.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && p.paramid == id);
+        hit |= cond
+            && x.as_param()
+                .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && p.paramid == id);
         !hit
     });
     hit
@@ -179,7 +260,9 @@ fn reached_first<'v>(gx: &Gx<'_, '_>, vals: impl Iterator<Item = Node<'v>>, id: 
     // (found `id`, every node evaluated before it quiet)
     fn reach(gx: &Gx<'_, '_>, n: Node<'_>, id: i32) -> (bool, bool) {
         crate::stack_check();
-        if n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && p.paramid == id) {
+        if n.as_param()
+            .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && p.paramid == id)
+        {
             return (true, true);
         }
         let (mut found, mut clean) = (false, true);
@@ -187,10 +270,18 @@ fn reached_first<'v>(gx: &Gx<'_, '_>, vals: impl Iterator<Item = Node<'v>>, id: 
             if !found {
                 let (f, cl) = reach(gx, c, id);
                 found = f;
-                clean &= if f { cl } else { crate::rerun::union_arms::quiet_in(gx, c, true) };
+                clean &= if f {
+                    cl
+                } else {
+                    crate::rerun::union_arms::quiet_in(gx, c, true)
+                };
             }
         });
-        if known { (found, found && clean) } else { (true, false) }
+        if known {
+            (found, found && clean)
+        } else {
+            (true, false)
+        }
     }
     let mut clean = true;
     for v in vals {
@@ -198,7 +289,10 @@ fn reached_first<'v>(gx: &Gx<'_, '_>, vals: impl Iterator<Item = Node<'v>>, id: 
         if f {
             return clean && cl;
         }
-        let init_key = v.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && crate::rerun::params::producer(gx, p.paramid) == Some(KindId::NestInitplan));
+        let init_key = v.as_param().is_some_and(|p| {
+            p.paramkind == ParamKind::PARAM_EXEC
+                && crate::rerun::params::producer(gx, p.paramid) == Some(KindId::NestInitplan)
+        });
         clean &= init_key || crate::rerun::union_arms::quiet_in(gx, v, true);
     }
     true
@@ -210,7 +304,12 @@ fn guarded(v: Node<'_>, id: i32, mcx: mcx::Mcx<'_>) -> bool {
     use types_nodes::NodeTag as T;
     let mut hit = false;
     gravity_decompose::expr::walk(v, &mut |x| {
-        if !hit && matches!(x.node_tag(), T::T_CaseExpr | T::T_CoalesceExpr | T::T_BoolExpr) {
+        if !hit
+            && matches!(
+                x.node_tag(),
+                T::T_CaseExpr | T::T_CoalesceExpr | T::T_BoolExpr
+            )
+        {
             let mut under = PgVec::new_in(mcx);
             let known = key_ids_in(x, &mut under);
             hit = !known || under.contains(&id);
@@ -227,10 +326,19 @@ fn guarded(v: Node<'_>, id: i32, mcx: mcx::Mcx<'_>) -> bool {
 /// before any row left re-runs the statement in plan order (`Batch::Statement`), whose outcome is PostgreSQL's.
 /// Construct C2: the licence the InitPlan runs ahead under (`effects::unobservable` for one with no effects), `None`
 /// when no InitPlan sets `id`.
-fn init_ahead(px: &mut Px<'_, '_>, node: i32, id: i32, why: &'static str) -> Option<gravity_decompose::effects::Licence> {
+fn init_ahead(
+    px: &mut Px<'_, '_>,
+    node: i32,
+    id: i32,
+    why: &'static str,
+) -> Option<gravity_decompose::effects::Licence> {
     use gravity_decompose::effects::{licence, unobservable, Departure, Effects};
     let gx = px.gx;
-    let init = gx.graph.init_plans.iter().find(|i| i.params.iter().any(|p| p == id))?;
+    let init = gx
+        .graph
+        .init_plans
+        .iter()
+        .find(|i| i.params.iter().any(|p| p == id))?;
     let own = Effects::of_init_plan(init);
     if own == Effects::NONE {
         return unobservable(own);
@@ -273,8 +381,15 @@ pub fn host_keys_serial(px: &mut Px<'_, '_>) {
 pub fn no_widen(gx: &Gx<'_, '_>, node: i32) {
     let ps = gx.pipelines();
     let ops = || (0..ps.end()).flat_map(|k| ps[k].ops.iter());
-    if ops().any(|op| matches!(op, Op::Srf(d) if d.functions.iter().any(|f| f.funcid == PG_LOCK_STATUS))) {
-        crate::refuse!(node, Reason::Shape { why: ShapeWhy(LOCK_STATUS_TOAST) })
+    if ops().any(
+        |op| matches!(op, Op::Srf(d) if d.functions.iter().any(|f| f.funcid == PG_LOCK_STATUS)),
+    ) {
+        crate::refuse!(
+            node,
+            Reason::Shape {
+                why: ShapeWhy(LOCK_STATUS_TOAST)
+            }
+        )
     }
 }
 
@@ -309,15 +424,29 @@ fn ahead<'p>(gx: &Gx<'_, 'p>, arena: gravity_program::ArenaRef, node: i32, mut k
             Op::Filter(q) | Op::Gate(q) => l(*q),
             Op::Project(list) => list.iter().any(l),
             Op::SubPlan(d) => Effects::of_sub_plan(d).acts,
-            Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) => clauses.iter().chain(keys.iter()).chain(qual.iter()).any(l),
-            Op::Join(JoinDesc::Merge { clauses, qual, .. }) => clauses.iter().chain(qual.iter()).any(l),
+            Op::Join(JoinDesc::Probe {
+                clauses,
+                keys,
+                qual,
+                ..
+            }) => clauses.iter().chain(keys.iter()).chain(qual.iter()).any(l),
+            Op::Join(JoinDesc::Merge { clauses, qual, .. }) => {
+                clauses.iter().chain(qual.iter()).any(l)
+            }
             Op::Join(JoinDesc::Memo { keys, .. }) => keys.iter().any(l),
             Op::Srf(d) => d.functions.iter().any(|f| l(f.node)) || d.tlist.iter().any(l),
-            Op::Join(JoinDesc::Nest { .. } | JoinDesc::Spool | JoinDesc::Drain { .. }) | Op::Sort(_) | Op::FirstOfRun(_) => false,
+            Op::Join(JoinDesc::Nest { .. } | JoinDesc::Spool | JoinDesc::Drain { .. })
+            | Op::Sort(_)
+            | Op::FirstOfRun(_) => false,
             _ => iface::limit_bounds(op).is_none(),
         };
         if src || p.ops[..j].iter().any(op) {
-            crate::refuse!(node, Reason::Shape { why: ShapeWhy(OUTER_CALLS_AHEAD) })
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(OUTER_CALLS_AHEAD)
+                }
+            )
         }
         k = o;
     }
@@ -347,17 +476,31 @@ pub const UNION_COUNTERS_ONCE: &str = "a computed index key in a statement whose
 /// or LIMIT / OFFSET (params_bound.rs) would carry, wherever the graph holds them. A kept hash build is the probe rule's above.
 pub(crate) fn beside(gx: &Gx<'_, '_>, node: i32) {
     let ps = gx.pipelines();
-    let loose = |m: usize, b: &Bound<'_>, min: i64| !matches!(*b, Bound::All) && !matches!(*b, Bound::Const(n) if n >= min) && !crate::rerun::params_bound::computed(b) && !crate::lifetime::bound::rebinds(gx, m, b);
+    let loose = |m: usize, b: &Bound<'_>, min: i64| {
+        !matches!(*b, Bound::All)
+            && !matches!(*b, Bound::Const(n) if n >= min)
+            && !crate::rerun::params_bound::computed(b)
+            && !crate::lifetime::bound::rebinds(gx, m, b)
+    };
     for r in gx.graph.reruns.iter() {
         for m in r.pipelines.iter().map(|&m| m as usize) {
             let p = &ps[m];
             // a LIMIT's bounds, and a top-k's or walk's (the bounds of the LIMIT it absorbed)
             let mut bounds = p.ops.iter().filter_map(|op| match op {
-                Op::Sort(SortDesc { form: SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. }, .. }) => Some((count, offset)),
+                Op::Sort(SortDesc {
+                    form:
+                        SortForm::TopK { count, offset, .. } | SortForm::Walk { count, offset, .. },
+                    ..
+                }) => Some((count, offset)),
                 _ => iface::limit_bounds(op),
             });
             if bounds.any(|(count, offset)| loose(m, count, 1) || loose(m, offset, 0)) {
-                crate::refuse!(node, Reason::Shape { why: ShapeWhy(BOUND_ONCE_AT_BIND) })
+                crate::refuse!(
+                    node,
+                    Reason::Shape {
+                        why: ShapeWhy(BOUND_ONCE_AT_BIND)
+                    }
+                )
             }
         }
     }
@@ -365,37 +508,76 @@ pub(crate) fn beside(gx: &Gx<'_, '_>, node: i32) {
     // opens (`nest_prune`) or, where its pruning and every arm are quiet (keys too), opens with nothing PG could see
     let streamed = |k: usize| crate::pipes::inner_union(gx, k).is_some_and(|u| u.0 == k);
     let prunes = |k: usize, op: &Op<'_>| match op {
-        Op::Append(AppendDesc::Arm { prune: Some(d), .. }) => !crate::ops::append::prune::skipped_whole(gx, k, d),
+        Op::Append(AppendDesc::Arm { prune: Some(d), .. }) => {
+            !crate::ops::append::prune::skipped_whole(gx, k, d)
+        }
         Op::Append(AppendDesc::Union { prune: Some(_), .. }) => !streamed(k),
         Op::Append(AppendDesc::Merge { prune: Some(_), .. }) => true,
         _ => false,
     };
-    let marker = |op: &&Op<'_>| matches!(op, Op::Append(AppendDesc::Arm { .. }) | Op::Join(JoinDesc::Drain { .. })); // Px::union_of's
-    // D2105 / D2121 in a pipeline a nest or rerun re-opens; D1911 (as its row's `order`): a SubPlan that may raise or call a
-    // VOLATILE function, run by an eager step, after a node its reader evaluates first that may too (in an aggregate's
-    // argument, an earlier aggregate's FILTER, argument or transition, or its own; an op between the step and its reader).
-    // D1911 is a write's only: in a statement that writes nothing every such SubPlan is a per-row step whose own order rule
-    // (ops/subplan/per_row.rs `order`) reads it lazily where PG reads it, keeps it eager where only errors could reorder
-    // (PLAN-v5 5.1) or refuses by D1911's ORDER name, so no computed key there needs this row-B guard (regress
-    // create_index#108: point(x,x) before a KNN SubPlan's computed ORDER BY key). A write's check-option SubPlan is host-fed
-    // (W6-D1112, write/rowop_sub.rs): the IR evaluates it only when the host's qual parks at its read, in PostgreSQL's order,
-    // so no eager step runs it ahead of a node (`host_fed`; regress rowsecurity#239: an RLS check SubPlan over a computed
-    // current_user key).
-    let writes = ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Write(_))));
+    let marker = |op: &&Op<'_>| {
+        matches!(
+            op,
+            Op::Append(AppendDesc::Arm { .. }) | Op::Join(JoinDesc::Drain { .. })
+        )
+    }; // Px::union_of's
+       // D2105 / D2121 in a pipeline a nest or rerun re-opens; D1911 (as its row's `order`): a SubPlan that may raise or call a
+       // VOLATILE function, run by an eager step, after a node its reader evaluates first that may too (in an aggregate's
+       // argument, an earlier aggregate's FILTER, argument or transition, or its own; an op between the step and its reader).
+       // D1911 is a write's only: in a statement that writes nothing every such SubPlan is a per-row step whose own order rule
+       // (ops/subplan/per_row.rs `order`) reads it lazily where PG reads it, keeps it eager where only errors could reorder
+       // (PLAN-v5 5.1) or refuses by D1911's ORDER name, so no computed key there needs this row-B guard (regress
+       // create_index#108: point(x,x) before a KNN SubPlan's computed ORDER BY key). A write's check-option SubPlan is host-fed
+       // (W6-D1112, write/rowop_sub.rs): the IR evaluates it only when the host's qual parks at its read, in PostgreSQL's order,
+       // so no eager step runs it ahead of a node (`host_fed`; regress rowsecurity#239: an RLS check SubPlan over a computed
+       // current_user key).
+    let writes = ps
+        .iter()
+        .any(|p| p.ops.iter().any(|o| matches!(o, Op::Write(_))));
     for k in 0..ps.end() {
         let p = &ps[k];
-        let again = k >= ps.len() || gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)));
+        let again = k >= ps.len()
+            || gx
+                .graph
+                .reruns
+                .iter()
+                .any(|r| r.pipelines.contains(&(k as u16)));
         if again && p.ops.iter().any(|op| prunes(k, op)) {
-            crate::refuse!(node, Reason::Shape { why: ShapeWhy(PRUNING_REOPEN) })
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(PRUNING_REOPEN)
+                }
+            )
         }
         // D2121's root fix (rerun/inner_limit.rs `union_reset`): a rerun set's run restarts its union's words, so only a nest
         // inner's union (re-opened by no set's run) keeps them across re-opens
-        if k >= ps.len() && p.ops.iter().skip_while(|op| !marker(op)).any(|op| iface::limit_bounds(op).is_some() || matches!(op, Op::GroupRun(_))) {
-            crate::refuse!(node, Reason::Shape { why: ShapeWhy(UNION_COUNTERS_ONCE) })
+        if k >= ps.len()
+            && p.ops
+                .iter()
+                .skip_while(|op| !marker(op))
+                .any(|op| iface::limit_bounds(op).is_some() || matches!(op, Op::GroupRun(_)))
+        {
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(UNION_COUNTERS_ONCE)
+                }
+            )
         }
-        for (j, d) in p.ops.iter().enumerate().filter_map(|(j, o)| if let Op::SubPlan(d) = o { Some((j, d)) } else { None }) {
+        for (j, d) in p.ops.iter().enumerate().filter_map(|(j, o)| {
+            if let Op::SubPlan(d) = o {
+                Some((j, d))
+            } else {
+                None
+            }
+        }) {
             // a join qual's or a VALUES row's SubPlan refuses by nest/subplan.rs's name
-            if !writes || !loud_sub(d) || matches!(d.site, SubSite::JoinQual | SubSite::Values) || host_fed(p, d.plan_id) {
+            if !writes
+                || !loud_sub(d)
+                || matches!(d.site, SubSite::JoinQual | SubSite::Values)
+                || host_fed(p, d.plan_id)
+            {
                 continue;
             }
             // an aggregate's argument: the aggregates before it in transition order, its FILTER and earlier arguments
@@ -404,18 +586,26 @@ pub(crate) fn beside(gx: &Gx<'_, '_>, node: i32) {
                 crate::ops::subplan::per_row::agg_arg(gx, k, d.plan_id)
             } else {
                 let mut loud = false;
-                let found = p.ops[j + 1..].iter().filter(|o| !matches!(o, Op::SubPlan(_))).any(|op| match op {
-                    Op::Filter(q) | Op::Gate(q) => before(gx, p, *q, d.plan_id, &mut loud),
-                    Op::Project(l) => l.iter().any(|n| before(gx, p, n, d.plan_id, &mut loud)),
-                    _ => {
-                        loud = true;
-                        false
-                    }
-                });
+                let found = p.ops[j + 1..]
+                    .iter()
+                    .filter(|o| !matches!(o, Op::SubPlan(_)))
+                    .any(|op| match op {
+                        Op::Filter(q) | Op::Gate(q) => before(gx, p, *q, d.plan_id, &mut loud),
+                        Op::Project(l) => l.iter().any(|n| before(gx, p, n, d.plan_id, &mut loud)),
+                        _ => {
+                            loud = true;
+                            false
+                        }
+                    });
                 (found, loud)
             };
             if loud || !found {
-                crate::refuse!(node, Reason::Shape { why: ShapeWhy(EAGER_SUBPLAN_AFTER) })
+                crate::refuse!(
+                    node,
+                    Reason::Shape {
+                        why: ShapeWhy(EAGER_SUBPLAN_AFTER)
+                    }
+                )
             }
         }
     }
@@ -439,14 +629,18 @@ fn host_fed(p: &PipelineNode<'_>, id: i32) -> bool {
 fn before(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, n: Node<'_>, id: i32, loud: &mut bool) -> bool {
     crate::stack_check(); // D3832
     let is = |s: Node<'_>| s.as_sub_plan().is_some_and(|s| s.plan_id == id);
-    if is(n) || n.as_alternative_sub_plan().is_some_and(|a| a.subplans.iter().any(is)) {
+    if is(n)
+        || n.as_alternative_sub_plan()
+            .is_some_and(|a| a.subplans.iter().any(is))
+    {
         return true;
     }
     if let Some(l) = n.as_list() {
         return l.iter().any(|c| before(gx, p, c, id, loud));
     }
     let mut found = false;
-    let known = gravity_decompose::expr::kids(n, &mut |c| found = found || before(gx, p, c, id, loud));
+    let known =
+        gravity_decompose::expr::kids(n, &mut |c| found = found || before(gx, p, c, id, loud));
     *loud |= (!found || n.as_min_max_expr().is_some()) && (!known || gx.fx(n).loud_here(p));
     found
 }

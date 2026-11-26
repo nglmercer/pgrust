@@ -34,12 +34,19 @@ fn adopt_registers_external_region_without_allocating() {
     {
         let index = SHMEM_INDEX.lock().unwrap();
         let ent = index.iter().find(|e| e.name == "test_adopt").unwrap();
-        assert_eq!((ent.size, ent.allocated_size), (200, CACHELINEALIGN(200).unwrap()));
+        assert_eq!(
+            (ent.size, ent.allocated_size),
+            (200, CACHELINEALIGN(200).unwrap())
+        );
         assert!(SHMEM_FREEOFFSET.load(Ordering::Relaxed) >= ent.off + ent.allocated_size);
     }
     let (p, found) = ShmemInitStruct("test_adopt", 200).unwrap();
     assert!(found);
-    assert_eq!(p, region.as_mut_ptr(), "attach resolves to the adopted region");
+    assert_eq!(
+        p,
+        region.as_mut_ptr(),
+        "attach resolves to the adopted region"
+    );
     let err = ShmemIndexAdopt("test_adopt", 200, region.as_mut_ptr()).unwrap_err();
     assert!(err.message.contains("already exists"));
 }
@@ -147,7 +154,10 @@ fn alloc_of_unrepresentable_size_is_out_of_memory_error_not_panic() {
     let size = isize::MAX as usize;
     let err = ShmemAlloc(size).unwrap_err();
     assert_eq!(err.sqlstate, ERRCODE_OUT_OF_MEMORY);
-    assert_eq!(err.message, format!("out of shared memory ({size} bytes requested)"));
+    assert_eq!(
+        err.message,
+        format!("out of shared memory ({size} bytes requested)")
+    );
     assert!(ShmemAllocNoError(size).is_null());
     let err = ShmemInitStruct("b118_unrepresentable", size).unwrap_err();
     assert_eq!(err.sqlstate, ERRCODE_OUT_OF_MEMORY);
@@ -209,8 +219,10 @@ fn index_entry_off_is_the_entrys_own_bump() {
         .flat_map(|h| h.join().unwrap())
         .collect();
     let index = SHMEM_INDEX.lock().unwrap();
-    let entries: Vec<&ShmemIndexEnt> =
-        index.iter().filter(|e| e.name.starts_with("b245_off_")).collect();
+    let entries: Vec<&ShmemIndexEnt> = index
+        .iter()
+        .filter(|e| e.name.starts_with("b245_off_"))
+        .collect();
     assert_eq!(entries.len(), 256);
     for e in &entries {
         assert_eq!(e.allocated_size, PG_CACHE_LINE_SIZE);
@@ -235,15 +247,23 @@ fn init_hash_registers_header_and_directory_under_the_table_name() {
     let mut info = HASHCTL::new();
     info.keysize = 4;
     info.entrysize = 16;
-    let table =
-        ShmemInitHash("test_init_hash", 32, 32, &mut info, HASH_ELEM | HASH_BLOBS | HASH_FIXED_SIZE)
-            .unwrap();
+    let table = ShmemInitHash(
+        "test_init_hash",
+        32,
+        32,
+        &mut info,
+        HASH_ELEM | HASH_BLOBS | HASH_FIXED_SIZE,
+    )
+    .unwrap();
     assert_eq!(info.dsize, dynahash::hash_select_dirsize(32));
     assert_eq!(info.max_dsize, info.dsize);
     let expected = core::mem::size_of::<HASHHDR>() + info.dsize as usize * 8;
     let ent_size = {
         let index = SHMEM_INDEX.lock().unwrap();
-        index.iter().find(|e| e.name == "test_init_hash").map(|e| (e.size, e.location))
+        index
+            .iter()
+            .find(|e| e.name == "test_init_hash")
+            .map(|e| (e.size, e.location))
     };
     let (size, location) = ent_size.expect("ShmemInitHash registers the table name");
     assert_eq!(size, expected);
@@ -275,8 +295,14 @@ fn init_hash_without_fixed_size_grows_through_shmem_alloc() {
     let mut info = HASHCTL::new();
     info.keysize = 4;
     info.entrysize = 16;
-    let table = ShmemInitHash("test_init_hash_grow", 8, 4096, &mut info, HASH_ELEM | HASH_BLOBS)
-        .expect("dynahash.c:375: a shared table need not be HASH_FIXED_SIZE");
+    let table = ShmemInitHash(
+        "test_init_hash_grow",
+        8,
+        4096,
+        &mut info,
+        HASH_ELEM | HASH_BLOBS,
+    )
+    .expect("dynahash.c:375: a shared table need not be HASH_FIXED_SIZE");
     let freeoffset_after_create = SHMEM_FREEOFFSET.load(Ordering::Relaxed);
     unsafe {
         assert!((*table).isshared);
@@ -284,15 +310,20 @@ fn init_hash_without_fixed_size_grows_through_shmem_alloc() {
         for i in 0u32..1000 {
             let key = i.to_ne_bytes();
             let mut found = false;
-            let p = dynahash::hash_search(table, key.as_ptr(), HASH_ENTER, Some(&mut found)).unwrap();
+            let p =
+                dynahash::hash_search(table, key.as_ptr(), HASH_ENTER, Some(&mut found)).unwrap();
             assert!(!found);
-            assert!(!p.is_null(), "growth past init_size=8 must not be out of shared memory");
+            assert!(
+                !p.is_null(),
+                "growth past init_size=8 must not be out of shared memory"
+            );
         }
         assert_eq!(dynahash::hash_get_num_entries(table), 1000);
         for i in 0u32..1000 {
             let key = i.to_ne_bytes();
             let mut found = false;
-            let p = dynahash::hash_search(table, key.as_ptr(), HASH_FIND, Some(&mut found)).unwrap();
+            let p =
+                dynahash::hash_search(table, key.as_ptr(), HASH_FIND, Some(&mut found)).unwrap();
             assert!(found && !p.is_null());
         }
     }
@@ -347,9 +378,15 @@ fn refused_alloc_does_not_advance_the_bump_counter() {
     let p = std::hint::black_box(p);
     assert!(p.is_null());
     let after = SHMEM_FREEOFFSET.load(Ordering::Relaxed);
-    assert!(after - before < huge, "counter advanced by a refused request");
+    assert!(
+        after - before < huge,
+        "counter advanced by a refused request"
+    );
     let err = ShmemAlloc(huge).unwrap_err();
-    assert_eq!(err.message, format!("out of shared memory ({huge} bytes requested)"));
+    assert_eq!(
+        err.message,
+        format!("out of shared memory ({huge} bytes requested)")
+    );
     assert!(SHMEM_FREEOFFSET.load(Ordering::Relaxed) - before < huge);
 }
 

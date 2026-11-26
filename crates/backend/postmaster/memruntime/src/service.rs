@@ -66,8 +66,14 @@ pub(crate) struct Lane {
 /// above registers (`allocarena::own::set_job_lane`: gravity_driver's whole-region give-backs, `mem::giveback`), 0 bytes
 /// and no drain until it does.
 pub(crate) static LANES: [Lane; 2] = [
-    Lane { landing: allocarena::own::landing_bytes, drain_upto: allocarena::own::drain_landing_upto },
-    Lane { landing: allocarena::own::job_landing_bytes, drain_upto: allocarena::own::drain_jobs_upto },
+    Lane {
+        landing: allocarena::own::landing_bytes,
+        drain_upto: allocarena::own::drain_landing_upto,
+    },
+    Lane {
+        landing: allocarena::own::job_landing_bytes,
+        drain_upto: allocarena::own::drain_jobs_upto,
+    },
 ];
 
 /// The one landing account: every lane's bytes enqueued and not yet given back (`own::landing_bytes()` plus the job
@@ -145,7 +151,11 @@ fn note_handoff() {
 
 /// H3 step (2): the loop's tick: `PURGE_TICK_MS` while the service owns an arena, else `idle_ms`.
 pub(crate) fn tick_ms(idle_ms: u64) -> u64 {
-    if allocarena::purge_owner_counts().0 != 0 { PURGE_TICK_MS } else { idle_ms }
+    if allocarena::purge_owner_counts().0 != 0 {
+        PURGE_TICK_MS
+    } else {
+        idle_ms
+    }
 }
 
 /// H3 step (2): one pass over the service's arenas: a forced purge when a release asked for one, else their expired
@@ -160,7 +170,9 @@ pub(crate) fn purge_pass(nap: &mut dyn FnMut(core::time::Duration)) {
     for i in 0..allocarena::PURGE_SLOTS {
         if allocarena::service_purge(i, force) {
             PURGES.fetch_add(1, Relaxed);
-            nap(core::time::Duration::from_micros(crate::release::BATCH_PAUSE_US));
+            nap(core::time::Duration::from_micros(
+                crate::release::BATCH_PAUSE_US,
+            ));
         }
     }
     if force {
@@ -169,7 +181,10 @@ pub(crate) fn purge_pass(nap: &mut dyn FnMut(core::time::Duration)) {
     if handoff != 0 {
         if force {
             HANDOFFS.fetch_add(1, Relaxed);
-            HANDOFF_MAX_US.fetch_max(mcx::ladder_stats::clock_ns().saturating_sub(handoff) / 1000, Relaxed);
+            HANDOFF_MAX_US.fetch_max(
+                mcx::ladder_stats::clock_ns().saturating_sub(handoff) / 1000,
+                Relaxed,
+            );
         } else {
             // its flag not seen yet: the next pass serves it
             let _ = HANDOFF_NS.compare_exchange(0, handoff, Relaxed, Relaxed);
@@ -243,7 +258,8 @@ pub fn counts() -> Counts {
     let f = allocarena::own::service_fallbacks();
     let (drawer_drains, drawer_bytes) = allocarena::own::drawer_drains();
     let (batches, given) = crate::release::counts();
-    let (arenas_owned, owner_refusals, forced_jobs, forced_inline, pressure_owned_bytes) = allocarena::purge_owner_counts();
+    let (arenas_owned, owner_refusals, forced_jobs, forced_inline, pressure_owned_bytes) =
+        allocarena::purge_owner_counts();
     Counts {
         landing: landing(),
         cap: allocarena::own::service_cap() as u64,
@@ -290,7 +306,13 @@ pub(crate) fn log(l: &mut Log) {
 
 /// The next line at `now_ns` with the counts `c`, if one is due (and the state moved on to it).
 fn next_line(l: &mut Log, c: &Counts, now_ns: u64) -> Option<String> {
-    let moved = (c.cap_runs, c.dead_runs, c.drawer_drains, c.forced_inline) != (l.last.cap_runs, l.last.dead_runs, l.last.drawer_drains, l.last.forced_inline);
+    let moved = (c.cap_runs, c.dead_runs, c.drawer_drains, c.forced_inline)
+        != (
+            l.last.cap_runs,
+            l.last.dead_runs,
+            l.last.drawer_drains,
+            l.last.forced_inline,
+        );
     if !moved || (l.at_ns != 0 && now_ns.saturating_sub(l.at_ns) < LOG_EVERY_NS) {
         return None;
     }
@@ -354,16 +376,30 @@ mod tests {
         n
     }
     static FAKE: [Lane; 2] = [
-        Lane { landing: || A.load(Relaxed), drain_upto: |max| drain_of(&A, max) },
-        Lane { landing: || B.load(Relaxed), drain_upto: |max| drain_of(&B, max) },
+        Lane {
+            landing: || A.load(Relaxed),
+            drain_upto: |max| drain_of(&A, max),
+        },
+        Lane {
+            landing: || B.load(Relaxed),
+            drain_upto: |max| drain_of(&B, max),
+        },
     ];
 
     /// 9d's A1: step (1)'s lane is the own runs, so with no job lane registered (H3 step (4)'s, gravity_driver's) the one
     /// landing account is `allocarena::own::landing_bytes()`.
     #[test]
     fn step_1_the_landing_account_is_the_own_runs_landing() {
-        assert_eq!(super::LANES.len(), 2, "the own runs, then step (4)'s job lane");
-        assert_eq!(allocarena::own::job_landing_bytes(), 0, "no job lane registered here");
+        assert_eq!(
+            super::LANES.len(),
+            2,
+            "the own runs, then step (4)'s job lane"
+        );
+        assert_eq!(
+            allocarena::own::job_landing_bytes(),
+            0,
+            "no job lane registered here"
+        );
         assert_eq!(super::landing(), allocarena::own::landing_bytes() as u64);
         assert!(!super::enabled(), "give_back_service defaults to 0");
     }
@@ -371,11 +407,17 @@ mod tests {
     /// The queue's account sums its lanes, and a batch drains them in order up to its cap (a job never split).
     #[test]
     fn the_account_sums_the_lanes_and_a_batch_drains_them_in_order() {
-        let _one = crate::tests::GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        let _one = crate::tests::GLOBALS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         A.store(3 << 20, Relaxed);
         B.store(2 << 20, Relaxed);
         assert_eq!(super::landing_of(&FAKE), 5 * MIB);
-        assert_eq!(super::drain_upto_of(&FAKE, 4 << 20), 4 << 20, "one batch: the first lane's 3 MiB, then 1 MiB of the next");
+        assert_eq!(
+            super::drain_upto_of(&FAKE, 4 << 20),
+            4 << 20,
+            "one batch: the first lane's 3 MiB, then 1 MiB of the next"
+        );
         assert_eq!((A.load(Relaxed), B.load(Relaxed)), (0, 1 << 20));
         assert_eq!(super::drain_upto_of(&FAKE, 4 << 20), 1 << 20);
         assert_eq!(super::landing_of(&FAKE), 0);
@@ -387,8 +429,14 @@ mod tests {
         let s = 1_000_000_000;
         assert!(!super::stalled_at(0, 5 * s), "not started: never stalled");
         assert!(!super::stalled_at(2 * s, 3 * s), "a pass 1 s ago: alive");
-        assert!(super::stalled_at(2 * s, 3 * s + 1), "past the stretch: stalled");
-        assert!(!super::stalled_at(4 * s, 3 * s), "a pass after the reading clock's: alive");
+        assert!(
+            super::stalled_at(2 * s, 3 * s + 1),
+            "past the stretch: stalled"
+        );
+        assert!(
+            !super::stalled_at(4 * s, 3 * s),
+            "a pass after the reading clock's: alive"
+        );
     }
 
     /// The broker's condition 2: never silent. A fallback or a drawer drain gives one line at once, then at most one
@@ -397,22 +445,50 @@ mod tests {
     fn a_fallback_is_logged_at_once_then_at_most_every_ten_seconds() {
         let s = 1_000_000_000u64;
         let mut l = Log::default();
-        let mut c = Counts { landing: 8 * MIB, cap: 512 * MIB, ..Counts::default() };
-        assert_eq!(super::next_line(&mut l, &c, s), None, "nothing turned away: no line");
+        let mut c = Counts {
+            landing: 8 * MIB,
+            cap: 512 * MIB,
+            ..Counts::default()
+        };
+        assert_eq!(
+            super::next_line(&mut l, &c, s),
+            None,
+            "nothing turned away: no line"
+        );
         c.cap_runs = 3;
-        c.cap_bytes = ( 3 * 512) << 10;
+        c.cap_bytes = (3 * 512) << 10;
         let line = super::next_line(&mut l, &c, 2 * s).expect("the first fallback: a line at once");
-        assert!(line.contains("3 runs (1 MiB) given back on their freeing threads at the backlog cap (512 MiB)"), "{line}");
+        assert!(
+            line.contains(
+                "3 runs (1 MiB) given back on their freeing threads at the backlog cap (512 MiB)"
+            ),
+            "{line}"
+        );
         c.dead_runs = 1;
         c.dead_bytes = 512 << 10;
-        assert_eq!(super::next_line(&mut l, &c, 5 * s), None, "within 10 s of the last line");
+        assert_eq!(
+            super::next_line(&mut l, &c, 5 * s),
+            None,
+            "within 10 s of the last line"
+        );
         let line = super::next_line(&mut l, &c, 12 * s).expect("10 s on: the next line");
-        assert!(line.contains("0 runs (0 MiB) given back on their freeing threads") && line.contains("1 runs (0 MiB) with the service silent"), "{line}");
+        assert!(
+            line.contains("0 runs (0 MiB) given back on their freeing threads")
+                && line.contains("1 runs (0 MiB) with the service silent"),
+            "{line}"
+        );
         c.drawer_drains = 2;
         c.drawer_bytes = 6 * MIB;
         let line = super::next_line(&mut l, &c, 30 * s).expect("a drawer drain: a line");
-        assert!(line.contains("2 drains (6 MiB) of the landing on a drawing thread"), "{line}");
-        assert_eq!(super::next_line(&mut l, &c, 60 * s), None, "nothing moved since");
+        assert!(
+            line.contains("2 drains (6 MiB) of the landing on a drawing thread"),
+            "{line}"
+        );
+        assert_eq!(
+            super::next_line(&mut l, &c, 60 * s),
+            None,
+            "nothing moved since"
+        );
     }
 
     /// The broker's condition 1: the service's landing never holds R6 off past the watchdog's cancel line. A queue with a
@@ -422,7 +498,9 @@ mod tests {
     fn past_the_cancel_line_a_full_queue_never_holds_r6_off() {
         use mcx::ladder::Rungs;
         use mempolicy::ladder::Rung;
-        let _one = crate::tests::GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        let _one = crate::tests::GLOBALS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         struct Fake {
             read: u64,
             now: Cell<u64>,
@@ -467,18 +545,34 @@ mod tests {
         // 100 MiB past the ladder's line; 160 MiB enqueued and not yet given back (a stalled service's backlog)
         A.store(96 << 20, Relaxed);
         B.store(64 << 20, Relaxed);
-        let f = Fake { read: line + 100 * MIB, now: Cell::new(90_000), cancels: Cell::new(0), in_flight: Cell::new(false) };
-        assert!(f.landing() >= 100 * MIB, "the queue's landing covers the need");
+        let f = Fake {
+            read: line + 100 * MIB,
+            now: Cell::new(90_000),
+            cancels: Cell::new(0),
+            in_flight: Cell::new(false),
+        };
+        assert!(
+            f.landing() >= 100 * MIB,
+            "the queue's landing covers the need"
+        );
         mcx::ladder::publish(mcx::ladder::ON, line);
         mcx::ladder::waive_wait();
         let c = mcx::ladder::hook_pass_with(&f, line, 90_000);
         let r6 = 1u16 << Rung::Cancel as u8;
-        assert_eq!((c.ran & r6, f.cancels.get()), (r6, 1), "past the cancel line: R6 in the same pass, the landing counts for nothing");
+        assert_eq!(
+            (c.ran & r6, f.cancels.get()),
+            (r6, 1),
+            "past the cancel line: R6 in the same pass, the landing counts for nothing"
+        );
         assert!(!mcx::ladder::past_cancel(), "one pass only");
         // under the cancel line the same backlog is landing: it covers the need, nobody else is canceled
         f.in_flight.set(false);
         f.now.set(90_100);
-        assert_eq!(mcx::ladder::hook_pass_with(&f, line, 90_100), mcx::ladder::Climbed::default(), "under the cancel line: landing");
+        assert_eq!(
+            mcx::ladder::hook_pass_with(&f, line, 90_100),
+            mcx::ladder::Climbed::default(),
+            "under the cancel line: landing"
+        );
         assert_eq!(f.cancels.get(), 1);
         mcx::ladder::publish(mcx::ladder::OFF, 0);
         mcx::ladder::clear_narrow();

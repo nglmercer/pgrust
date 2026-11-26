@@ -128,16 +128,22 @@ fn drop(name: &str) -> StmtKind {
 fn planshape(g: &mut Gen) -> Vec<StmtKind> {
     let fmt = pick_fmt(g, "exd:planshape");
     vec![
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT generate_series(1,3);")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT generate_series(1,3);"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF{fmt}) WITH RECURSIVE r(n) AS \
              (SELECT 1 UNION ALL SELECT n+1 FROM r WHERE n < 10) SELECT n FROM r;"
         )),
-        raw("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
+        raw(
+            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
              WITH c AS MATERIALIZED (SELECT i AS pk FROM generate_series(1,50) i) \
              SELECT count(*) FROM c JOIN c c2 USING (pk);"
-            .to_string()),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT * FROM (VALUES (1),(2),(3)) v(x);")),
+                .to_string(),
+        ),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM (VALUES (1),(2),(3)) v(x);"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF, VERBOSE{fmt}) SELECT * FROM generate_series(1,5) gs(i);"
         )),
@@ -163,7 +169,9 @@ fn scans(g: &mut Gen) -> Vec<StmtKind> {
         // paths, so the bracket forces them (plus the multi-qual OR arm
         // and the ANALYZE filter counts — data-deterministic).
         raw("SET enable_seqscan = off;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} WHERE ctid = '(0,1)';")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} WHERE ctid = '(0,1)';"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} \
              WHERE ctid = '(0,1)' OR ctid = '(0,2)';"
@@ -193,8 +201,12 @@ fn scans(g: &mut Gen) -> Vec<StmtKind> {
             "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM (SELECT pk FROM {n} OFFSET 0) s \
              WHERE pk < 5;"
         )),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} WHERE pk = 1 FOR UPDATE;")),
-        raw(format!("EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY pk DESC LIMIT 3;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} WHERE pk = 1 FOR UPDATE;"
+        )),
+        raw(format!(
+            "EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY pk DESC LIMIT 3;"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF) SELECT * FROM {n} \
              ORDER BY t COLLATE \"C\" DESC NULLS FIRST LIMIT 3;"
@@ -218,8 +230,9 @@ fn scans(g: &mut Gen) -> Vec<StmtKind> {
         )),
         raw(
             "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
-             SELECT i FROM generate_series(1,20) g(i) WHERE i % 3 = 0;".to_string(
-        )),
+             SELECT i FROM generate_series(1,20) g(i) WHERE i % 3 = 0;"
+                .to_string(),
+        ),
         raw(format!(
             "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
              SELECT pk FROM {n} WHERE pk < 100 AND pk % 3 = 0;"
@@ -528,8 +541,10 @@ fn exec_details(_g: &mut Gen) -> Vec<StmtKind> {
              SELECT a FROM {n} GROUP BY a HAVING sum(pk) > 50;"
         )),
         raw("RESET enable_hashagg;"),
-        raw("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
-             SELECT 1 WHERE random() < 2;"),
+        raw(
+            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
+             SELECT 1 WHERE random() < 2;",
+        ),
         // Spilled CTE tuplestore ("Storage: Disk", masked value-wise) and
         // sorted grouping-sets keys (show_grouping_set_keys sorted path).
         raw("SET work_mem = '64kB';"),
@@ -573,7 +588,9 @@ fn utility(g: &mut Gen) -> Vec<StmtKind> {
     // ride TEXT/JSON/YAML but never XML (module header).
     let mfmt = if fmt == ", FORMAT XML" { "" } else { fmt };
     v.extend([
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) CREATE TABLE fz_xd_ct AS SELECT * FROM {n};")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) CREATE TABLE fz_xd_ct AS SELECT * FROM {n};"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF{fmt}) CREATE MATERIALIZED VIEW fz_xd_mv AS SELECT a FROM {n};"
         )),
@@ -582,20 +599,30 @@ fn utility(g: &mut Gen) -> Vec<StmtKind> {
             "EXPLAIN (COSTS OFF{fmt}) CREATE TABLE IF NOT EXISTS fz_xd_ct AS SELECT * FROM {n};"
         )),
         raw("DROP TABLE fz_xd_ct;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) DECLARE fz_xd_cur CURSOR FOR SELECT * FROM {n};")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) DECLARE fz_xd_cur CURSOR FOR SELECT * FROM {n};"
+        )),
         raw("CREATE TABLE fz_xd_rt (x int) WITH (autovacuum_enabled = off);"),
         raw("CREATE RULE fz_xd_r1 AS ON INSERT TO fz_xd_rt DO INSTEAD NOTHING;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);"
+        )),
         raw("DROP RULE fz_xd_r1 ON fz_xd_rt;"),
         raw("CREATE RULE fz_xd_r2 AS ON INSERT TO fz_xd_rt DO INSTEAD NOTIFY fz_xd_chan;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);"
+        )),
         raw("DROP RULE fz_xd_r2 ON fz_xd_rt;"),
         raw("CREATE TABLE fz_xd_rl (x int) WITH (autovacuum_enabled = off);"),
         raw("CREATE RULE fz_xd_r3 AS ON INSERT TO fz_xd_rt DO ALSO \
              INSERT INTO fz_xd_rl VALUES (new.x);"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) INSERT INTO fz_xd_rt VALUES (1);"
+        )),
         raw("DROP TABLE fz_xd_rt, fz_xd_rl;"),
-        raw(format!("PREPARE fz_xd_p(int) AS SELECT * FROM {n} WHERE pk = $1;")),
+        raw(format!(
+            "PREPARE fz_xd_p(int) AS SELECT * FROM {n} WHERE pk = $1;"
+        )),
         raw(format!("EXPLAIN (COSTS OFF{fmt}) EXECUTE fz_xd_p(3);")),
         raw("EXPLAIN (COSTS OFF) CREATE TABLE fz_xd_ce AS EXECUTE fz_xd_p(3);"),
         raw("DEALLOCATE fz_xd_p;"),
@@ -619,22 +646,29 @@ fn utility(g: &mut Gen) -> Vec<StmtKind> {
             "EXPLAIN (ANALYZE, SERIALIZE BINARY, COSTS OFF, TIMING OFF, SUMMARY OFF, \
              BUFFERS OFF) SELECT * FROM {n} WHERE pk < 5;"
         )),
-        raw("EXPLAIN (ANALYZE, SERIALIZE OFF, COSTS OFF, TIMING OFF, SUMMARY OFF, \
-             BUFFERS OFF) SELECT 1;"),
+        raw(
+            "EXPLAIN (ANALYZE, SERIALIZE OFF, COSTS OFF, TIMING OFF, SUMMARY OFF, \
+             BUFFERS OFF) SELECT 1;",
+        ),
         raw(
             "EXPLAIN (ANALYZE, SERIALIZE TEXT, COSTS OFF, TIMING OFF, SUMMARY OFF, \
-             BUFFERS OFF) SELECT 1;".to_string(
-        )),
+             BUFFERS OFF) SELECT 1;"
+                .to_string(),
+        ),
         raw("EXPLAIN (COSTS OFF, FORMAT TEXT) SELECT 1;"),
         // ExplainOneUtility long tail: matview IF NOT EXISTS
         // short-circuit, REFRESH ("Utility Statement" fallback arm),
         // ANALYZE CTAS WITH NO DATA (NoMovement direction).
-        raw(format!("CREATE MATERIALIZED VIEW fz_xd_umv AS SELECT a FROM {n};")),
+        raw(format!(
+            "CREATE MATERIALIZED VIEW fz_xd_umv AS SELECT a FROM {n};"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF{mfmt}) CREATE MATERIALIZED VIEW IF NOT EXISTS fz_xd_umv \
              AS SELECT a FROM {n};"
         )),
-        raw(format!("EXPLAIN (COSTS OFF{mfmt}) REFRESH MATERIALIZED VIEW fz_xd_umv;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{mfmt}) REFRESH MATERIALIZED VIEW fz_xd_umv;"
+        )),
         raw("DROP MATERIALIZED VIEW fz_xd_umv;"),
         raw("BEGIN;"),
         raw(format!(
@@ -644,10 +678,14 @@ fn utility(g: &mut Gen) -> Vec<StmtKind> {
         )),
         raw("ROLLBACK;"),
         // ExplainExecuteQuery option arms (MEMORY / ANALYZE+BUFFERS).
-        raw(format!("PREPARE fz_xd_pq(int) AS SELECT * FROM {n} WHERE pk = $1;")),
+        raw(format!(
+            "PREPARE fz_xd_pq(int) AS SELECT * FROM {n} WHERE pk = $1;"
+        )),
         raw("EXPLAIN (MEMORY, COSTS OFF, SUMMARY OFF) EXECUTE fz_xd_pq(1);"),
-        raw("EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY OFF, \
-             FORMAT JSON) EXECUTE fz_xd_pq(1);"),
+        raw(
+            "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY OFF, \
+             FORMAT JSON) EXECUTE fz_xd_pq(1);",
+        ),
         raw("DEALLOCATE fz_xd_pq;"),
         drop(n),
     ]);
@@ -675,8 +713,14 @@ fn opterr(_g: &mut Gen) -> Vec<StmtKind> {
 fn formats(g: &mut Gen) -> Vec<StmtKind> {
     let n = "fz_xd_f";
     let mut v = t300(n);
-    let ana = g.weights.pick(g.rng, &["exd:formats:json", "exd:formats:yaml"]);
-    let afmt = if ana == "exd:formats:json" { "JSON" } else { "YAML" };
+    let ana = g
+        .weights
+        .pick(g.rng, &["exd:formats:json", "exd:formats:yaml"]);
+    let afmt = if ana == "exd:formats:json" {
+        "JSON"
+    } else {
+        "YAML"
+    };
     g.fire(ana);
     v.extend([
         raw(format!(
@@ -690,7 +734,9 @@ fn formats(g: &mut Gen) -> Vec<StmtKind> {
         )),
         raw("RESET enable_hashagg;"),
         raw("EXPLAIN (COSTS OFF, FORMAT XML) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
-        raw(format!("EXPLAIN (COSTS OFF, VERBOSE, FORMAT XML) SELECT pk, a FROM {n} LIMIT 1;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF, VERBOSE, FORMAT XML) SELECT pk, a FROM {n} LIMIT 1;"
+        )),
         raw("EXPLAIN (COSTS OFF, FORMAT YAML) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
         raw("EXPLAIN (COSTS OFF, FORMAT JSON) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
         raw(format!(
@@ -725,7 +771,9 @@ fn partition(g: &mut Gen) -> Vec<StmtKind> {
     let n = "fz_xd_p";
     let fmt = pick_fmt(g, "exd:partition");
     vec![
-        raw(format!("CREATE TABLE {n} (pk int, a int) PARTITION BY RANGE (pk);")),
+        raw(format!(
+            "CREATE TABLE {n} (pk int, a int) PARTITION BY RANGE (pk);"
+        )),
         // autovacuum_enabled = off on the partitions (RB-15 — see
         // modify()): the bracketed ANALYZE UPDATE below aborts 100+ tuples
         // per partition, past the autoanalyze threshold, and later compared
@@ -753,7 +801,9 @@ fn partition(g: &mut Gen) -> Vec<StmtKind> {
         // sorted (show_merge_append_keys, ExplainPreScanNode/
         // ExplainMemberNodes MergeAppend arms).
         raw("SET enable_seqscan = off;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} ORDER BY a LIMIT 5;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} ORDER BY a LIMIT 5;"
+        )),
         raw(format!(
             "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
              SELECT * FROM {n} ORDER BY a LIMIT 5;"
@@ -770,8 +820,12 @@ fn partition(g: &mut Gen) -> Vec<StmtKind> {
              UPDATE {n} SET a = a + 1 WHERE pk < 150;"
         )),
         raw("ROLLBACK;"),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT count(*) FROM {n} WHERE pk < 150;")),
-        raw(format!("EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} ORDER BY pk LIMIT 5;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT count(*) FROM {n} WHERE pk < 150;"
+        )),
+        raw(format!(
+            "EXPLAIN (COSTS OFF{fmt}) SELECT * FROM {n} ORDER BY pk LIMIT 5;"
+        )),
         raw(format!(
             "EXPLAIN (GENERIC_PLAN, COSTS OFF{fmt}) SELECT * FROM {n} WHERE pk = $1;"
         )),
@@ -779,12 +833,16 @@ fn partition(g: &mut Gen) -> Vec<StmtKind> {
         raw(format!(
             "PREPARE fz_xd_pp(int) AS SELECT count(*) FROM {n} WHERE pk = $1;"
         )),
-        raw("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
-             EXECUTE fz_xd_pp(150);"),
+        raw(
+            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
+             EXECUTE fz_xd_pp(150);",
+        ),
         raw("DEALLOCATE fz_xd_pp;"),
         raw("RESET plan_cache_mode;"),
         raw("SET enable_sort = off;"),
-        raw(format!("EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY pk LIMIT 5;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY pk LIMIT 5;"
+        )),
         raw("RESET enable_sort;"),
         raw("SET enable_seqscan = off;"),
         raw(format!("EXPLAIN (COSTS OFF) SELECT count(*) FROM {n}1;")),
@@ -796,8 +854,12 @@ fn partition(g: &mut Gen) -> Vec<StmtKind> {
         raw("SET enable_indexscan = off;"),
         raw("SET enable_bitmapscan = off;"),
         raw("SET enable_indexonlyscan = off;"),
-        raw(format!("EXPLAIN (COSTS OFF) SELECT count(*) FROM {n} WHERE a = 3;")),
-        raw(format!("EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY a LIMIT 3;")),
+        raw(format!(
+            "EXPLAIN (COSTS OFF) SELECT count(*) FROM {n} WHERE a = 3;"
+        )),
+        raw(format!(
+            "EXPLAIN (COSTS OFF) SELECT * FROM {n} ORDER BY a LIMIT 3;"
+        )),
         raw(format!(
             "EXPLAIN (COSTS OFF) SELECT * FROM (SELECT pk FROM {n}1 OFFSET 0) s \
              WHERE pk < 5;"
@@ -827,8 +889,9 @@ fn namedts(_g: &mut Gen) -> Vec<StmtKind> {
             "CREATE FUNCTION fz_xd_ntf() RETURNS trigger LANGUAGE plpgsql AS $fzxd$ \
              DECLARE r record; c int := 0; BEGIN \
              FOR r IN EXECUTE 'EXPLAIN (COSTS OFF) SELECT count(*) FROM nt' LOOP \
-             c := c + 1; END LOOP; RETURN NULL; END $fzxd$;".to_string(
-        )),
+             c := c + 1; END LOOP; RETURN NULL; END $fzxd$;"
+                .to_string(),
+        ),
         raw(format!(
             "CREATE TRIGGER fz_xd_ntt AFTER UPDATE ON {n} \
              REFERENCING NEW TABLE AS nt FOR EACH STATEMENT \
@@ -848,7 +911,12 @@ fn namedts(_g: &mut Gen) -> Vec<StmtKind> {
 fn pick_fmt(g: &mut Gen, _arm: &str) -> &'static str {
     let f = g.weights.pick(
         g.rng,
-        &["exd:fmt:text", "exd:fmt:json", "exd:fmt:yaml", "exd:fmt:xml"],
+        &[
+            "exd:fmt:text",
+            "exd:fmt:json",
+            "exd:fmt:yaml",
+            "exd:fmt:xml",
+        ],
     );
     g.fire(f);
     match f {
@@ -942,7 +1010,8 @@ mod tests {
                 // on JSON/YAML; TEXT/XML spell BUFFERS OFF (G2).
                 if !up.contains("BUFFERS OFF") {
                     assert!(
-                        up.contains("BUFFERS") && (up.contains("FORMAT JSON") || up.contains("FORMAT YAML")),
+                        up.contains("BUFFERS")
+                            && (up.contains("FORMAT JSON") || up.contains("FORMAT YAML")),
                         "bare BUFFERS outside JSON/YAML: {sql}"
                     );
                 }
@@ -961,7 +1030,14 @@ mod tests {
             }
             // XML arms carry no instrumented/masked-only options at all.
             if up.contains("FORMAT XML") {
-                for opt in ["ANALYZE", "MEMORY", "SUMMARY ON", " WAL", "SERIALIZE", "BUFFERS"] {
+                for opt in [
+                    "ANALYZE",
+                    "MEMORY",
+                    "SUMMARY ON",
+                    " WAL",
+                    "SERIALIZE",
+                    "BUFFERS",
+                ] {
                     assert!(!up.contains(opt), "XML with {opt}: {sql}");
                 }
             }
@@ -1005,7 +1081,7 @@ mod tests {
                 } else if up.starts_with("EXPLAIN") && up.contains("ANALYZE") {
                     let dml = ["INSERT ", "UPDATE ", "DELETE ", "MERGE "]
                         .iter()
-                        .any(|k| up.split_once(") ").is_some_and( |(_, t)| t.starts_with(k)));
+                        .any(|k| up.split_once(") ").is_some_and(|(_, t)| t.starts_with(k)));
                     if dml {
                         assert!(depth > 0, "unbracketed ANALYZE DML: {s}");
                     }
@@ -1016,7 +1092,12 @@ mod tests {
         for p in SHAPES {
             assert!(prods.iter().any(|q| q == p), "shape {p} never fired");
         }
-        for p in ["exd:fmt:text", "exd:fmt:json", "exd:fmt:yaml", "exd:fmt:xml"] {
+        for p in [
+            "exd:fmt:text",
+            "exd:fmt:json",
+            "exd:fmt:yaml",
+            "exd:fmt:xml",
+        ] {
             assert!(prods.iter().any(|q| q == p), "format {p} never fired");
         }
     }
@@ -1071,7 +1152,9 @@ mod tests {
                 // Executed body: bare statement, or the tail of an
                 // instrumented EXPLAIN ANALYZE.
                 let body = if t.starts_with("EXPLAIN") {
-                    let Some((head, tail)) = t.split_once(") ") else { continue };
+                    let Some((head, tail)) = t.split_once(") ") else {
+                        continue;
+                    };
                     if !head.contains("ANALYZE") {
                         continue;
                     }

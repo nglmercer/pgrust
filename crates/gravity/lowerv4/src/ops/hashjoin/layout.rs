@@ -49,7 +49,10 @@ pub(crate) const fn null_at(words: usize, pay: usize, c: usize) -> (usize, u32) 
     if c < LINK_NULLS {
         (8 * words, (32 + c) as u32)
     } else {
-        (8 * (words + 1 + pay + (c - LINK_NULLS) / 64), ((c - LINK_NULLS) % 64) as u32)
+        (
+            8 * (words + 1 + pay + (c - LINK_NULLS) / 64),
+            ((c - LINK_NULLS) % 64) as u32,
+        )
     }
 }
 
@@ -64,8 +67,15 @@ mod tests {
             assert_eq!(null_words(pay), 0);
         }
         assert_eq!(desc_at(31), DESC + 62);
-        assert!(desc_at(31) + 2 <= HDR, "the 32 narrow slots stay inside the header");
-        assert_eq!(null_at(2, 5, 4), (16, 36), "link word of a two-word image, bit 32 + 4");
+        assert!(
+            desc_at(31) + 2 <= HDR,
+            "the 32 narrow slots stay inside the header"
+        );
+        assert_eq!(
+            null_at(2, 5, 4),
+            (16, 36),
+            "link word of a two-word image, bit 32 + 4"
+        );
     }
 
     #[test]
@@ -75,7 +85,10 @@ mod tests {
         assert_eq!(base(65), HDR + 128);
         assert_eq!(base(MAX_PAY) % 64, 0);
         for pay in 33..=MAX_PAY {
-            assert!(desc_at(pay - 1) + 2 <= base(pay), "every descriptor slot sits before the first record");
+            assert!(
+                desc_at(pay - 1) + 2 <= base(pay),
+                "every descriptor slot sits before the first record"
+            );
         }
         assert_eq!(desc_at(32), HDR);
         assert_eq!((null_words(33), null_words(96), null_words(97)), (1, 1, 2));
@@ -83,6 +96,12 @@ mod tests {
         assert_eq!(null_at(1, 40, 32), (8 * (1 + 1 + 40), 0));
         assert_eq!(null_at(1, 40, 39), (8 * (1 + 1 + 40), 7));
         assert_eq!(null_at(1, 200, 96), (8 * (1 + 1 + 200 + 1), 0));
-        assert_eq!(null_at(1, MAX_PAY, MAX_PAY - 1), (8 * (1 + 1 + MAX_PAY + (MAX_PAY - 1 - LINK_NULLS) / 64), ((MAX_PAY - 1 - LINK_NULLS) % 64) as u32));
+        assert_eq!(
+            null_at(1, MAX_PAY, MAX_PAY - 1),
+            (
+                8 * (1 + 1 + MAX_PAY + (MAX_PAY - 1 - LINK_NULLS) / 64),
+                ((MAX_PAY - 1 - LINK_NULLS) % 64) as u32
+            )
+        );
     }
 }

@@ -18,7 +18,10 @@ fn pmstate_order_is_load_bearing() {
     assert!(PMState::PM_RUN < PMState::PM_STOP_BACKENDS);
     assert!(PMState::PM_STOP_BACKENDS < PMState::PM_WAIT_BACKENDS);
     assert!(PMState::PM_WAIT_DEAD_END < PMState::PM_NO_CHILDREN);
-    assert_eq!(pmstate_name(PMState::PM_WAIT_XLOG_SHUTDOWN), "PM_WAIT_XLOG_SHUTDOWN");
+    assert_eq!(
+        pmstate_name(PMState::PM_WAIT_XLOG_SHUTDOWN),
+        "PM_WAIT_XLOG_SHUTDOWN"
+    );
 }
 
 // Both shutdown tests drive the same PENDING_PM_* statics; serialize them.
@@ -27,7 +30,9 @@ static SHUTDOWN_FLAGS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[test]
 fn shutdown_signal_handlers_set_most_immediate() {
     use std::sync::atomic::Ordering;
-    let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = SHUTDOWN_FLAGS_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     handle_pm_shutdown_request_signal(libc::SIGTERM);
     assert!(PENDING_PM_SHUTDOWN_REQUEST.load(Ordering::Acquire));
     assert!(!PENDING_PM_IMMEDIATE_SHUTDOWN_REQUEST.load(Ordering::Acquire));
@@ -52,27 +57,45 @@ fn can_accept_connections_matches_c_gates() {
         pm.fatal_error = false;
         pm.conns_allowed = false;
     });
-    assert_eq!(serverloop::canAcceptConnections(BackendType::Backend), CacState::Startup);
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::Backend),
+        CacState::Startup
+    );
 
     with_pm(|pm| pm.pm_state = PMState::PM_RECOVERY);
-    assert_eq!(serverloop::canAcceptConnections(BackendType::Backend), CacState::NotHotStandby);
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::Backend),
+        CacState::NotHotStandby
+    );
 
     with_pm(|pm| {
         pm.pm_state = PMState::PM_RUN;
         pm.conns_allowed = true;
     });
-    assert_eq!(serverloop::canAcceptConnections(BackendType::Backend), CacState::Ok);
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::Backend),
+        CacState::Ok
+    );
 
     // Smart shutdown gates only client backends.
     with_pm(|pm| pm.conns_allowed = false);
-    assert_eq!(serverloop::canAcceptConnections(BackendType::Backend), CacState::Shutdown);
-    assert_eq!(serverloop::canAcceptConnections(BackendType::AutovacWorker), CacState::Ok);
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::Backend),
+        CacState::Shutdown
+    );
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::AutovacWorker),
+        CacState::Ok
+    );
 
     with_pm(|pm| {
         pm.pm_state = PMState::PM_STARTUP;
         pm.shutdown = SmartShutdown;
     });
-    assert_eq!(serverloop::canAcceptConnections(BackendType::Backend), CacState::Shutdown);
+    assert_eq!(
+        serverloop::canAcceptConnections(BackendType::Backend),
+        CacState::Shutdown
+    );
 
     with_pm(|pm| *pm = PostmasterState::new_for_tests());
 }
@@ -88,7 +111,9 @@ fn shutdown_request_reaches_named_pmchild_seam() {
     // Boot-readiness probe: a SIGTERM-shaped request must walk the C sequence
     // and stop at a NAMED uninstalled seam (pmchild count_children), not a
     // mystery. PM_RUN + conns_allowed=false drives the smart-shutdown arm.
-    let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _g = SHUTDOWN_FLAGS_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let result = std::panic::catch_unwind(|| {
         with_pm(|pm| {
             pm.pm_state = PMState::PM_RUN;
@@ -109,7 +134,11 @@ fn shutdown_request_reaches_named_pmchild_seam() {
         "panic must name pmchild, got: {msg}"
     );
     with_pm(|pm| *pm = PostmasterState::new_for_tests());
-    std::sync::atomic::AtomicBool::store(&PENDING_PM_SHUTDOWN_REQUEST, false, std::sync::atomic::Ordering::Release);
+    std::sync::atomic::AtomicBool::store(
+        &PENDING_PM_SHUTDOWN_REQUEST,
+        false,
+        std::sync::atomic::Ordering::Release,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +181,11 @@ fn stall_watchdog_fires_in_every_shutdown_wait_state() {
             "watchdog must fire in {} — an unbounded wait there is an outage",
             pmstate_name(s)
         );
-        assert!(!due(s, PM_SHUTDOWN_STALL_SECS - 1), "must not fire early in {}", pmstate_name(s));
+        assert!(
+            !due(s, PM_SHUTDOWN_STALL_SECS - 1),
+            "must not fire early in {}",
+            pmstate_name(s)
+        );
     }
 }
 
@@ -161,7 +194,10 @@ fn stall_watchdog_never_bounds_the_shutdown_checkpoint() {
     // A shutdown checkpoint on a large buffer pool legitimately runs for
     // minutes; escalating there would forfeit a checkpoint that was about to
     // succeed.
-    assert!(!due(PMState::PM_WAIT_XLOG_SHUTDOWN, 100 * PM_SHUTDOWN_STALL_SECS));
+    assert!(!due(
+        PMState::PM_WAIT_XLOG_SHUTDOWN,
+        100 * PM_SHUTDOWN_STALL_SECS
+    ));
 }
 
 #[test]
@@ -176,7 +212,11 @@ fn stall_watchdog_ignores_pre_stop_and_terminal_states() {
         PMState::PM_RUN,
         PMState::PM_NO_CHILDREN,
     ] {
-        assert!(!due(s, 100 * PM_SHUTDOWN_STALL_SECS), "must not fire in {}", pmstate_name(s));
+        assert!(
+            !due(s, 100 * PM_SHUTDOWN_STALL_SECS),
+            "must not fire in {}",
+            pmstate_name(s)
+        );
     }
 }
 
@@ -268,7 +308,12 @@ fn stall_early_wake_never_armed_outside_a_shutdown() {
         assert!(armed(FastShutdown, s, 1_000, PM_SHUTDOWN_STALL_SECS));
         assert!(due(s, PM_SHUTDOWN_STALL_SECS));
     }
-    assert!(!armed(NoShutdown, PMState::PM_WAIT_BACKENDS, 1_000, PM_SHUTDOWN_STALL_SECS));
+    assert!(!armed(
+        NoShutdown,
+        PMState::PM_WAIT_BACKENDS,
+        1_000,
+        PM_SHUTDOWN_STALL_SECS
+    ));
     assert!(!due(PMState::PM_RUN, 100 * PM_SHUTDOWN_STALL_SECS));
 }
 
@@ -371,7 +416,11 @@ mod b032 {
         assert!(gate(PMState::PM_HOT_STANDBY, ConsistentState));
         assert!(!gate(PMState::PM_HOT_STANDBY, RecoveryFinished));
         for s in [PMState::PM_RECOVERY, PMState::PM_STARTUP, PMState::PM_INIT] {
-            assert!(gate(s, PostmasterStart), "{} must start PostmasterStart", pmstate_name(s));
+            assert!(
+                gate(s, PostmasterStart),
+                "{} must start PostmasterStart",
+                pmstate_name(s)
+            );
             assert!(!gate(s, ConsistentState));
             assert!(!gate(s, RecoveryFinished));
         }
@@ -434,8 +483,11 @@ mod b032 {
         // started and C falls through to AutoVacWorkerFailed() +
         // avlauncher_needs_signal = true (only while a launcher runs).
         install_seams();
-        let launcher =
-            PmChild { child_slot: 7, bkend_type: BackendType::AutovacLauncher, pid: 777 };
+        let launcher = PmChild {
+            child_slot: 7,
+            bkend_type: BackendType::AutovacLauncher,
+            pid: 777,
+        };
         fresh_pm();
         with_pm(|pm| {
             pm.pm_state = PMState::PM_STARTUP;
@@ -474,7 +526,10 @@ mod b032 {
         // SAFETY: plain socketpair on an out array we own.
         let rc = unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_STREAM, 0, fds.as_mut_ptr()) };
         assert_eq!(rc, 0, "socketpair");
-        let client = types_startup::ClientSocket { sock: fds[0], raddr: ip::SockAddr::zeroed() };
+        let client = types_startup::ClientSocket {
+            sock: fds[0],
+            raddr: ip::SockAddr::zeroed(),
+        };
         serverloop::report_fork_failure_to_client(&client, libc::ENOMEM);
         let mut buf = vec![0u8; 1024];
         // SAFETY: recv into our own buffer on the peer we still own.
@@ -503,7 +558,10 @@ mod b032 {
         let before = REMOVE_SOCKET_FILES_CALLS.load(AtOrd::SeqCst);
         let logs = captured(|| main_entry::close_server_ports_cb(0, 0));
         assert!(with_pm(|pm| pm.listen_sockets.is_empty()));
-        let expected = format!("could not close listen socket: {}", elog::errno::strerror(libc::EBADF));
+        let expected = format!(
+            "could not close listen socket: {}",
+            elog::errno::strerror(libc::EBADF)
+        );
         assert!(
             logs.iter().any(|e| e.level == LOG && e.message == expected),
             "expected {expected:?}, got {:?}",
@@ -560,7 +618,10 @@ mod b032 {
             .iter()
             .find(|e| e.message.starts_with("client backend (PID"))
             .unwrap_or_else(|| panic!("no LogChildExit report in {:?}", messages(&logs)));
-        assert_eq!(e.message, format!("client backend (PID {CRASHED_PID}) exited with exit code 2"));
+        assert_eq!(
+            e.message,
+            format!("client backend (PID {CRASHED_PID}) exited with exit code 2")
+        );
         assert_eq!(
             e.detail.as_deref(),
             Some(format!("Failed process was running: {CRASHED_ACTIVITY}").as_str())
@@ -572,7 +633,10 @@ mod b032 {
             .iter()
             .find(|e| e.message.starts_with("client backend (PID"))
             .unwrap_or_else(|| panic!("no LogChildExit report in {:?}", messages(&logs)));
-        assert_eq!(e.message, format!("client backend (PID {CRASHED_PID}) exited with exit code 0"));
+        assert_eq!(
+            e.message,
+            format!("client backend (PID {CRASHED_PID}) exited with exit code 0")
+        );
         assert_eq!(e.detail, None);
     }
 
@@ -615,7 +679,11 @@ mod b032 {
             get: || false,
             set: |_| {},
         });
-        for (fatal, shutdown) in [(false, NoShutdown), (true, NoShutdown), (false, ImmediateShutdown)] {
+        for (fatal, shutdown) in [
+            (false, NoShutdown),
+            (true, NoShutdown),
+            (false, ImmediateShutdown),
+        ] {
             for status in [0, 1 << 8, 2 << 8, libc::SIGKILL] {
                 fresh_pm();
                 with_pm(|pm| {
@@ -626,9 +694,22 @@ mod b032 {
                 let logs = captured(|| reap_untracked_child(515_151, status).unwrap());
                 let normal = matches!(status, 0 | 256);
                 let expected = usize::from(normal || (!fatal && shutdown != ImmediateShutdown));
-                let deaths = logs.iter().filter(|e| e.message.starts_with("untracked child process (PID")).count();
-                assert_eq!(deaths, expected, "status={status}, fatal={fatal}, shutdown={shutdown}: {:?}", messages(&logs));
-                assert_eq!(logs.iter().filter(|e| e.message == "terminating any other active server processes").count(), usize::from(!normal && expected == 1));
+                let deaths = logs
+                    .iter()
+                    .filter(|e| e.message.starts_with("untracked child process (PID"))
+                    .count();
+                assert_eq!(
+                    deaths,
+                    expected,
+                    "status={status}, fatal={fatal}, shutdown={shutdown}: {:?}",
+                    messages(&logs)
+                );
+                assert_eq!(
+                    logs.iter()
+                        .filter(|e| e.message == "terminating any other active server processes")
+                        .count(),
+                    usize::from(!normal && expected == 1)
+                );
             }
         }
         fresh_pm();
@@ -645,7 +726,10 @@ mod b032 {
     /// so whatever the postmaster had not done by its entry waits for as long as the sink blocks (0.7-3 s on the ext4
     /// journal, D4812). It records each line with ACTED, whether the act had run by then.
     fn acted_at_sink_hook(e: &PgError, _output_to_server: &mut bool) {
-        AT_SINK.with(|v| v.borrow_mut().push((e.message.clone(), ACTED.with(Cell::get)())));
+        AT_SINK.with(|v| {
+            v.borrow_mut()
+                .push((e.message.clone(), ACTED.with(Cell::get)()))
+        });
     }
     fn at_sink(acted: fn() -> bool, f: impl FnOnce()) -> Vec<(String, bool)> {
         ACTED.with(|c| c.set(acted));
@@ -656,8 +740,14 @@ mod b032 {
         AT_SINK.with(|v| v.borrow_mut().drain(..).collect())
     }
     fn acted_before(lines: &[(String, bool)], line: &str) {
-        let (_, acted) = lines.iter().find(|(m, _)| m.starts_with(line)).unwrap_or_else(|| panic!("no {line:?}: {lines:?}"));
-        assert!(*acted, "{line:?} reached the log sink before the act (D4816): {lines:?}");
+        let (_, acted) = lines
+            .iter()
+            .find(|(m, _)| m.starts_with(line))
+            .unwrap_or_else(|| panic!("no {line:?}: {lines:?}"));
+        assert!(
+            *acted,
+            "{line:?} reached the log sink before the act (D4816): {lines:?}"
+        );
     }
 
     /// D4816 (born red: C's order logged LogChildExit and "terminating any other active server processes" first): a
@@ -674,8 +764,14 @@ mod b032 {
         });
         fresh_pm();
         with_pm(|pm| pm.pm_state = PMState::PM_WAIT_BACKENDS);
-        let lines = at_sink(|| with_pm(|pm| pm.fatal_error), || reap_untracked_child(515_151, libc::SIGKILL).unwrap());
-        acted_before(&lines, "untracked child process (PID 515151) was terminated by signal 9");
+        let lines = at_sink(
+            || with_pm(|pm| pm.fatal_error),
+            || reap_untracked_child(515_151, libc::SIGKILL).unwrap(),
+        );
+        acted_before(
+            &lines,
+            "untracked child process (PID 515151) was terminated by signal 9",
+        );
         acted_before(&lines, "terminating any other active server processes");
         fresh_pm();
     }
@@ -686,7 +782,9 @@ mod b032 {
     /// logs (as C's), and the state machine after it stops at the uninstalled pmchild count_children seam.
     #[test]
     fn an_immediate_shutdown_quits_before_the_log_sink() {
-        let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = SHUTDOWN_FLAGS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         install_seams();
         pmsignal::PMSignalShmemInit(8).unwrap();
         quiet_signal_children();
@@ -698,7 +796,11 @@ mod b032 {
         handle_pm_shutdown_request_signal(libc::SIGQUIT);
         let lines = at_sink(
             || with_pm(|pm| pm.pm_state == PMState::PM_WAIT_BACKENDS),
-            || drop(std::panic::catch_unwind(statemachine::process_pm_shutdown_request)),
+            || {
+                drop(std::panic::catch_unwind(
+                    statemachine::process_pm_shutdown_request,
+                ))
+            },
         );
         acted_before(&lines, "received immediate shutdown request");
         crate::PENDING_PM_IMMEDIATE_SHUTDOWN_REQUEST.store(false, AtOrd::Release);
@@ -711,13 +813,18 @@ mod b032 {
         // postmaster.c:2505-2512 maybe_reap_io_worker: exit status 0/1 frees
         // the slot and re-levels the pool without a LogChildExit line.
         io_worker_test_setup();
-        let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = SHUTDOWN_FLAGS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for exitstatus in [0, 1 << 8] {
             fresh_pm();
             with_pm(|pm| {
                 pm.pm_state = PMState::PM_RUN;
-                pm.io_worker_children[0] =
-                    Some(PmChild { child_slot: 7, bkend_type: BackendType::IoWorker, pid: IO_WORKER_PID });
+                pm.io_worker_children[0] = Some(PmChild {
+                    child_slot: 7,
+                    bkend_type: BackendType::IoWorker,
+                    pid: IO_WORKER_PID,
+                });
                 pm.io_worker_count = 1;
             });
             let logs = debug_captured(|| reap_io_worker(7, IO_WORKER_PID, exitstatus).unwrap());
@@ -737,7 +844,9 @@ mod b032 {
         // postmaster.c:4411: a surplus IO worker gets a bare kill(SIGUSR2),
         // not signal_child's DEBUG3 line.
         io_worker_test_setup();
-        let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = SHUTDOWN_FLAGS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         fresh_pm();
         with_pm(|pm| {
             pm.pm_state = PMState::PM_RUN;
@@ -763,7 +872,11 @@ mod b032 {
     fn rotate_syslogger_logs_signal_child_line() {
         // postmaster.c:3755/3760 route the rotation through signal_child,
         // whose DEBUG3 line (:3435-3439) names the logger child.
-        let logger = PmChild { child_slot: 3, bkend_type: BackendType::Logger, pid: 616_161 };
+        let logger = PmChild {
+            child_slot: 3,
+            bkend_type: BackendType::Logger,
+            pid: 616_161,
+        };
         let logs = debug_captured(|| rotate_syslogger(&logger));
         let e = logs
             .iter()
@@ -773,16 +886,24 @@ mod b032 {
         // The numeric value is platform-specific (10 on Linux, 30 on macOS).
         assert_eq!(
             e.message,
-            format!("sending signal {}/SIGUSR1 to logger process with pid 616161", libc::SIGUSR1)
+            format!(
+                "sending signal {}/SIGUSR1 to logger process with pid 616161",
+                libc::SIGUSR1
+            )
         );
         let loc = e.location.as_ref().expect("location");
-        assert_eq!((loc.lineno, loc.funcname.as_deref()), (3439, Some("signal_child")));
+        assert_eq!(
+            (loc.lineno, loc.funcname.as_deref()),
+            (3439, Some("signal_child"))
+        );
     }
 
     #[test]
     fn update_pm_state_reports_c_source_line() {
         // postmaster.c:3253-3254: the elog's __LINE__ is 3254.
-        let _g = SHUTDOWN_FLAGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = SHUTDOWN_FLAGS_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         fresh_pm();
         let logs = debug_captured(|| statemachine::UpdatePMState(PMState::PM_STARTUP));
         let e = logs
@@ -791,7 +912,10 @@ mod b032 {
             .unwrap_or_else(|| panic!("no UpdatePMState line in {:?}", messages(&logs)));
         assert_eq!(e.message, "updating PMState from PM_INIT to PM_STARTUP");
         let loc = e.location.as_ref().expect("location");
-        assert_eq!((loc.lineno, loc.funcname.as_deref()), (3254, Some("UpdatePMState")));
+        assert_eq!(
+            (loc.lineno, loc.funcname.as_deref()),
+            (3254, Some("UpdatePMState"))
+        );
         fresh_pm();
     }
 
@@ -860,9 +984,12 @@ mod b032 {
         let logs = captured(log_reaping_dead_processes);
         elog::config::set_log_min_messages(prev);
         assert!(
-            logs.iter().any(|e| e.level == DEBUG4 && e.message == "reaping dead processes"),
+            logs.iter()
+                .any(|e| e.level == DEBUG4 && e.message == "reaping dead processes"),
             "got {:?}",
-            logs.iter().map(|e| (e.level, e.message.clone())).collect::<Vec<_>>()
+            logs.iter()
+                .map(|e| (e.level, e.message.clone()))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -881,14 +1008,17 @@ mod b032 {
             .find(|e| e.message == "no slot available for new autovacuum worker process")
             .unwrap_or_else(|| panic!("no slot-exhausted LOG in {:?}", messages(&logs)));
         assert_eq!(e.level, LOG);
-        assert_eq!(e.sqlstate, types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED);
+        assert_eq!(
+            e.sqlstate,
+            types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED
+        );
 
         let logs = captured(|| {
             assert!(statemachine::StartChildProcess(BackendType::Checkpointer).is_none());
         });
         assert!(
-            logs.iter()
-                .any(|e| e.level == LOG && e.message == "no postmaster child slot available for aux process"),
+            logs.iter().any(|e| e.level == LOG
+                && e.message == "no postmaster child slot available for aux process"),
             "got {:?}",
             messages(&logs)
         );
@@ -926,11 +1056,26 @@ fn postmaster_getopt_expands_bundled_short_options() {
         ]
     );
     assert_eq!(getopt_tokens(&argv("-F --")).unwrap(), vec![('F', None)]);
-    assert_eq!(getopt_tokens(&argv("-F -- x")), Err(GetoptError::NonOption("x".to_string())));
-    assert_eq!(getopt_tokens(&argv("-F x")), Err(GetoptError::NonOption("x".to_string())));
-    assert_eq!(getopt_tokens(&argv("-")), Err(GetoptError::NonOption("-".to_string())));
-    assert_eq!(getopt_tokens(&argv("-sD")), Err(GetoptError::RequiresArgument('D')));
-    assert_eq!(getopt_tokens(&argv("-Fq")), Err(GetoptError::UnknownOption('q')));
+    assert_eq!(
+        getopt_tokens(&argv("-F -- x")),
+        Err(GetoptError::NonOption("x".to_string()))
+    );
+    assert_eq!(
+        getopt_tokens(&argv("-F x")),
+        Err(GetoptError::NonOption("x".to_string()))
+    );
+    assert_eq!(
+        getopt_tokens(&argv("-")),
+        Err(GetoptError::NonOption("-".to_string()))
+    );
+    assert_eq!(
+        getopt_tokens(&argv("-sD")),
+        Err(GetoptError::RequiresArgument('D'))
+    );
+    assert_eq!(
+        getopt_tokens(&argv("-Fq")),
+        Err(GetoptError::UnknownOption('q'))
+    );
 }
 
 /// postmaster.c:650: getopt(3) is incremental, so `-c bogus=1 -Z` fails on
@@ -943,17 +1088,32 @@ fn postmaster_getopt_keeps_tokens_ahead_of_a_lexical_failure() {
     assert_eq!(
         getopt_tokens_partial(&argv("-D dir -c bogus=1 -Z")),
         (
-            vec![('D', Some("dir".to_string())), ('c', Some("bogus=1".to_string()))],
+            vec![
+                ('D', Some("dir".to_string())),
+                ('c', Some("bogus=1".to_string()))
+            ],
             Some(GetoptError::UnknownOption('Z'))
         )
     );
     assert_eq!(
         getopt_tokens_partial(&argv("-F -- x")),
-        (vec![('F', None)], Some(GetoptError::NonOption("x".to_string())))
+        (
+            vec![('F', None)],
+            Some(GetoptError::NonOption("x".to_string()))
+        )
     );
-    assert_eq!(getopt_tokens_partial(&argv("-sD")), (vec![('s', None)], Some(GetoptError::RequiresArgument('D'))));
-    assert_eq!(getopt_tokens_partial(&argv("-Fs")), (vec![('F', None), ('s', None)], None));
-    assert_eq!(getopt_tokens_partial(&argv("-:")), (vec![], Some(GetoptError::UnknownOption(':'))));
+    assert_eq!(
+        getopt_tokens_partial(&argv("-sD")),
+        (vec![('s', None)], Some(GetoptError::RequiresArgument('D')))
+    );
+    assert_eq!(
+        getopt_tokens_partial(&argv("-Fs")),
+        (vec![('F', None), ('s', None)], None)
+    );
+    assert_eq!(
+        getopt_tokens_partial(&argv("-:")),
+        (vec![], Some(GetoptError::UnknownOption(':')))
+    );
     // glibc permutes: options after a stray argument still apply.
     let (tokens, err) = getopt_tokens_partial(&argv("-D d extra -c nosuch=1"));
     assert_eq!(err, Some(GetoptError::NonOption("extra".to_string())));
@@ -986,14 +1146,19 @@ fn postmaster_getopt_failure_messages_match_c() {
     #[cfg(not(target_os = "linux"))]
     let (unknown, needs_arg) = ("illegal option -- q", "option requires an argument -- D");
     #[cfg(target_os = "linux")]
-    let (unknown, needs_arg) = ("invalid option -- 'q'", "option requires an argument -- 'D'");
+    let (unknown, needs_arg) = (
+        "invalid option -- 'q'",
+        "option requires an argument -- 'D'",
+    );
     assert_eq!(
         getopt_failure_message(argv0, "pgx", &GetoptError::UnknownOption('q')),
         format!("/usr/local/pgsql/bin/pgx: {unknown}\nTry \"pgx --help\" for more information.\n")
     );
     assert_eq!(
         getopt_failure_message(argv0, "pgx", &GetoptError::RequiresArgument('D')),
-        format!("/usr/local/pgsql/bin/pgx: {needs_arg}\nTry \"pgx --help\" for more information.\n")
+        format!(
+            "/usr/local/pgsql/bin/pgx: {needs_arg}\nTry \"pgx --help\" for more information.\n"
+        )
     );
     assert_eq!(
         getopt_failure_message(argv0, "pgx", &GetoptError::NonOption("x".to_string())),
@@ -1011,7 +1176,10 @@ fn environment_dump_tolerates_non_utf8_entries() {
     let dump = main_entry::environment_dump();
     std::env::remove_var(key);
     assert!(dump.starts_with("initial environment dump:\n"), "{dump:?}");
-    assert!(dump.contains(&format!("\n{key}=a\u{fffd}\u{fffd}b")), "{dump:?}");
+    assert!(
+        dump.contains(&format!("\n{key}=a\u{fffd}\u{fffd}b")),
+        "{dump:?}"
+    );
 }
 
 #[test]
@@ -1024,5 +1192,8 @@ fn bgworker_restart_wait_rounds_a_fractional_millisecond_up() {
     assert_eq!(bgworker_restart_wait_ms(1_001_001, 1_000_000), 2);
     assert_eq!(bgworker_restart_wait_ms(1_000_000, 1_000_000), 0);
     assert_eq!(bgworker_restart_wait_ms(999_000, 1_000_000), 0);
-    assert_eq!(bgworker_restart_wait_ms(1_000_000 + 61_000_000, 1_000_000), 60_000);
+    assert_eq!(
+        bgworker_restart_wait_ms(1_000_000 + 61_000_000, 1_000_000),
+        60_000
+    );
 }

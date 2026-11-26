@@ -9,18 +9,26 @@
 //! in its region; the emit merges the owners' results (the width-1 arm's one owner folds on the
 //! backend thread, `Entry::own_single`).
 #![allow(unused_imports)]
-use gravity_abi::PtrWord;
-use crate::table::params::*;
-pub(crate) use crate::util::{advance, emit, end, flush, int8_datum, lane, partial, range_seek, site as site_of, Cell};
 pub(crate) use crate::ops::sort::runmerge::MERGING;
+use crate::table::params::*;
 pub(crate) use crate::util::HOST_STOP;
-pub(crate) use gravity_abi::program::SPILL_SCATTER;
-pub(crate) use gravity_abi::breaker::{table_kind, AccCell, HashAgg, Owned, OwnerFns, OwnerTop, Rec, T1, ACC_CELL, ADAPT_FACTOR, HASHAGG_HDR, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, SHARE, T1_BYPASS, t1_default_bytes, TABLE_OWNED, MAX_OWNERS};
-pub(crate) use gravity_abi::hash::KeyHash;
-pub(crate) use gravity_abi::status::{DONE, ERROR};
-pub(crate) use gravity_abi::{Ctx, Lane, Site};
-pub(crate) use gravity_abi::status::{suspend, unsupported, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE};
+pub(crate) use crate::util::{
+    advance, emit, end, flush, int8_datum, lane, partial, range_seek, site as site_of, Cell,
+};
+pub(crate) use gravity_abi::breaker::{
+    t1_default_bytes, table_kind, AccCell, HashAgg, Owned, OwnerFns, OwnerTop, Rec, ACC_CELL,
+    ADAPT_FACTOR, HASHAGG_HDR, MAX_OWNERS, ORDER_NONE, OWNERTOP_HDR, OWNER_PARAMS, SHARE, T1,
+    T1_BYPASS, TABLE_OWNED,
+};
 pub(crate) use gravity_abi::ctx::{resume, RESUME_NONE};
+pub(crate) use gravity_abi::hash::KeyHash;
+pub(crate) use gravity_abi::program::SPILL_SCATTER;
+pub(crate) use gravity_abi::status::{
+    suspend, unsupported, UNSUPPORTED_SCRATCH, UNSUPPORTED_SHAPE,
+};
+pub(crate) use gravity_abi::status::{DONE, ERROR};
+use gravity_abi::PtrWord;
+pub(crate) use gravity_abi::{Ctx, Lane, Site};
 
 pub(crate) struct Params {
     n: u32,
@@ -32,7 +40,13 @@ pub(crate) struct Params {
 
 pub(crate) fn params_of(p: &[u64]) -> Params {
     let bits = p[PARAM_SPILL_BITS] as u8;
-    Params { n: (p[PARAM_TOPK_N] as u32).min(MAX_N), lo: p[PARAM_DENSE_LO] as i64, hi: p[PARAM_DENSE_HI] as i64, bits: if bits == 0 { DEFAULT_BITS } else { bits }, ordered: p[PARAM_ORDER] != 0 }
+    Params {
+        n: (p[PARAM_TOPK_N] as u32).min(MAX_N),
+        lo: p[PARAM_DENSE_LO] as i64,
+        hi: p[PARAM_DENSE_HI] as i64,
+        bits: if bits == 0 { DEFAULT_BITS } else { bits },
+        ordered: p[PARAM_ORDER] != 0,
+    }
 }
 
 pub(crate) unsafe fn params(ctx: *mut Ctx) -> Params {
@@ -55,17 +69,28 @@ pub(crate) const T1_ACC: u8 = 2;
 /// one the plan let through (`DenseFront::acc_fits`) and the armed share holds both: `(cells, dn, the table's limit)` — laid out
 /// at the region's first touch (the armed `limit` is the share), found again by `T1_ACC`, which
 /// the caller sets once the table is laid out (`T1::at`'s first layout writes the whole header).
-pub(crate) unsafe fn acc_front(own: *mut u8, lo: i64, hi: i64, topk: bool) -> (*mut AccCell, u32, u32) {
+pub(crate) unsafe fn acc_front(
+    own: *mut u8,
+    lo: i64,
+    hi: i64,
+    topk: bool,
+) -> (*mut AccCell, u32, u32) {
     let t = &mut *(own as *mut T1);
     let none = (core::ptr::null_mut(), 0, SHARE);
-    let Some(dn) = gravity_abi::breaker::DenseFront::domain(lo, hi) else { return none };
+    let Some(dn) = gravity_abi::breaker::DenseFront::domain(lo, hi) else {
+        return none;
+    };
     // the plan's census bounds the domain by the cache cost (`DenseFront::acc_fits`); here the share decides the room
     if topk {
         return none;
     }
     let fb = ((dn as usize * ACC_CELL + 7) & !7) as u32;
     if t.cap != 0 {
-        return if t.flags & T1_ACC != 0 { (own.add(t.limit as usize) as *mut AccCell, dn, SHARE) } else { none };
+        return if t.flags & T1_ACC != 0 {
+            (own.add(t.limit as usize) as *mut AccCell, dn, SHARE)
+        } else {
+            none
+        };
     }
     let share = t.limit;
     if share <= fb + t1_default_bytes() {
@@ -104,8 +129,27 @@ pub unsafe extern "C-unwind" fn par_hashagg(ctx: *mut Ctx) -> i64 {
         (*table).flags |= T1_BYPASS;
     }
     let bypass = (*table).flags & T1_BYPASS != 0;
-    let bound = if p.n > 0 { (*table).nth_smallest_key(0, p.n as usize).unwrap_or(i64::MAX) } else { i64::MAX };
-    let mut st = Fold { ctx, table, acc, lo: p.lo, dn, nn_live: false, n: p.n, bound, pbits, bypass, last: 0, last_rec: core::ptr::null_mut() };
+    let bound = if p.n > 0 {
+        (*table)
+            .nth_smallest_key(0, p.n as usize)
+            .unwrap_or(i64::MAX)
+    } else {
+        i64::MAX
+    };
+    let mut st = Fold {
+        ctx,
+        table,
+        acc,
+        lo: p.lo,
+        dn,
+        nn_live: false,
+        n: p.n,
+        bound,
+        pbits,
+        bypass,
+        last: 0,
+        last_rec: core::ptr::null_mut(),
+    };
     loop {
         let r = advance(ctx, 0);
         if r <= 0 {
@@ -186,7 +230,8 @@ impl Fold {
                 Some(r) => r,
                 None => {
                     self.flush()?;
-                    T1::append_new(self.table, part, &keys).ok_or(unsupported(UNSUPPORTED_SCRATCH))?
+                    T1::append_new(self.table, part, &keys)
+                        .ok_or(unsupported(UNSUPPORTED_SCRATCH))?
                 }
             };
             self.last = keys[0];
@@ -234,8 +279,10 @@ impl Fold {
                 continue;
             }
             let r = self.record(self.lo + d as i64)?;
-            *(r.add(OFF_SUM) as *mut i64) = (*(r.add(OFF_SUM) as *const i64)).wrapping_add((*c).sum);
-            *(r.add(OFF_CNT) as *mut i64) = (*(r.add(OFF_CNT) as *const i64)).wrapping_add((*c).cnt);
+            *(r.add(OFF_SUM) as *mut i64) =
+                (*(r.add(OFF_SUM) as *const i64)).wrapping_add((*c).sum);
+            *(r.add(OFF_CNT) as *mut i64) =
+                (*(r.add(OFF_CNT) as *const i64)).wrapping_add((*c).cnt);
             let nn = if self.nn_live { (*c).nn } else { (*c).cnt };
             *r.add(OFF_VALID) |= ((nn > 0) as u8) | 2;
             *c = AccCell::default();
@@ -269,7 +316,12 @@ pub(crate) unsafe fn group_k<K: Cell>(s: &mut Site, lk: &Lane, lv: &Lane, st: &m
 /// load of one cell: 83 % of the loop's cycles on a sorted input) — anything else the checked
 /// loop with `nn` explicit. A key outside the domain goes to its record through `add_outside`.
 #[inline(always)]
-pub(crate) unsafe fn group_dense<K: Cell, V: Cell>(s: &mut Site, lk: &Lane, lv: &Lane, st: &mut Fold) -> i64 {
+pub(crate) unsafe fn group_dense<K: Cell, V: Cell>(
+    s: &mut Site,
+    lk: &Lane,
+    lv: &Lane,
+    st: &mut Fold,
+) -> i64 {
     let (kp, vp) = (lk.ptr.ptr() as *const K, lv.ptr.ptr() as *const V);
     let cells = st.acc;
     let (lo, dn) = (st.lo, st.dn as u64);
@@ -351,7 +403,12 @@ pub(crate) unsafe fn add_outside(st: &mut Fold, key: i64, v: i64, valid: bool) -
 
 /// The hashed row loop: the record through the phase-1 table's home pair, the sum and count added.
 #[inline(always)]
-pub(crate) unsafe fn group<K: Cell, V: Cell>(s: &mut Site, lk: &Lane, lv: &Lane, st: &mut Fold) -> i64 {
+pub(crate) unsafe fn group<K: Cell, V: Cell>(
+    s: &mut Site,
+    lk: &Lane,
+    lv: &Lane,
+    st: &mut Fold,
+) -> i64 {
     if !st.acc.is_null() {
         return group_dense::<K, V>(s, lk, lv, st);
     }
@@ -394,7 +451,18 @@ pub(crate) unsafe fn group<K: Cell, V: Cell>(s: &mut Site, lk: &Lane, lv: &Lane,
 pub fn owner_fns(params: &[u64]) -> OwnerFns {
     let mut p = [0u64; OWNER_PARAMS];
     p[..NPARAMS].copy_from_slice(&params[..NPARAMS]);
-    OwnerFns { params: p, rounds: 1, order_slot: ORDER_NONE, order_slot2: ORDER_NONE, min_bytes: owner_min, open: owner_open, reduce: owner_reduce, end_round: owner_end, reduce2: owner_reduce, fold: Some(crate::table::owner_fold::owner_fold) }
+    OwnerFns {
+        params: p,
+        rounds: 1,
+        order_slot: ORDER_NONE,
+        order_slot2: ORDER_NONE,
+        min_bytes: owner_min,
+        open: owner_open,
+        reduce: owner_reduce,
+        end_round: owner_end,
+        reduce2: owner_reduce,
+        fold: Some(crate::table::owner_fold::owner_fold),
+    }
 }
 
 /// The region of a full-emit owner: `OwnerTop` (`worst` = the runs, `total` = the run bytes, `len` =
@@ -426,24 +494,54 @@ pub(crate) fn owner_min(params: *const u64, _owners: u32) -> u64 {
 
 pub(crate) unsafe fn owner_open(params: *const u64, owner: *mut u8, bytes: usize) -> i64 {
     let p = owner_params(params);
-    let table_off = if p.n > 0 { topk_table_off(p.n as usize) } else { RUN_OFF + ((bytes.saturating_sub(RUN_OFF) / 2) & !7) };
+    let table_off = if p.n > 0 {
+        topk_table_off(p.n as usize)
+    } else {
+        RUN_OFF + ((bytes.saturating_sub(RUN_OFF) / 2) & !7)
+    };
     if table_off + HASHAGG_HDR + 2 * REC > bytes {
         return unsupported(UNSUPPORTED_SCRATCH);
     }
-    *(owner as *mut OwnerTop) = OwnerTop { len: 0, n: p.n, table_off: table_off as u32, worst: 0, round2_off: 0, resume: 0, total: 0, groups: 0, records: 0, thr: 0, key_lo: gravity_abi::breaker::KEY_LO_NONE, key_hi: gravity_abi::breaker::KEY_HI_NONE, cell: core::cell::UnsafeCell::new([]) };
+    *(owner as *mut OwnerTop) = OwnerTop {
+        len: 0,
+        n: p.n,
+        table_off: table_off as u32,
+        worst: 0,
+        round2_off: 0,
+        resume: 0,
+        total: 0,
+        groups: 0,
+        records: 0,
+        thr: 0,
+        key_lo: gravity_abi::breaker::KEY_LO_NONE,
+        key_hi: gravity_abi::breaker::KEY_HI_NONE,
+        cell: core::cell::UnsafeCell::new([]),
+    };
     table_off as i64
 }
 
 /// A folded partition: its records into the owner's top (the zone top-k) or as one run (sorted by
 /// key under the order); the table is the owner's scratch.
-pub(crate) unsafe fn owner_reduce(params: *const u64, owner: *mut u8, table: *const HashAgg, _site: *mut Site, _cand: *const u32, _ncand: i64) -> i64 {
+pub(crate) unsafe fn owner_reduce(
+    params: *const u64,
+    owner: *mut u8,
+    table: *const HashAgg,
+    _site: *mut Site,
+    _cand: *const u32,
+    _ncand: i64,
+) -> i64 {
     let p = owner_params(params);
     let h = &mut *(owner as *mut OwnerTop);
     let t = &mut *(table as *mut HashAgg);
     h.groups += t.len as u64;
     h.records += t.len as u64;
     if p.n > 0 {
-        let mut top = Top { base: owner.add(OWNERTOP_HDR), heap: owner.add(OWNERTOP_HDR + p.n as usize * REC) as *mut u32, n: p.n as usize, len: h.len as usize };
+        let mut top = Top {
+            base: owner.add(OWNERTOP_HDR),
+            heap: owner.add(OWNERTOP_HDR + p.n as usize * REC) as *mut u32,
+            n: p.n as usize,
+            len: h.len as usize,
+        };
         for i in 0..t.cap as usize {
             let r = t.record(i);
             if r.used() {
@@ -490,7 +588,13 @@ pub(crate) unsafe fn owner_end(params: *const u64, owner: *mut u8) -> i64 {
         return 0;
     }
     let h = &*(owner as *const OwnerTop);
-    Top { base: owner.add(OWNERTOP_HDR), heap: owner.add(OWNERTOP_HDR + p.n as usize * REC) as *mut u32, n: p.n as usize, len: h.len as usize }.sort();
+    Top {
+        base: owner.add(OWNERTOP_HDR),
+        heap: owner.add(OWNERTOP_HDR + p.n as usize * REC) as *mut u32,
+        n: p.n as usize,
+        len: h.len as usize,
+    }
+    .sort();
     0
 }
 
@@ -634,7 +738,10 @@ pub(crate) unsafe fn emit_owned(ctx: *mut Ctx, own: *mut u8, p: &Params, word: i
             }
             let h = OwnerTop::view(o.owner(best));
             let heap = h.records().add(p.n as usize * REC) as *const u32;
-            let r = Rec::at(h.records().add(*heap.add(pos[best]) as usize * REC), &LAYOUT);
+            let r = Rec::at(
+                h.records().add(*heap.add(pos[best]) as usize * REC),
+                &LAYOUT,
+            );
             pos[best] += 1;
             if emit_record(ctx, &r) < 0 {
                 return ERROR;
@@ -654,14 +761,24 @@ pub(crate) unsafe fn emit_owned(ctx: *mut Ctx, own: *mut u8, p: &Params, word: i
             let h = OwnerTop::view(o.owner(j));
             if g < h.worst as usize {
                 let dir = h.records().add(DIR_OFF - OWNERTOP_HDR) as *const u32;
-                return (o.owner(j).add(*dir.add(2 * g) as usize), *dir.add(2 * g + 1) as usize);
+                return (
+                    o.owner(j).add(*dir.add(2 * g) as usize),
+                    *dir.add(2 * g + 1) as usize,
+                );
             }
             g -= h.worst as usize;
         }
         (core::ptr::null_mut(), 0)
     };
     if !p.ordered {
-        let (mut g, mut i) = if word == RESUME_NONE { (0usize, 0usize) } else { ((resume::position(word) >> 24) as usize, (resume::position(word) & 0xff_ffff) as usize) };
+        let (mut g, mut i) = if word == RESUME_NONE {
+            (0usize, 0usize)
+        } else {
+            (
+                (resume::position(word) >> 24) as usize,
+                (resume::position(word) & 0xff_ffff) as usize,
+            )
+        };
         while g < nruns {
             let (base, len) = run(g);
             while i < len {

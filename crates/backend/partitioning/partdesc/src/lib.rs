@@ -8,9 +8,9 @@ use std::rc::Rc;
 
 use datum::Datum;
 use mcx::{Mcx, MemoryContext, PgHashMap, PgVec};
+use types_core::AttrNumber;
 use types_core::{InvalidOid, InvalidTransactionId, Oid, TransactionId};
 use types_error::{PgError, PgResult};
-use types_core::AttrNumber;
 use types_nodes::rawnodes::PartitionBoundSpec;
 use types_nodes::{Node, NodeList};
 use types_rel::{Relation, RELKIND_PARTITIONED_TABLE};
@@ -108,9 +108,11 @@ pub fn RelationGetPartitionDesc(
         }
     }
     if omit_detached && snapmgr::ActiveSnapshotSet() {
-        if let Some((d, xmin)) =
-            with_state(|st| st.descs_nodetached.get(&relid).map(|(d, x)| (Rc::clone(d), *x)))
-        {
+        if let Some((d, xmin)) = with_state(|st| {
+            st.descs_nodetached
+                .get(&relid)
+                .map(|(d, x)| (Rc::clone(d), *x))
+        }) {
             debug_assert!(xmin != InvalidTransactionId);
             let snap = snapmgr::GetActiveSnapshot();
             if !snapmgr::XidInMVCCSnapshot(xmin, &snap)? {
@@ -205,10 +207,7 @@ fn expected_partdefid(inhrelid: Oid, partdefid: Oid) -> Box<PgError> {
 // saw the row, or DETACH CONCURRENTLY may be mid-way); read pg_class
 // directly for the tuple.  None when the row is gone (dropped meanwhile)
 // or its relpartbound is NULL.
-fn relpartbound_from_pg_class<'mcx>(
-    mcx: Mcx<'mcx>,
-    inhrelid: Oid,
-) -> PgResult<Option<Node<'mcx>>> {
+fn relpartbound_from_pg_class<'mcx>(mcx: Mcx<'mcx>, inhrelid: Oid) -> PgResult<Option<Node<'mcx>>> {
     let pg_class = table::table_open(
         mcx,
         types_core::catalog::RELATION_RELATION_ID,
@@ -237,7 +236,10 @@ fn relpartbound_from_pg_class<'mcx>(
             )
         };
         if !isnull {
-            boundspec = Some(readfuncs::stringToNode(mcx, text_to_str(mcx, datum, inhrelid)?)?);
+            boundspec = Some(readfuncs::stringToNode(
+                mcx,
+                text_to_str(mcx, datum, inhrelid)?,
+            )?);
         }
     }
     genam::systable_endscan(mcx, scan)?;
@@ -297,8 +299,10 @@ fn RelationBuildPartitionDesc(
                 let (datum, isnull) =
                     cache_syscache::SysCacheGetAttr(RELOID, &tuple, Anum_pg_class_relpartbound)?;
                 if !isnull {
-                    boundspec =
-                        Some(readfuncs::stringToNode(smcx, text_to_str(smcx, datum, inhrelid)?)?);
+                    boundspec = Some(readfuncs::stringToNode(
+                        smcx,
+                        text_to_str(smcx, datum, inhrelid)?,
+                    )?);
                 }
                 cache_syscache::ReleaseSysCache(tuple);
             }
@@ -383,7 +387,10 @@ fn RelationBuildPartitionDesc(
     // Snapshot-dependent (a pending row omitted by xmin visibility) => only
     // the nodetached slot, keyed by that xmin (partdesc.c:363-402).
     if omit_detached && detached_exist && detached_xmin != InvalidTransactionId {
-        with_state(|st| st.descs_nodetached.insert(relid, (Rc::clone(&desc), detached_xmin)));
+        with_state(|st| {
+            st.descs_nodetached
+                .insert(relid, (Rc::clone(&desc), detached_xmin))
+        });
     } else {
         with_state(|st| st.descs.insert(relid, Rc::clone(&desc)));
     }
@@ -424,7 +431,10 @@ pub fn PartitionDirectoryLookup<'mcx>(
     let erased: Rc<dyn core::any::Any> = pd.clone();
     pdir.pdir_hash.insert(
         relid,
-        types_rel::partdir::PartitionDirectoryEntry { rel: rel.alias(), pd: erased },
+        types_rel::partdir::PartitionDirectoryEntry {
+            rel: rel.alias(),
+            pd: erased,
+        },
     );
     Ok(pd)
 }
@@ -456,11 +466,15 @@ pub fn RelationGetPartitionQual<'mcx>(
 fn copy_cached_qual<'mcx>(mcx: Mcx<'mcx>, q: &NodeList<'static>) -> PgResult<NodeList<'mcx>> {
     // SAFETY: the cached qual lives in its entry's context, alive for the
     // duration of this deep copy; 'static -> 'mcx only narrows the view.
-    let q: &NodeList<'mcx> = unsafe { core::mem::transmute::<&NodeList<'static>, &NodeList<'mcx>>(q) };
+    let q: &NodeList<'mcx> =
+        unsafe { core::mem::transmute::<&NodeList<'static>, &NodeList<'mcx>>(q) };
     rewrite_manip::copy_node_list(mcx, q)
 }
 
-fn generate_partition_qual<'mcx, 'r>(mcx: Mcx<'mcx>, rel: &Relation<'r>) -> PgResult<NodeList<'mcx>> {
+fn generate_partition_qual<'mcx, 'r>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'r>,
+) -> PgResult<NodeList<'mcx>> {
     // C partcache.c:349: recurses up the partition parent chain.
     stack_depth_core::check_stack_depth()?;
     let relid = rel.rd_id;
@@ -521,10 +535,7 @@ mod tests {
     // Mock owner of the detoast seam for this test binary (see the partbounds
     // twin): expects the 18-byte ondisk toast pointer built below and hands
     // back the flat 4B-header text image.
-    fn mock_detoast<'mcx>(
-        mcx: ::mcx::Mcx<'mcx>,
-        image: &[u8],
-    ) -> PgResult<::mcx::PgVec<'mcx, u8>> {
+    fn mock_detoast<'mcx>(mcx: ::mcx::Mcx<'mcx>, image: &[u8]) -> PgResult<::mcx::PgVec<'mcx, u8>> {
         assert_eq!(image[0], 0x01, "external toast pointer tag byte");
         assert_eq!(image[1], ::types_tuple::varatt::VARTAG_ONDISK);
         assert_eq!(image.len(), 18, "VARHDRSZ_EXTERNAL + vartag_size(ONDISK)");

@@ -67,7 +67,9 @@ fn rng(mut x: u64) -> impl FnMut() -> u64 {
 fn lengths() -> Vec<usize> {
     let mut v: Vec<usize> = (0..=300).collect();
     v.extend((301..=4096).step_by(61));
-    v.extend([511, 512, 513, 1023, 1024, 1025, 2047, 2048, 2049, 4095, 4096]);
+    v.extend([
+        511, 512, 513, 1023, 1024, 1025, 2047, 2048, 2049, 4095, 4096,
+    ]);
     v
 }
 
@@ -76,9 +78,19 @@ fn the_reference_matches_the_published_vectors() {
     // vectors_sip128 of veorq/SipHash: key 00..0f, input 00..len-1
     let (k0, k1) = (0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908);
     let input: Vec<u8> = (0u8..64).collect();
-    for (len, want) in [(0usize, "a3817f04ba25a8e66df67214c7550293"), (7, "a1f1ebbed8dbc153c0b84aa61ff08239"), (8, "3b62a9ba6258f5610f83e264f31497b4"), (63, "5150d1772f50834a503e069a973fbd7c")] {
+    for (len, want) in [
+        (0usize, "a3817f04ba25a8e66df67214c7550293"),
+        (7, "a1f1ebbed8dbc153c0b84aa61ff08239"),
+        (8, "3b62a9ba6258f5610f83e264f31497b4"),
+        (63, "5150d1772f50834a503e069a973fbd7c"),
+    ] {
         let [lo, hi] = reference(k0, k1, &input[..len]);
-        let got: String = lo.to_le_bytes().iter().chain(hi.to_le_bytes().iter()).map(|b| format!("{b:02x}")).collect();
+        let got: String = lo
+            .to_le_bytes()
+            .iter()
+            .chain(hi.to_le_bytes().iter())
+            .map(|b| format!("{b:02x}"))
+            .collect();
         assert_eq!(got, want, "len {len}");
     }
 }
@@ -89,13 +101,21 @@ fn siphash128_and_fp128_are_full_strength_at_every_length() {
     for len in lengths() {
         let bytes: Vec<u8> = (0..len).map(|_| r() as u8).collect();
         let (k0, k1) = (r(), r());
-        assert_eq!(siphash128(k0, k1, &bytes), reference(k0, k1, &bytes), "siphash128 len {len}");
+        assert_eq!(
+            siphash128(k0, k1, &bytes),
+            reference(k0, k1, &bytes),
+            "siphash128 len {len}"
+        );
     }
     install(0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908);
     let (k0, k1) = seed().unwrap();
     for len in lengths() {
         let bytes: Vec<u8> = (0..len).map(|_| r() as u8).collect();
-        assert_eq!(fp128(&bytes), Some(reference(k0, k1, &bytes)), "fp128 len {len}");
+        assert_eq!(
+            fp128(&bytes),
+            Some(reference(k0, k1, &bytes)),
+            "fp128 len {len}"
+        );
     }
 }
 
@@ -137,7 +157,10 @@ fn the_dictionary_fp128_table_is_full_strength() {
             }
         }
     }
-    let d = VecDict { entries: entries.clone(), null: None };
+    let d = VecDict {
+        entries: entries.clone(),
+        null: None,
+    };
     let mut buf = Buf::new(entries.len() * 16 + 4096);
     let mut region = buf.region();
     let t = Fp128::build(&d, &mut region, &mut |v| Ok(v)).unwrap();
@@ -170,7 +193,9 @@ const REGISTRY: &[(&str, &str, &str)] = &[
 const PRODUCERS: &[&str] = &["siphash128(", "fp_bytes(", "fp128(", "text_key(", "fp_out("];
 
 fn scan(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, usize, String)>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         let name = p.file_name().unwrap().to_string_lossy().to_string();
@@ -179,14 +204,22 @@ fn scan(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<(String, us
                 scan(&p, root, out);
             }
         } else if name.ends_with(".rs") && name != "tests.rs" {
-            let Ok(text) = std::fs::read_to_string(&p) else { continue };
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                continue;
+            };
             let mut in_tests = false;
             for (n, line) in text.lines().enumerate() {
                 let t = line.trim_start();
                 if t.starts_with("#[cfg(test)]") {
                     in_tests = true; // a unit-test module runs to the end of the file in this tree's convention
                 }
-                if in_tests || t.starts_with("//") || t.starts_with("fn ") || t.starts_with("pub fn ") || t.contains("fn siphash128") || t.contains("fn fp128") {
+                if in_tests
+                    || t.starts_with("//")
+                    || t.starts_with("fn ")
+                    || t.starts_with("pub fn ")
+                    || t.contains("fn siphash128")
+                    || t.contains("fn fp128")
+                {
                     continue;
                 }
                 let called = PRODUCERS.iter().any(|pat| line.match_indices(pat).any(|(at, _)| at == 0 || !matches!(line.as_bytes()[at - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')));
@@ -204,17 +237,37 @@ fn every_fp128_producer_is_registered() {
     let root = manifest_dir().join("../../..").canonicalize().unwrap();
     let mut sites = Vec::new();
     scan(&root.join("crates"), &root, &mut sites);
-    let unregistered: Vec<_> = sites.iter().filter(|(f, _, _)| !REGISTRY.iter().any(|(r, _, _)| r == f)).collect();
+    let unregistered: Vec<_> = sites
+        .iter()
+        .filter(|(f, _, _)| !REGISTRY.iter().any(|(r, _, _)| r == f))
+        .collect();
     for (f, v, why) in REGISTRY {
         eprintln!("{f}: {v} — {why}");
     }
-    assert!(unregistered.is_empty(), "Fp128 producer sites missing from the registry (hash-contract.md §3.6):\n{}", unregistered.iter().map(|(f, n, l)| format!("  {f}:{n}: {l}")).collect::<Vec<_>>().join("\n"));
-    assert!(sites.len() > 5, "the scan found {} sites under {}: wrong root?", sites.len(), root.display());
+    assert!(
+        unregistered.is_empty(),
+        "Fp128 producer sites missing from the registry (hash-contract.md §3.6):\n{}",
+        unregistered
+            .iter()
+            .map(|(f, n, l)| format!("  {f}:{n}: {l}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    assert!(
+        sites.len() > 5,
+        "the scan found {} sites under {}: wrong root?",
+        sites.len(),
+        root.display()
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

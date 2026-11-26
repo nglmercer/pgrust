@@ -1,13 +1,13 @@
 //! Props: MergeAppend's graph facts and its admission predicate (runs/mergeappend.rs; one predicate shared by props and the
 //! kind's file).
-use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_abi::breaker::BreakerKind;
 use gravity_decompose::graph::Bound;
+use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::ops::shared::sort::{SortForm, SortKey};
 use gravity_decompose::{Op, PipelineNode, Source};
-use gravity_abi::breaker::BreakerKind;
 use mcx::{CollectIn, PgVec};
-use types_nodes::Node;
 use types_nodes::list::NodeList;
+use types_nodes::Node;
 
 use crate::effects::visible::merge::{builtin_key, pure, pure_in};
 use crate::graph::Gx;
@@ -26,12 +26,30 @@ pub(crate) struct Merge<'g> {
 
 /// An arm's Feed slot.
 fn feed_slot(p: &PipelineNode<'_>) -> Option<u8> {
-    p.ops.iter().find_map(|op| if let Op::Append(AppendDesc::Feed { slot, .. }) = op { Some(*slot) } else { None })
+    p.ops.iter().find_map(|op| {
+        if let Op::Append(AppendDesc::Feed { slot, .. }) = op {
+            Some(*slot)
+        } else {
+            None
+        }
+    })
 }
 
 /// A reader's Merge op: (slot, keys, children).
 fn merge_op<'g>(p: &'g PipelineNode<'_>) -> Option<(u8, &'g [SortKey], u16)> {
-    p.ops.iter().find_map(|op| if let Op::Append(AppendDesc::Merge { slot, keys, children, .. }) = op { Some((*slot, &keys[..], *children)) } else { None })
+    p.ops.iter().find_map(|op| {
+        if let Op::Append(AppendDesc::Merge {
+            slot,
+            keys,
+            children,
+            ..
+        }) = op
+        {
+            Some((*slot, &keys[..], *children))
+        } else {
+            None
+        }
+    })
 }
 
 impl<'g> Merge<'g> {
@@ -40,17 +58,30 @@ impl<'g> Merge<'g> {
     pub(crate) fn of_reader(gx: &Gx<'g, '_>, j: usize) -> Option<Merge<'g>> {
         let ps = gx.pipelines();
         let (slot, keys, n) = merge_op(&ps[j])?;
-        let feeds = |q: &PipelineNode<'_>| matches!(crate::frame::iface::breaker_of(&q.desc), Some(b) if b.slot == slot) && feed_slot(q) == Some(slot);
-        let mut arms: PgVec<'g, usize> = (0..j).rev().filter(|&q| feeds(&ps[q])).take(n as usize).collect_in(gx.mcx);
+        let feeds = |q: &PipelineNode<'_>| {
+            matches!(crate::frame::iface::breaker_of(&q.desc), Some(b) if b.slot == slot)
+                && feed_slot(q) == Some(slot)
+        };
+        let mut arms: PgVec<'g, usize> = (0..j)
+            .rev()
+            .filter(|&q| feeds(&ps[q]))
+            .take(n as usize)
+            .collect_in(gx.mcx);
         arms.reverse();
-        (arms.len() == n as usize).then_some(Merge { slot, keys, reader: j, arms })
+        (arms.len() == n as usize).then_some(Merge {
+            slot,
+            keys,
+            reader: j,
+            arms,
+        })
     }
 
     /// The MergeAppend arm pipeline `k` feeds: the first later pipeline holding the slot's Merge op, an embedded inner's
     /// too (D1483: a SubPlan's or nest inner's MergeAppend, regress inherit#759; inners index past the graph pipelines).
     pub(crate) fn of_arm(gx: &Gx<'g, '_>, k: usize) -> Option<Merge<'g>> {
         let slot = feed_slot(&gx.pipelines()[k])?;
-        let j = (k + 1..gx.pipelines().end()).find(|&j| merge_op(&gx.pipelines()[j]).is_some_and(|m| m.0 == slot))?;
+        let j = (k + 1..gx.pipelines().end())
+            .find(|&j| merge_op(&gx.pipelines()[j]).is_some_and(|m| m.0 == slot))?;
         Merge::of_reader(gx, j).filter(|m| m.arms.contains(&k))
     }
 }
@@ -67,7 +98,11 @@ pub(crate) fn arms_admit(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let mut aggs = false;
     let quiet = m.arms.iter().all(|&a| {
         let p = &ps[a];
-        let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(p.ops.len());
+        let f = p
+            .ops
+            .iter()
+            .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+            .unwrap_or(p.ops.len());
         !ops_can_raise(gx, &p.ops[..f]) || {
             let ok = arm_counts_admit(gx, a, &p.ops[..f]);
             aggs |= ok;
@@ -76,7 +111,11 @@ pub(crate) fn arms_admit(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     });
     if quiet {
         // shapecheck fire signal (REGISTRY OID-29, OIDW-10, OIDW-42..46): a stopping reader's arms read whole, raise-free
-        fires::fire(if aggs { "merge.agg_arms" } else { "merge.quiet_arms" });
+        fires::fire(if aggs {
+            "merge.agg_arms"
+        } else {
+            "merge.quiet_arms"
+        });
         return true;
     }
     pulls_once(gx, m) && crate::effects::visible::merge::first_row(gx, m)
@@ -92,12 +131,19 @@ pub(crate) fn arms_admit(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
 /// the stop comes after it (K10.y1 / y1e / y1m .f1.h0: a cursor over an aggregate or a sort over a grouping-sets merge).
 pub(crate) fn whole_only(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let ps = gx.pipelines();
-    let reads = gx.graph.init_plans.is_empty() && reads_all(gx, m.reader, true) && !folds_whole(gx, m.reader);
-    reads && m.arms.iter().any(|&a| {
-        let p = &ps[a];
-        let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(p.ops.len());
-        ops_can_raise(gx, &p.ops[..f])
-    })
+    let reads = gx.graph.init_plans.is_empty()
+        && reads_all(gx, m.reader, true)
+        && !folds_whole(gx, m.reader);
+    reads
+        && m.arms.iter().any(|&a| {
+            let p = &ps[a];
+            let f = p
+                .ops
+                .iter()
+                .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+                .unwrap_or(p.ops.len());
+            ops_can_raise(gx, &p.ops[..f])
+        })
 }
 
 /// D2733: whether a pipeline on the slot-reader chain from `k` to the root (`reads_all`'s chain)
@@ -139,10 +185,23 @@ fn pulls_once(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let ps = gx.pipelines();
     let r = &ps[m.reader];
     let limit = |op: &Op<'_>| crate::frame::iface::limit_bounds(op).is_some();
-    let lone = r.ops.iter().all(|op| matches!(op, Op::Project(_) | Op::Append(AppendDesc::Merge { prune: None, .. })) || limit(op))
-        && r.ops.iter().filter(|&op| limit(op)).count() == 1;
-    let one = matches!(merge_cap(gx, m), Some((Bound::Const(1), Bound::All | Bound::Const(0))));
-    let init = gx.graph.init_plans.iter().any(|i| i.pipeline as usize == m.reader && !matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte));
+    let lone = r.ops.iter().all(|op| {
+        matches!(
+            op,
+            Op::Project(_) | Op::Append(AppendDesc::Merge { prune: None, .. })
+        ) || limit(op)
+    }) && r.ops.iter().filter(|&op| limit(op)).count() == 1;
+    let one = matches!(
+        merge_cap(gx, m),
+        Some((Bound::Const(1), Bound::All | Bound::Const(0)))
+    );
+    let init = gx.graph.init_plans.iter().any(|i| {
+        i.pipeline as usize == m.reader
+            && !matches!(
+                i.link,
+                gravity_decompose::ops::shared::subplan::SubLink::Cte
+            )
+    });
     lone && one && (m.reader == gx.graph.root as usize || init)
 }
 
@@ -152,8 +211,16 @@ pub(crate) fn full_sort(gx: &Gx<'_, '_>, q: usize, slot: u8, a: usize) -> bool {
     let ps = gx.pipelines();
     let p = &ps[q];
     let sorts = |op: &Op<'_>| matches!(op, Op::Sort(d) if matches!(d.form, SortForm::Runs) && d.presorted == 0 && d.keys.iter().all(|k| builtin_key(gx, k, d.tlist)));
-    let ops = p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)) || sorts(op)) && p.ops.iter().filter(|op| matches!(op, Op::Sort(_))).count() == 1;
-    let alone = (0..ps.len()).all(|c| c == a || !ps[c].desc.consumes.contains(&slot) || gx.life_of(c, slot).is_some_and(|l| l.0 as usize != q));
+    let ops = p
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)) || sorts(op))
+        && p.ops.iter().filter(|op| matches!(op, Op::Sort(_))).count() == 1;
+    let alone = (0..ps.len()).all(|c| {
+        c == a
+            || !ps[c].desc.consumes.contains(&slot)
+            || gx.life_of(c, slot).is_some_and(|l| l.0 as usize != q)
+    });
     let end = matches!(crate::frame::iface::breaker_of(&p.desc), Some(b) if b.slot == slot && matches!(b.kind, BreakerKind::Sort));
     end && ops && alone && p.source.relation().is_some() && p.desc.consumes.is_empty()
 }
@@ -162,17 +229,29 @@ pub(crate) fn full_sort(gx: &Gx<'_, '_>, q: usize, slot: u8, a: usize) -> bool {
 /// arm's row), so its compares neither act nor raise (rerun/union_join_arms.rs `merged`).
 pub(crate) fn builtin_keys(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let ps = gx.pipelines();
-    m.arms.last().and_then(|&a| arm_cols(&ps[a])).is_some_and(|cols| m.keys.iter().all(|k| builtin_key(gx, k, cols)))
+    m.arms
+        .last()
+        .and_then(|&a| arm_cols(&ps[a]))
+        .is_some_and(|cols| m.keys.iter().all(|k| builtin_key(gx, k, cols)))
 }
 
 /// An arm's Feed op's position (the ops before it are the arm's own).
 pub(crate) fn feed_at(p: &PipelineNode<'_>) -> usize {
-    p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(p.ops.len())
+    p.ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+        .unwrap_or(p.ops.len())
 }
 
 /// An arm's row: its last projection before the Feed.
-pub(crate) fn arm_cols< 'p>(p: & PipelineNode<'p>) -> Option<&'p NodeList<'p>> {
-    p.ops[..feed_at(p)].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None })
+pub(crate) fn arm_cols<'p>(p: &PipelineNode<'p>) -> Option<&'p NodeList<'p>> {
+    p.ops[..feed_at(p)].iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    })
 }
 
 /// Whether PostgreSQL reads every row pipeline `k` emits: the root with no LIMIT or SubPlan (above a breaker, no gate and
@@ -187,20 +266,47 @@ fn reads_all(gx: &Gx<'_, '_>, k: usize, first: bool) -> bool {
     if k == gx.graph.root as usize {
         // above a breaker, a gate too: a false one-time qual never pulls the breaker's input. D449: a LIMIT above a breaker
         // that folds its input whole pulls it at its first row unless its count may be 0 or its bounds raise (nodeLimit.c)
-        let limit = if first { crate::frame::iface::holds_limit(&p.ops) } else { crate::frame::iface::limit_may_skip(&p.ops) };
+        let limit = if first {
+            crate::frame::iface::holds_limit(&p.ops)
+        } else {
+            crate::frame::iface::limit_may_skip(&p.ops)
+        };
         // D4250 (D3365's stop): a merge join over the merged rows that fills no unmatched outer row stops PostgreSQL's
         // pulls of them once its inner ends (`merge_outer_stops`); a merge above a folding breaker (`!first`) reads it whole
         // before its first row whatever stops later
         let joined = first && merge_outer_stops(p, false);
-        return !limit && !joined && !p.ops.iter().any(|op| matches!(op, Op::SubPlan(_)) || !first && matches!(op, Op::Gate(_)));
+        return !limit
+            && !joined
+            && !p
+                .ops
+                .iter()
+                .any(|op| matches!(op, Op::SubPlan(_)) || !first && matches!(op, Op::Gate(_)));
     }
-    let ops_ok = p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Append(AppendDesc::Merge { .. }) | Op::FirstOfRun(_) | Op::GroupRun(_))
-        || matches!(op, Op::Sort(d) if matches!(d.form, SortForm::Runs) && d.presorted == 0)); // a full sort's own op
-    let Some(b) = crate::frame::iface::breaker_of(&p.desc) else { return false };
-    let full = matches!(b.kind, BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Sort | BreakerKind::Distinct);
+    let ops_ok = p.ops.iter().all(|op| {
+        matches!(
+            op,
+            Op::Filter(_)
+                | Op::Project(_)
+                | Op::Append(AppendDesc::Merge { .. })
+                | Op::FirstOfRun(_)
+                | Op::GroupRun(_)
+        ) || matches!(op, Op::Sort(d) if matches!(d.form, SortForm::Runs) && d.presorted == 0)
+    }); // a full sort's own op
+    let Some(b) = crate::frame::iface::breaker_of(&p.desc) else {
+        return false;
+    };
+    let full = matches!(
+        b.kind,
+        BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Sort | BreakerKind::Distinct
+    );
     // the slot's reader: the first pipeline after `k` consuming it (decompose reuses a slot only after its reader)
     let reader = (k + 1..ps.len()).find(|&q| ps[q].desc.consumes.contains(&b.slot));
-    ops_ok && full && reader.is_some_and(|q| matches!(ps[q].source, Source::Breaker { slot } if slot == b.slot) && reads_all(gx, q, false))
+    ops_ok
+        && full
+        && reader.is_some_and(|q| {
+            matches!(ps[q].source, Source::Breaker { slot } if slot == b.slot)
+                && reads_all(gx, q, false)
+        })
 }
 
 /// D4250 (D3365's stop over a MergeAppend): reader `p`'s ops after its Merge op hand the merged rows to a merge join as
@@ -210,10 +316,19 @@ fn reads_all(gx: &Gx<'_, '_>, k: usize, first: bool) -> bool {
 fn merge_outer_stops(p: &PipelineNode<'_>, plain: bool) -> bool {
     use gravity_decompose::join::JoinDesc;
     use types_nodes::jointype::JoinType;
-    let Some(at) = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. }))) else { return false };
+    let Some(at) = p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))
+    else {
+        return false;
+    };
     let stops = |op: &Op<'_>| matches!(op, Op::Join(JoinDesc::Merge { jointype, .. }) if matches!(*jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_RIGHT | JoinType::JOIN_RIGHT_ANTI));
     match plain {
-        true => p.ops[at + 1..].iter().find(|op| !matches!(op, Op::Filter(_) | Op::Project(_))).is_some_and(stops),
+        true => p.ops[at + 1..]
+            .iter()
+            .find(|op| !matches!(op, Op::Filter(_) | Op::Project(_)))
+            .is_some_and(stops),
         false => p.ops[at + 1..].iter().any(stops),
     }
 }
@@ -224,15 +339,28 @@ fn merge_outer_stops(p: &PipelineNode<'_>, plain: bool) -> bool {
 /// raises on no row.
 fn arm_counts_admit(gx: &Gx<'_, '_>, a: usize, ops: &[Op<'_>]) -> bool {
     let ps = gx.pipelines();
-    let Source::Breaker { slot } = ps[a].source else { return false };
+    let Source::Breaker { slot } = ps[a].source else {
+        return false;
+    };
     let arm_ok = ops.iter().all(|op| match op {
         Op::Project(l) => l.iter().all(|n| pure_in(gx, n, true, &[])),
         Op::Filter(q) => pure(gx, *q),
         _ => true,
     });
-    let start = (0..a).rev().find(|&q| ps[q].desc.consumes.contains(&slot)).map_or(0, |q| q + 1);
-    let folds: PgVec<'_, usize> = (start..a).filter(|&q| matches!(crate::frame::iface::breaker_of(&ps[q].desc), Some(b) if b.slot == slot)).collect_in(gx.mcx);
-    let fold_ok = |q: usize| matches!(ps[q].source, Source::Range { .. }) && ps[q].desc.consumes.is_empty() && !ops_can_raise(gx, &ps[q].ops);
+    let start = (0..a)
+        .rev()
+        .find(|&q| ps[q].desc.consumes.contains(&slot))
+        .map_or(0, |q| q + 1);
+    let folds: PgVec<'_, usize> = (start..a)
+        .filter(
+            |&q| matches!(crate::frame::iface::breaker_of(&ps[q].desc), Some(b) if b.slot == slot),
+        )
+        .collect_in(gx.mcx);
+    let fold_ok = |q: usize| {
+        matches!(ps[q].source, Source::Range { .. })
+            && ps[q].desc.consumes.is_empty()
+            && !ops_can_raise(gx, &ps[q].ops)
+    };
     arm_ok && !folds.is_empty() && folds.iter().all(|&q| fold_ok(q))
 }
 
@@ -242,7 +370,11 @@ fn arm_counts_admit(gx: &Gx<'_, '_>, a: usize, ops: &[Op<'_>]) -> bool {
 /// does not apply: WITH TIES, a parallel producer, a prefix key that is not one exact order word.
 pub(crate) fn incremental_admit(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let s = p.ops.iter().position(|op| matches!(op, Op::Sort(_))).unwrap_or(p.ops.len());
+    let s = p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Sort(_)))
+        .unwrap_or(p.ops.len());
     !ops_can_raise(gx, &p.ops[..s])
 }
 
@@ -253,13 +385,20 @@ pub(crate) fn merge_cap<'p>(gx: &Gx<'_, 'p>, m: &Merge<'_>) -> Option<(Bound<'p>
     use crate::frame::iface::{limit_bounds, limit_with_ties};
     use crate::rerun::params_bound::computed;
     let r = &gx.pipelines()[m.reader];
-    let at = r.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))?;
+    let at = r
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))?;
     for op in r.ops[at + 1..].iter() {
         if matches!(op, Op::Project(_)) {
             continue;
         }
         let (count, offset) = limit_bounds(op)?;
-        return (!computed(count) && !computed(offset) && !limit_with_ties(op) && !matches!(count, Bound::All)).then_some((*count, *offset));
+        return (!computed(count)
+            && !computed(offset)
+            && !limit_with_ties(op)
+            && !matches!(count, Bound::All))
+        .then_some((*count, *offset));
     }
     None
 }
@@ -273,7 +412,10 @@ fn exact_reader_stop(gx: &Gx<'_, '_>, r: usize, after: &[Op<'_>]) -> bool {
     use crate::rerun::params_bound::computed;
     for op in after {
         if let Some((count, offset)) = crate::frame::iface::limit_bounds(op) {
-            return crate::frame::iface::limit_with_ties(op) && !matches!(count, Bound::All) && !computed(count) && !computed(offset);
+            return crate::frame::iface::limit_with_ties(op)
+                && !matches!(count, Bound::All)
+                && !computed(count)
+                && !computed(offset);
         }
         match op {
             Op::Project(_) => {}
@@ -322,11 +464,18 @@ pub(crate) fn merge_pull(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let ps = gx.pipelines();
     let arm = |a: usize| {
         let p = &ps[a];
-        let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(0);
+        let f = p
+            .ops
+            .iter()
+            .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+            .unwrap_or(0);
         // a Sort arm, its producer a full sort this arm alone reads (Merge Append over an index and a Sort): the reader pulls the run
         // as a cursor (runs/merge_pull.rs `RunArm`), as PostgreSQL's Sort node reads its input whole and then hands rows on
         let src = match p.source {
-            gravity_decompose::Source::Index { am: gravity_decompose::Am::Heap, .. } => true,
+            gravity_decompose::Source::Index {
+                am: gravity_decompose::Am::Heap,
+                ..
+            } => true,
             // fail-closed until its corners are witnessed: no pruning (a pruned arm's sort would still run) and a reader no
             // rerun set re-opens (its producer would not re-run under it)
             gravity_decompose::Source::Breaker { slot } => {
@@ -339,55 +488,102 @@ pub(crate) fn merge_pull(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
             }
             _ => false,
         };
-        src && p.ops[..f].iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+        src && p.ops[..f]
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
     };
-    let Some(last) = m.arms.last() else { return false };
+    let Some(last) = m.arms.last() else {
+        return false;
+    };
     let p = &ps[*last];
-    let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(0);
-    let Some(cols) = p.ops[..f].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }) else { return false };
+    let f = p
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+        .unwrap_or(0);
+    let Some(cols) = p.ops[..f].iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    }) else {
+        return false;
+    };
     // each column's datum word: by value, or a varlena (a non-key column, whose held copy runs/merge_pull_copy.rs keeps)
-    let words = cols.iter().enumerate().map(|(c, n)| {
-        let te = n.as_target_entry()?;
-        let typ = gravity_decompose::catalog::expr_type::type_of(te.expr).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
-        let tf = gravity_decompose::catalog::typefacts::facts_of(gx.facts, typ)?;
-        let key = m.keys.iter().any(|k| k.resno as usize == c + 1);
-        // V4R-458: a text / varchar key (not bpchar: its trim) orders past its prefix word by runs/merge_pull_cmp.rs
-        let text_key = key && tf.typlen == -1 && tf.image.is_plain_text();
-        // a comparator-ordered varlena key (runs/keylane.rs `hosted`: a numeric no packed lane holds, an inet / cidr, an
-        // array or a range): past its inexact prefix word its btree comparator decides over the held copies
-        // (merge_pull_cmp.rs), never one that may reach user code (`rep::user_reach`: a composite, a user type)
-        let hosted_key = key && tf.typlen == -1 && crate::rep::keylane::hosted(&tf) && !crate::rep::user_reach(gx.catalog, tf.base);
-        // a fixed-width by-reference non-key column (a name, a uuid, an interval): its image is copied as a varlena's is
-        let fixed = !key && !tf.byval && tf.typlen > 0;
-        (tf.byval && !(key && tf.image.is_enum()) || !key && tf.typlen == -1 || text_key || hosted_key || fixed).then_some(!tf.byval) // an enum key: its comparator's tail (V4R-386)
-    }).try_fold(0usize, |t, w| w.map(|x| t + usize::from(x)));
+    let words = cols
+        .iter()
+        .enumerate()
+        .map(|(c, n)| {
+            let te = n.as_target_entry()?;
+            let typ = gravity_decompose::catalog::expr_type::type_of(te.expr)
+                .unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(te.expr));
+            let tf = gravity_decompose::catalog::typefacts::facts_of(gx.facts, typ)?;
+            let key = m.keys.iter().any(|k| k.resno as usize == c + 1);
+            // V4R-458: a text / varchar key (not bpchar: its trim) orders past its prefix word by runs/merge_pull_cmp.rs
+            let text_key = key && tf.typlen == -1 && tf.image.is_plain_text();
+            // a comparator-ordered varlena key (runs/keylane.rs `hosted`: a numeric no packed lane holds, an inet / cidr, an
+            // array or a range): past its inexact prefix word its btree comparator decides over the held copies
+            // (merge_pull_cmp.rs), never one that may reach user code (`rep::user_reach`: a composite, a user type)
+            let hosted_key = key
+                && tf.typlen == -1
+                && crate::rep::keylane::hosted(&tf)
+                && !crate::rep::user_reach(gx.catalog, tf.base);
+            // a fixed-width by-reference non-key column (a name, a uuid, an interval): its image is copied as a varlena's is
+            let fixed = !key && !tf.byval && tf.typlen > 0;
+            (tf.byval && !(key && tf.image.is_enum())
+                || !key && tf.typlen == -1
+                || text_key
+                || hosted_key
+                || fixed)
+                .then_some(!tf.byval) // an enum key: its comparator's tail (V4R-386)
+        })
+        .try_fold(0usize, |t, w| w.map(|x| t + usize::from(x)));
     // the reader's frame words per arm (`i` a byte: runs/merge_pull.rs) bound the row: 64 columns, 32 keys, and
     // 2 + 2 * (columns + keys + varlenas) words
-    let fits = |v: usize| cols.len() <= 64 && m.keys.len() <= 32 && cols.len() + m.keys.len() + v <= 127;
+    let fits =
+        |v: usize| cols.len() <= 64 && m.keys.len() <= 32 && cols.len() + m.keys.len() + v <= 127;
     let per_arm = |v: usize| 2 + 2 * (cols.len() + m.keys.len() + v);
-    let words_fit = |v: usize| m.arms.len() * per_arm(v) + reserved_nodes(m.arms.len()) * (2 + 2 * (m.keys.len() + cols.len())) <= PULL_WORDS;
+    let words_fit = |v: usize| {
+        m.arms.len() * per_arm(v)
+            + reserved_nodes(m.arms.len()) * (2 + 2 * (m.keys.len() + cols.len()))
+            <= PULL_WORDS
+    };
     let r = &ps[m.reader];
-    let after = r.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. }))).map_or(&[][..], |at| &r.ops[at + 1..]);
+    let after = r
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))
+        .map_or(&[][..], |at| &r.ops[at + 1..]);
     // D449 (partition_prune#794): an arm that calls user code or a VOLATILE function and whose rows can raise has no
     // breaker form (`arms_admit` fails, and errorhold never runs such a call ahead: frame/px.rs `run_ahead`, D2573), so
     // the pull form takes it with no stop of its own; every merge the breaker form serves keeps it
     let calls = |n: Node<'_>| crate::effects::user_or_volatile(gx, n);
-    let user = |a: usize| ps[a].ops.iter().any(|op| match op {
-        Op::Filter(x) => calls(*x),
-        Op::Project(l) => l.iter().any(calls),
-        _ => false,
-    });
+    let user = |a: usize| {
+        ps[a].ops.iter().any(|op| match op {
+            Op::Filter(x) => calls(*x),
+            Op::Project(l) => l.iter().any(calls),
+            _ => false,
+        })
+    };
     // C1 part 2: the reader is the statement's root pipeline under a partial reader (decompose `PipelineGraph::partial`, a
     // named cursor's FETCH): its sink stops where each FETCH stops pulling, as a counted LIMIT at the end of its ops would
     let cursor = gx.graph.partial && m.reader == gx.graph.root as usize;
-    let early = gravity_decompose::facts::stream::top_stops(after) || run_stops(after, m.arms.len(), cursor);
+    let early = gravity_decompose::facts::stream::top_stops(after)
+        || run_stops(after, m.arms.len(), cursor);
     // D2884: a consumer that shows which member of a run of keys equal across arms came first takes the pull form, whose
     // heap (merge_pull_heap.rs) shows PostgreSQL's member (the breaker form's arm order serves elsewhere: a tie choice),
     // over index arms (a Sort arm's own ties are its sort's) up to the arm count where the pull form was measured the
     // cheaper whole read too
-    let index = m.arms.iter().all(|&a| matches!(ps[a].source, gravity_decompose::Source::Index { .. }));
+    let index = m
+        .arms
+        .iter()
+        .all(|&a| matches!(ps[a].source, gravity_decompose::Source::Index { .. }));
     // ... where the pull form reads PostgreSQL's rows (`tie_reads_pg`)
-    let ties = index && m.arms.len() <= gravity_decompose::ops::shared::append::PULL_WHOLE_ARMS && tie_shown(gx, m) && tie_reads_pg(gx, m);
+    let ties = index
+        && m.arms.len() <= gravity_decompose::ops::shared::append::PULL_WHOLE_ARMS
+        && tie_shown(gx, m)
+        && tie_reads_pg(gx, m);
     // D2922 (R1): a sorted group streamed right after the merge that folds its raising calls in plan order (decompose
     // facts/stream.rs `in_order` over `merge_spine`) must read PostgreSQL's rows, ties across arms too, which only this
     // form reads; its group stops where PostgreSQL's does (a LIMIT, or a top's prefix stop), so the pull reads no row past
@@ -397,8 +593,17 @@ pub(crate) fn merge_pull(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     // D4250: or the merged rows go, through filters and projections, into a merge join's outer that PostgreSQL stops
     // fetching once its inner ends (`merge_outer_stops`), merge.join's DONE ending this walk there (`Env::full`), while an
     // arm row may raise past that stop: the pull form reads PostgreSQL's rows where the breaker form reads every arm whole
-    let joined = merge_outer_stops(r, true) && m.arms.iter().any(|&a| ops_can_raise(gx, &ps[a].ops[..feed_at(&ps[a])]));
-    let stops = merge_cap(gx, m).is_some() || exact_reader_stop(gx, m.reader, after) || early || (!arms_admit(gx, m) && m.arms.iter().any(|&a| user(a))) || ties || ordered || joined;
+    let joined = merge_outer_stops(r, true)
+        && m.arms
+            .iter()
+            .any(|&a| ops_can_raise(gx, &ps[a].ops[..feed_at(&ps[a])]));
+    let stops = merge_cap(gx, m).is_some()
+        || exact_reader_stop(gx, m.reader, after)
+        || early
+        || (!arms_admit(gx, m) && m.arms.iter().any(|&a| user(a)))
+        || ties
+        || ordered
+        || joined;
     // USEROP: a key of another family's order (decompose append.rs `merge_keys`: the CompareFn key kind) has no word or
     // prefix order the pull form compares; the breaker form's runs order it by its comparator (ops/sort runs.sort)
     let words_order = m.keys.iter().all(|k| !k.own_family);
@@ -413,12 +618,24 @@ pub(crate) fn merge_pull(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     // PostgreSQL's first pull of that arm
     let quiet = |q: usize| !ops_can_raise(gx, &ps[q].ops) && !user(q);
     let plain = m.arms.iter().all(|&a| !user(a));
-    let unseen = |a: usize, q: usize| quiet(q) || plain && !user(q) && crate::frame::iface::held_fill(gx, a, q);
-    let runs_unseen = m.arms.iter().filter_map(|&a| match ps[a].source {
-        gravity_decompose::Source::Breaker { slot } => Some((a, gx.life_of(a, slot).map(|l| l.0 as usize))),
-        _ => None,
-    }).all(|(a, q)| q.is_some_and(|q| unseen(a, q)));
-    stops && words_order && runs_unseen && m.arms.iter().all(|&a| arm(a)) && words.is_some_and(|v| fits(v) && words_fit(v))
+    let unseen = |a: usize, q: usize| {
+        quiet(q) || plain && !user(q) && crate::frame::iface::held_fill(gx, a, q)
+    };
+    let runs_unseen = m
+        .arms
+        .iter()
+        .filter_map(|&a| match ps[a].source {
+            gravity_decompose::Source::Breaker { slot } => {
+                Some((a, gx.life_of(a, slot).map(|l| l.0 as usize)))
+            }
+            _ => None,
+        })
+        .all(|(a, q)| q.is_some_and(|q| unseen(a, q)));
+    stops
+        && words_order
+        && runs_unseen
+        && m.arms.iter().all(|&a| arm(a))
+        && words.is_some_and(|v| fits(v) && words_fit(v))
 }
 
 /// The stop road over a merge: `ops`, the reader's after its Merge op, hand each merge row on before the walk reads the
@@ -438,13 +655,17 @@ fn run_stops(ops: &[Op<'_>], arms: usize, cursor: bool) -> bool {
     for op in ops {
         if let Some((count, _)) = limit_bounds(op) {
             let counted = !matches!(count, Bound::All) && !limit_with_ties(op);
-            return counted && (run && !wide || arms <= gravity_decompose::ops::shared::append::PULL_WHOLE_ARMS);
+            return counted
+                && (run && !wide
+                    || arms <= gravity_decompose::ops::shared::append::PULL_WHOLE_ARMS);
         }
         match op {
             Op::Project(_) => {}
             Op::FirstOfRun(_) => (wide, run) = (wide || run, true),
             Op::Filter(_) => wide |= !run,
-            Op::GroupRun(_) | Op::Join(JoinDesc::Nest { .. } | JoinDesc::Merge { .. }) => wide = true,
+            Op::GroupRun(_) | Op::Join(JoinDesc::Nest { .. } | JoinDesc::Merge { .. }) => {
+                wide = true
+            }
             _ => return false,
         }
     }
@@ -463,21 +684,33 @@ fn run_stops(ops: &[Op<'_>], arms: usize, cursor: bool) -> bool {
 fn tie_reads_pg(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     let ps = gx.pipelines();
     let r = &ps[m.reader];
-    let after = r.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. }))).map_or(&[][..], |at| &r.ops[at + 1..]);
+    let after = r
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))
+        .map_or(&[][..], |at| &r.ops[at + 1..]);
     if chain_halts(gx, m.reader) {
         return false;
     }
     // C1 part 2: a partial reader's stop (`run_stops`'s `cursor`) is not counted here: a cursor over arm rows that can
     // raise keeps the breaker form (its arm order on ties)
-    let own = merge_cap(gx, m).is_some() || exact_reader_stop(gx, m.reader, after) || gravity_decompose::facts::stream::top_stops(after) || run_stops(after, m.arms.len(), false);
+    let own = merge_cap(gx, m).is_some()
+        || exact_reader_stop(gx, m.reader, after)
+        || gravity_decompose::facts::stream::top_stops(after)
+        || run_stops(after, m.arms.len(), false);
     let quiet = m.arms.iter().all(|&a| {
         let p = &ps[a];
-        let f = p.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. }))).unwrap_or(p.ops.len());
-        !ops_can_raise(gx, &p.ops[..f]) && !p.ops[..f].iter().any(|op| match op {
-            Op::Filter(x) => crate::effects::user_or_volatile(gx, *x),
-            Op::Project(l) => l.iter().any(|n| crate::effects::user_or_volatile(gx, n)),
-            _ => false,
-        })
+        let f = p
+            .ops
+            .iter()
+            .position(|op| matches!(op, Op::Append(AppendDesc::Feed { .. })))
+            .unwrap_or(p.ops.len());
+        !ops_can_raise(gx, &p.ops[..f])
+            && !p.ops[..f].iter().any(|op| match op {
+                Op::Filter(x) => crate::effects::user_or_volatile(gx, *x),
+                Op::Project(l) => l.iter().any(|n| crate::effects::user_or_volatile(gx, n)),
+                _ => false,
+            })
     });
     own || quiet && !halts(after)
 }
@@ -487,7 +720,13 @@ fn tie_reads_pg(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
 /// condition (a LIMIT, a run condition, a join whose other side may end first, a one-time gate, ...).
 fn halts(ops: &[Op<'_>]) -> bool {
     !ops.iter().all(|op| match op {
-        Op::Filter(_) | Op::Project(_) | Op::FirstOfRun(_) | Op::GroupRun(_) | Op::Srf(_) | Op::SubPlan(_) | Op::Sort(_) => true,
+        Op::Filter(_)
+        | Op::Project(_)
+        | Op::FirstOfRun(_)
+        | Op::GroupRun(_)
+        | Op::Srf(_)
+        | Op::SubPlan(_)
+        | Op::Sort(_) => true,
         Op::Window(d) => d.run_condition.is_nil(),
         _ => false,
     })
@@ -501,10 +740,15 @@ fn chain_halts(gx: &Gx<'_, '_>, r: usize) -> bool {
     let ps = gx.pipelines();
     let mut q = r;
     loop {
-        let Some(b) = crate::frame::iface::breaker_of(&ps[q].desc) else { return false };
+        let Some(b) = crate::frame::iface::breaker_of(&ps[q].desc) else {
+            return false;
+        };
         let mut readers = (q + 1..ps.len()).filter(|&c| ps[c].desc.consumes.contains(&b.slot));
-        let (Some(c), None) = (readers.next(), readers.next()) else { return true };
-        if !matches!(ps[c].source, Source::Breaker { slot } if slot == b.slot) || halts(&ps[c].ops) {
+        let (Some(c), None) = (readers.next(), readers.next()) else {
+            return true;
+        };
+        if !matches!(ps[c].source, Source::Breaker { slot } if slot == b.slot) || halts(&ps[c].ops)
+        {
             return true;
         }
         q = c;
@@ -525,26 +769,66 @@ fn tie_shown(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     use gravity_decompose::catalog::expr_type::{collation_of, result_type, type_of, typmod_of};
     let ps = gx.pipelines();
     let r = &ps[m.reader];
-    let Some(at) = r.ops.iter().position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. }))) else { return false };
+    let Some(at) = r
+        .ops
+        .iter()
+        .position(|op| matches!(op, Op::Append(AppendDesc::Merge { .. })))
+    else {
+        return false;
+    };
     let after = &r.ops[at + 1..];
-    let lead = after.iter().position(|op| !matches!(op, Op::Project(_) | Op::Filter(_))).unwrap_or(after.len());
+    let lead = after
+        .iter()
+        .position(|op| !matches!(op, Op::Project(_) | Op::Filter(_)))
+        .unwrap_or(after.len());
     let alike = |e: Node<'_>| {
         let ty = type_of(e).unwrap_or_else(|| result_type(e));
         let bytes = gx.facts.coll(collation_of(e)).bytes_eq;
-        types_core::eq_alike::alike(ty, typmod_of(e), bytes, false, |t| gravity_decompose::catalog::typefacts::facts_of(gx.facts, t).map(|tf| tf.image.eq_alike()))
+        types_core::eq_alike::alike(ty, typmod_of(e), bytes, false, |t| {
+            gravity_decompose::catalog::typefacts::facts_of(gx.facts, t)
+                .map(|tf| tf.image.eq_alike())
+        })
     };
     // the consumer's input row: the reader's last projection before it over the merge row, else the merge row (an arm's)
     let keyed = |resno: i16| m.keys.iter().any(|k| k.resno == resno);
-    let row: PgVec<'_, bool> = match after[..lead].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None }) {
-        Some(l) => l.iter().map(|n| n.as_target_entry().is_some_and(|te| te.expr.as_const().is_some() || te.expr.as_var().is_some_and(|v| keyed(v.varattno)) && alike(te.expr))).collect_in(gx.mcx),
+    let row: PgVec<'_, bool> = match after[..lead].iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    }) {
+        Some(l) => l
+            .iter()
+            .map(|n| {
+                n.as_target_entry().is_some_and(|te| {
+                    te.expr.as_const().is_some()
+                        || te.expr.as_var().is_some_and(|v| keyed(v.varattno)) && alike(te.expr)
+                })
+            })
+            .collect_in(gx.mcx),
         None => {
-            let Some(cols) = m.arms.last().and_then(|&a| arm_cols(&ps[a])) else { return true };
-            cols.iter().enumerate().map(|(c, n)| keyed(c as i16 + 1) && n.as_target_entry().is_some_and(|te| alike(te.expr))).collect_in(gx.mcx)
+            let Some(cols) = m.arms.last().and_then(|&a| arm_cols(&ps[a])) else {
+                return true;
+            };
+            cols.iter()
+                .enumerate()
+                .map(|(c, n)| {
+                    keyed(c as i16 + 1) && n.as_target_entry().is_some_and(|te| alike(te.expr))
+                })
+                .collect_in(gx.mcx)
         }
     };
     let safe = |resno: i16| resno >= 1 && row.get(resno as usize - 1).copied().unwrap_or(false);
     if let Some(Op::FirstOfRun(_)) = after.get(lead) {
-        let shown = |l: &NodeList<'_>| l.iter().any(|n| !n.as_target_entry().is_some_and(|te| te.expr.as_const().is_some() || te.expr.as_var().is_some_and(|v| safe(v.varattno))));
+        let shown = |l: &NodeList<'_>| {
+            l.iter().any(|n| {
+                !n.as_target_entry().is_some_and(|te| {
+                    te.expr.as_const().is_some()
+                        || te.expr.as_var().is_some_and(|v| safe(v.varattno))
+                })
+            })
+        };
         let mut projected = false;
         for op in &after[lead + 1..] {
             match op {
@@ -569,12 +853,26 @@ fn tie_shown(gx: &Gx<'_, '_>, m: &Merge<'_>) -> bool {
     use crate::effects::visible::merge::{window_peers_free, window_reads_only};
     let (mut q, mut first) = (m.reader, true);
     loop {
-        let Some(slot) = crate::frame::iface::breaker_of(&ps[q].desc).map(|b| b.slot) else { return false };
-        let Some(next) = (q + 1..ps.len()).find(|&c| ps[c].desc.consumes.contains(&slot)) else { return false };
+        let Some(slot) = crate::frame::iface::breaker_of(&ps[q].desc).map(|b| b.slot) else {
+            return false;
+        };
+        let Some(next) = (q + 1..ps.len()).find(|&c| ps[c].desc.consumes.contains(&slot)) else {
+            return false;
+        };
         if !matches!(ps[next].source, Source::Breaker { slot: s } if s == slot) {
             return false;
         }
-        let windows: PgVec<'_, _> = ps[next].ops.iter().filter_map(|op| if let Op::Window(d) = op { Some(d) } else { None }).collect_in(gx.mcx);
+        let windows: PgVec<'_, _> = ps[next]
+            .ops
+            .iter()
+            .filter_map(|op| {
+                if let Op::Window(d) = op {
+                    Some(d)
+                } else {
+                    None
+                }
+            })
+            .collect_in(gx.mcx);
         if windows.is_empty() || first && windows.iter().all(|d| window_reads_only(d, &safe)) {
             return false;
         }

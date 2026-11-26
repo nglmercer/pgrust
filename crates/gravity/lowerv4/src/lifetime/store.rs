@@ -23,7 +23,11 @@ use crate::rerun::store_read::{calls, shape, SrfExt};
 /// such a call: a store under an InitPlan that reads none (oltp-043's pg_sleep inside the InitPlan itself) runs as any
 /// store. D1034: an InitPlan's is passed as a re-run's is, its value read through nest.initplan's InitLoad (the Init run
 /// at the first open that needs it). `store_calls`: the calls whose parameters are the store's to pass.
-pub(crate) fn reopened<'p>(px: &mut Px<'_, 'p>, rt: &RowType, store_calls: &[Node<'p>]) -> (Vec<(i32, Option<u16>)>, i64) {
+pub(crate) fn reopened<'p>(
+    px: &mut Px<'_, 'p>,
+    rt: &RowType,
+    store_calls: &[Node<'p>],
+) -> (Vec<(i32, Option<u16>)>, i64) {
     match crate::rerun::params::outside(px.gx, rt.k, store_calls) {
         Some(KindId::NestInitplan | KindId::NestRerun) => reopen(px, rt),
         Some(nest) => crate::not_built!(rt.node, Variant::Kind(nest)),
@@ -35,12 +39,25 @@ pub(crate) fn reopened<'p>(px: &mut Px<'_, 'p>, rt: &RowType, store_calls: &[Nod
 /// (`StoreRead::pass`): their ids, each producer built (params.rs `need`), and its seen bit, one of 61 above `SET`/`NULL`.
 fn reopen(px: &mut Px<'_, '_>, rt: &RowType) -> (Vec<(i32, Option<u16>)>, i64) {
     let ids = gravity_decompose::params::read(calls(px.gx, rt));
-    ids.iter().for_each(|&id| crate::rerun::params::need(px.gx, rt.node, id));
+    ids.iter()
+        .for_each(|&id| crate::rerun::params::need(px.gx, rt.node, id));
     // D1034: an InitPlan's parameter carries its Init's handle word (params.rs `init_handle`), which its load runs
-    let pars = ids.iter().map(|&id| (id, (crate::rerun::params::producer(px.gx, id) == Some(KindId::NestInitplan)).then(|| crate::rerun::params::init_handle(px, id)))).collect();
+    let pars = ids
+        .iter()
+        .map(|&id| {
+            (
+                id,
+                (crate::rerun::params::producer(px.gx, id) == Some(KindId::NestInitplan))
+                    .then(|| crate::rerun::params::init_handle(px, id)),
+            )
+        })
+        .collect();
     let n = &mut px.ext_mut::<SrfExt>(Face::Srf).0;
     if *n >= 61 {
-        shape(rt.node, "a re-opened store past the 61 seen bits of a param's flags word");
+        shape(
+            rt.node,
+            "a re-opened store past the 61 seen bits of a param's flags word",
+        );
     }
     *n += 1;
     (pars, 1 << (*n + 1))
@@ -50,13 +67,19 @@ fn reopen(px: &mut Px<'_, '_>, rt: &RowType) -> (Vec<(i32, Option<u16>)>, i64) {
 /// SubPlan's inner, a rerun set's member: bound.rs `reopened`) and its fill does not run again before each re-open
 /// (`refilled`). Fails closed: a re-opened walk whose fill this cannot show refilled keeps its rows.
 pub(crate) fn rewalks(px: &Px<'_, '_>, k: usize) -> bool {
-    crate::lifetime::bound::reopened(px, k) && !refilled(px.gx, crate::ops::window::lower::fill_of(px, k), k)
+    crate::lifetime::bound::reopened(px, k)
+        && !refilled(px.gx, crate::ops::window::lower::fill_of(px, k), k)
 }
 
 /// Fill `f` runs again at every re-open of reader `k`: `k` is a member of a rerun set, every set holding `k` holds `f`,
 /// and `f` is no kept member (graph.kept: run at its set's first run only).
 fn refilled(gx: &Gx<'_, '_>, f: usize, k: usize) -> bool {
     let (f, k) = (f as u16, k as u16);
-    let mut sets = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&k)).peekable();
+    let mut sets = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&k))
+        .peekable();
     sets.peek().is_some() && sets.all(|r| r.pipelines.contains(&f)) && !gx.graph.kept.contains(&f)
 }

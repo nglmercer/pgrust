@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use common::*;
 use gravity_driver::Entry;
-use gravity_program::hand as programs;
 use gravity_parallel::FixturePool;
+use gravity_program::hand as programs;
 
 struct Counting;
 
@@ -35,16 +35,57 @@ fn ten_thousand_claims_across_four_workers_allocate_nothing_after_warm_up() {
     let mut entry = Entry::new(2);
     let expect = table.rows().filter(|r| r[0] < 300).count() as u64;
     let mut sink = LegSink::new(false);
-    run_keyed(&mut entry, &program, &mut derive, &pool, 4, 1, &[300], &NO_ABORT, &mut sink).unwrap();
-    run_keyed(&mut entry, &program, &mut derive, &pool, 4, 1, &[300], &NO_ABORT, &mut sink).unwrap();
+    run_keyed(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        4,
+        1,
+        &[300],
+        &NO_ABORT,
+        &mut sink,
+    )
+    .unwrap();
+    run_keyed(
+        &mut entry,
+        &program,
+        &mut derive,
+        &pool,
+        4,
+        1,
+        &[300],
+        &NO_ABORT,
+        &mut sink,
+    )
+    .unwrap();
     let claims = pool.claims_run();
     for round in 0..3 {
         let before = ALLOCS.load(Ordering::Relaxed);
         sink.count.store(0, Ordering::Relaxed);
-        run_keyed(&mut entry, &program, &mut derive, &pool, 4, 1, &[300], &NO_ABORT, &mut sink).unwrap();
-        assert_eq!(ALLOCS.load(Ordering::Relaxed) - before, 0, "round {round}: a section allocated");
+        run_keyed(
+            &mut entry,
+            &program,
+            &mut derive,
+            &pool,
+            4,
+            1,
+            &[300],
+            &NO_ABORT,
+            &mut sink,
+        )
+        .unwrap();
+        assert_eq!(
+            ALLOCS.load(Ordering::Relaxed) - before,
+            0,
+            "round {round}: a section allocated"
+        );
         assert_eq!(sink.count.load(Ordering::Relaxed), 1);
     }
-    assert_eq!(pool.claims_run() - claims, 30_000, "10 000 claims per section");
+    assert_eq!(
+        pool.claims_run() - claims,
+        30_000,
+        "10 000 claims per section"
+    );
     let _ = expect;
 }

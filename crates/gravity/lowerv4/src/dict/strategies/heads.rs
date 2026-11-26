@@ -42,7 +42,10 @@ crate::strategies! {
     CODE_HEADS = 81, "code.heads", CodeTopk;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(CODE_HEADS, &HEADS)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(CODE_HEADS, &HEADS)],
+    ..crate::ops::NONE
+};
 const HEADS: CodeTopkImpl = CodeTopkImpl(&Heads);
 /// The emit's frame words (`WordKey::Open { face: Runs, k, j: WORDS_J, i }`): the held row, its sends left, the window's
 /// start, and (`i: 3`, not an open word: the execution's reset zeroes it, no re-open does) the kernel's per-part count
@@ -57,25 +60,70 @@ struct Heads;
 /// Whether producer `k`'s engaged top keys a nullable column (its site asks for each part's NULL row: dict_entries.rs).
 pub(crate) fn nullable_key(gx: &Gx<'_, '_>, k: usize) -> bool {
     let p = &gx.pipelines()[k];
-    let Some(Op::Sort(sd)) = p.ops.iter().find(|op| matches!(op, Op::Sort(_))) else { return false };
-    let top = TopDesc { k, node: p.node_id, sd };
-    key(gx, &top).is_some_and(|(relid, attno, _)| !gx.facts.att(relid, attno).is_some_and(|f| f.notnull))
+    let Some(Op::Sort(sd)) = p.ops.iter().find(|op| matches!(op, Op::Sort(_))) else {
+        return false;
+    };
+    let top = TopDesc {
+        k,
+        node: p.node_id,
+        sd,
+    };
+    key(gx, &top)
+        .is_some_and(|(relid, attno, _)| !gx.facts.att(relid, attno).is_some_and(|f| f.notnull))
 }
 
 /// Producer `k`'s engaged top: `(relation, the key's scan attno, the key's column in the run row)`. D3844: never a member of
 /// an owner's rerun set (a correlated SubPlan's top): its run keeps rows, read by RunEmit, which re-opens per run (C-R6f).
 fn key(gx: &Gx<'_, '_>, top: &TopDesc<'_, '_>) -> Option<(u32, i16, i16)> {
     let p = &gx.pipelines()[top.k];
-    let Source::Range { am: Am::Pgrcolumnar, relid, .. } = p.source else { return None };
-    let tes: PgVec<'_, _> = top.sd.tlist.iter().filter_map(|n| n.as_target_entry()).collect_in(gx.mcx);
-    let ([k0], [te]) = (top.sd.keys.as_slice(), &tes[..]) else { return None };
-    let at = te.expr.as_var().filter(|v| v.varno == OUTER_VAR && te.resno == k0.resno)?.varattno;
+    let Source::Range {
+        am: Am::Pgrcolumnar,
+        relid,
+        ..
+    } = p.source
+    else {
+        return None;
+    };
+    let tes: PgVec<'_, _> = top
+        .sd
+        .tlist
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .collect_in(gx.mcx);
+    let ([k0], [te]) = (top.sd.keys.as_slice(), &tes[..]) else {
+        return None;
+    };
+    let at = te
+        .expr
+        .as_var()
+        .filter(|v| v.varno == OUTER_VAR && te.resno == k0.resno)?
+        .varattno;
     let text = k0.image.text_like() && k0.coll.bytes_eq && !k0.compare_fn(); // USEROP: not a user family's order
-    let plain = p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Sort(_)));
-    let proj = p.ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None })?;
-    let attno = proj.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == at)?.expr.as_var()?.varattno;
+    let plain = p
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_) | Op::Sort(_)));
+    let proj = p.ops.iter().rev().find_map(|op| {
+        if let Op::Project(l) = op {
+            Some(*l)
+        } else {
+            None
+        }
+    })?;
+    let attno = proj
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .find(|te| te.resno == at)?
+        .expr
+        .as_var()?
+        .varattno;
     let member = crate::rerun::sets::in_owner_set(gx, top.k);
-    (text && plain && !member && gx.facts.att(relid, attno).is_some() && gx.end_need(top.k) == KindId::RunsTopkRows).then_some((relid, attno, at))
+    (text
+        && plain
+        && !member
+        && gx.facts.att(relid, attno).is_some()
+        && gx.end_need(top.k) == KindId::RunsTopkRows)
+        .then_some((relid, attno, at))
 }
 
 impl CodeTopkMech for Heads {
@@ -86,12 +134,33 @@ impl CodeTopkMech for Heads {
         true
     }
     fn entries(&self, px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> bool {
-        let Some(Op::Sort(sd)) = px.gx.pipelines()[k].ops.iter().find(|op| matches!(op, Op::Sort(_))) else { return false };
-        let top = TopDesc { k, node: px.gx.pipelines()[k].node_id, sd };
-        key(px.gx, &top).is_some_and(|(_, attno, _)| site.lanes().first().is_some_and(|l| l.id == LaneId::Attr(attno)))
+        let Some(Op::Sort(sd)) = px.gx.pipelines()[k]
+            .ops
+            .iter()
+            .find(|op| matches!(op, Op::Sort(_)))
+        else {
+            return false;
+        };
+        let top = TopDesc {
+            k,
+            node: px.gx.pipelines()[k].node_id,
+            sd,
+        };
+        key(px.gx, &top).is_some_and(|(_, attno, _)| {
+            site.lanes()
+                .first()
+                .is_some_and(|l| l.id == LaneId::Attr(attno))
+        })
     }
-    fn end<'g>(&self, px: &mut Px<'g, '_>, top: &TopDesc<'_, '_>, inner: PgBox<'g, dyn EndMech + 'g>) -> PgBox<'g, dyn EndMech + 'g> {
-        let Some((relid, attno, at)) = key(px.gx, top) else { return inner };
+    fn end<'g>(
+        &self,
+        px: &mut Px<'g, '_>,
+        top: &TopDesc<'_, '_>,
+        inner: PgBox<'g, dyn EndMech + 'g>,
+    ) -> PgBox<'g, dyn EndMech + 'g> {
+        let Some((relid, attno, at)) = key(px.gx, top) else {
+            return inner;
+        };
         // D3027 (B): the count pass after the top; the mark is the run row's last datum word (its one key's pair first,
         // runs/topk_rows.rs `coded`'s shape: the projection's columns, then the mark)
         let ncols = crate::ops::sort::lower::sort_of(px, top.k).1.len() as u32;
@@ -99,23 +168,59 @@ impl CodeTopkMech for Heads {
         mcx::pg_box_dyn!(px.mcx(), Mark { inner, at, node: top.node } => dyn EndMech + 'g)
     }
     /// `top.k` is the reader; its producer's key column and site give the count site's lane.
-    fn emit<'g>(&self, px: &mut Px<'g, '_>, top: &TopDesc<'_, '_>, reader: &mut dyn FnMut() -> PgBox<'g, dyn RunReader + 'g>) -> Option<PgBox<'g, dyn SourceMech + 'g>> {
+    fn emit<'g>(
+        &self,
+        px: &mut Px<'g, '_>,
+        top: &TopDesc<'_, '_>,
+        reader: &mut dyn FnMut() -> PgBox<'g, dyn RunReader + 'g>,
+    ) -> Option<PgBox<'g, dyn SourceMech + 'g>> {
         let gx = px.gx;
-        let Source::Breaker { slot } = gx.pipelines()[top.k].source else { return None };
+        let Source::Breaker { slot } = gx.pipelines()[top.k].source else {
+            return None;
+        };
         #[allow(clippy::question_mark)]
-        let Some(producer) = gx.life_of(top.k, slot).map(|l| l.0 as usize) else { return None };
+        let Some(producer) = gx.life_of(top.k, slot).map(|l| l.0 as usize) else {
+            return None;
+        };
         #[allow(clippy::question_mark)]
-        let Some((relid, attno, _)) = key(gx, &TopDesc { k: producer, ..*top }) else { return None };
-        let lane = px.pipeline_site(producer).and_then(|i| px.sites.get(i)?.lanes().iter().find(|l| l.id == LaneId::Attr(attno)).copied());
+        let Some((relid, attno, _)) = key(
+            gx,
+            &TopDesc {
+                k: producer,
+                ..*top
+            },
+        ) else {
+            return None;
+        };
+        let lane = px.pipeline_site(producer).and_then(|i| {
+            px.sites
+                .get(i)?
+                .lanes()
+                .iter()
+                .find(|l| l.id == LaneId::Attr(attno))
+                .copied()
+        });
         #[allow(clippy::question_mark)]
-        let Some(ld) = lane.filter(|l| l.kind == lane::KIND_CODES) else { return None };
+        let Some(ld) = lane.filter(|l| l.kind == lane::KIND_CODES) else {
+            return None;
+        };
         let mut s = SiteDesc::range_source(px.arena, relid, &[attno]);
         s.lanes[0] = ld;
         let site = px.add_site(s);
-        let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Runs, k: top.k, j: WORDS_J, i }) as i32 * 8;
+        let mut w = |i: u8| {
+            px.frame_word(WordKey::Open {
+                face: Face::Runs,
+                k: top.k,
+                j: WORDS_J,
+                i,
+            }) as i32
+                * 8
+        };
         let (w_p, w_left, w_x, w_memo) = (w(0), w(1), w(2), w(3));
         let dir = crate::dict::strategies::heads_pass::dir_word(px, producer);
-        Some(mcx::pg_box_dyn!(px.mcx(), Emit { inner: reader(), site, w_p, w_left, w_x, w_memo, dir } => dyn SourceMech + 'g))
+        Some(
+            mcx::pg_box_dyn!(px.mcx(), Emit { inner: reader(), site, w_p, w_left, w_x, w_memo, dir } => dyn SourceMech + 'g),
+        )
     }
 }
 
@@ -127,20 +232,56 @@ struct Mark<'g> {
 }
 
 impl EndMech for Mark<'_> {
-    fn state_bytes(&self) -> u32 { self.inner.state_bytes() }
-    fn open_words(&self, w: &mut OpenWords) { self.inner.open_words(w) }
-    fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) { self.inner.open(b, env) }
-    fn carried<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, Value> { self.inner.carried(b, env) }
-    fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, c: &Carry) { self.inner.window_end(b, env, c) }
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) { self.inner.finish(b, env, x) }
-    fn sink(&self) -> crate::face::end::SinkKind { self.inner.sink() }
-    fn wants_locator(&self) -> bool { self.inner.wants_locator() }
-    fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize, d: gravity_program::Pipeline) -> gravity_program::Pipeline { self.inner.pipeline_desc(px, k, d) }
+    fn state_bytes(&self) -> u32 {
+        self.inner.state_bytes()
+    }
+    fn open_words(&self, w: &mut OpenWords) {
+        self.inner.open_words(w)
+    }
+    fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) {
+        self.inner.open(b, env)
+    }
+    fn carried<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>) -> PgVec<'e, Value> {
+        self.inner.carried(b, env)
+    }
+    fn window_end(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, c: &Carry) {
+        self.inner.window_end(b, env, c)
+    }
+    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits) {
+        self.inner.finish(b, env, x)
+    }
+    fn sink(&self) -> crate::face::end::SinkKind {
+        self.inner.sink()
+    }
+    fn wants_locator(&self) -> bool {
+        self.inner.wants_locator()
+    }
+    fn pipeline_desc(
+        &self,
+        px: &Px<'_, '_>,
+        k: usize,
+        d: gravity_program::Pipeline,
+    ) -> gravity_program::Pipeline {
+        self.inner.pipeline_desc(px, k, d)
+    }
 
     /// An entries window's row (its code lane's `FLAG_ENTRIES`) is marked `bit 63 | first granule << 32 | code` (a part's
     /// NULL row: `NULL_CODE` for the code); any other 0.
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, x: &Exits) -> Carry<'e> {
-        let (Some(cr), Some(s)) = (row.col(self.at), env.site) else { crate::refuse!(self.node, crate::admit::refusal::Reason::Bug { payload: "a heads mark without its key or site" }) };
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        x: &Exits,
+    ) -> Carry<'e> {
+        let (Some(cr), Some(s)) = (row.col(self.at), env.site) else {
+            crate::refuse!(
+                self.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a heads mark without its key or site"
+                }
+            )
+        };
         let mark = match cr.cell.rep {
             Rep::Code { .. } => {
                 let mut cx = env.lx(b, self.node);
@@ -149,24 +290,58 @@ impl EndMech for Mark<'_> {
                 let lanes = b.load(Type::Ptr, env.ctx, (site_off(s) + site::LANES) as i32);
                 let fl = b.load_zext(Type::I8, lanes, lane::FLAGS as i32);
                 let bit = b.iconst(Type::I64, lane::FLAG_ENTRIES as i64);
-                let ent = { let m = b.int_bin(IntBinOp::And, fl, bit); b.icmp(IntCond::Ne, m, env.zero) };
-                let blk = b.load_zext(Type::I32, env.ctx, (site_off(s) + site::POS + scanpos::BLOCK) as i32);
+                let ent = {
+                    let m = b.int_bin(IntBinOp::And, fl, bit);
+                    b.icmp(IntCond::Ne, m, env.zero)
+                };
+                let blk = b.load_zext(
+                    Type::I32,
+                    env.ctx,
+                    (site_off(s) + site::POS + scanpos::BLOCK) as i32,
+                );
                 let g = b.load_zext(Type::I32, env.ctx, (site_off(s) + site::GRANULE) as i32);
-                let (start, s32, top) = (b.int_bin(IntBinOp::Sub, blk, g), b.iconst(Type::I64, 32), b.const_raw(Type::I64, MARK as u64));
+                let (start, s32, top) = (
+                    b.int_bin(IntBinOp::Sub, blk, g),
+                    b.iconst(Type::I64, 32),
+                    b.const_raw(Type::I64, MARK as u64),
+                );
                 let hi = b.int_bin(IntBinOp::Shl, start, s32);
                 let code = match cr.null {
-                    Some(nl) => { let nc = b.iconst(Type::I64, NULL_CODE); b.select(nl, nc, code) }
+                    Some(nl) => {
+                        let nc = b.iconst(Type::I64, NULL_CODE);
+                        b.select(nl, nc, code)
+                    }
                     None => code,
                 };
-                let m = { let t = b.int_bin(IntBinOp::Or, top, hi); b.int_bin(IntBinOp::Or, t, code) };
+                let m = {
+                    let t = b.int_bin(IntBinOp::Or, top, hi);
+                    b.int_bin(IntBinOp::Or, t, code)
+                };
                 b.select(ent, m, env.zero)
             }
             _ => env.zero,
         };
-        let mut r = RowVals { row: row.row.clone(), vals: row.vals.clone(), cols: row.cols.clone(), carry: row.carry.copy_in(env.mcx), next: row.next, at: row.at };
-        let life = CellLife { until: Until::Row, home: CellHome::RowCx };
+        let mut r = RowVals {
+            row: row.row.clone(),
+            vals: row.vals.clone(),
+            cols: row.cols.clone(),
+            carry: row.carry.copy_in(env.mcx),
+            next: row.next,
+            at: row.at,
+        };
+        let life = CellLife {
+            until: Until::Row,
+            home: CellHome::RowCx,
+        };
         let i = r.row.cells.len() as u16;
-        r.row.cells.push_in(Cell { rep: Rep::Word { bytes: 8 }, typid: 20, num: NumTypmod::NONE, life, at: At::Value(i), null: Nullable::Never });
+        r.row.cells.push_in(Cell {
+            rep: Rep::Word { bytes: 8 },
+            typid: 20,
+            num: NumTypmod::NONE,
+            life,
+            at: At::Value(i),
+            null: Nullable::Never,
+        });
         r.vals.push_in((mark, None));
         r.cols.push_in(Some(i));
         self.inner.lower(b, env, &r, x)
@@ -188,17 +363,29 @@ struct Emit<'g> {
 impl SourceMech for Emit<'_> {
     fn open_words(&self, w: &mut OpenWords) {
         self.inner.open_words(w);
-        for (n, at) in [("heads row", self.w_p), ("heads sends left", self.w_left), ("heads window start", self.w_x)] {
+        for (n, at) in [
+            ("heads row", self.w_p),
+            ("heads sends left", self.w_left),
+            ("heads window start", self.w_x),
+        ] {
             w.declare(OpenWord::open(n, Base::Words, at, Type::I64, 0));
         }
     }
-    fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value { self.inner.open(b, env) }
+    fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
+        self.inner.open(b, env)
+    }
 
     /// With sends left, the held row's window; else the reader's next row fetched (the only fetch: a merge moves on at
     /// each), its sends counted, the reader's cursor past it.
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let left = env.load_word(b, self.w_left);
-        let (l_fetch, l_row, l_cnt, l_set, l_have) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64]), b.create_block(&[]));
+        let (l_fetch, l_row, l_cnt, l_set, l_have) = (
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[]),
+            b.create_block(&[Type::I64]),
+            b.create_block(&[]),
+        );
         let has = b.icmp(IntCond::Sgt, left, env.zero);
         b.cond_br(has, (l_have, &[]), (l_fetch, &[]));
         b.switch_to(l_fetch);
@@ -208,22 +395,49 @@ impl SourceMech for Emit<'_> {
         let ok = b.icmp(IntCond::Sgt, pi, env.zero);
         b.cond_br(ok, (l_row, &[]), (l_eof, &[pi])); // null: the end (0); below zero: its status
         b.switch_to(l_row);
-        let r = self.inner.vals(b, env, p, Carry::new(env.zero, env.mcx), w.cursor, w.cursor);
-        let Some(&(mark, _)) = r.vals.last() else { crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a heads run row without its mark" }) };
+        let r = self
+            .inner
+            .vals(b, env, p, Carry::new(env.zero, env.mcx), w.cursor, w.cursor);
+        let Some(&(mark, _)) = r.vals.last() else {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a heads run row without its mark"
+                }
+            )
+        };
         let ent = b.icmp(IntCond::Slt, mark, env.zero);
         b.cond_br(ent, (l_cnt, &[]), (l_set, &[env.one]));
         b.switch_to(l_cnt);
-        let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-        let h = b.declare_host_once("heads_count", &[Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::Ptr], Some(Type::I64), gravity_kernels::dict::strategies::heads::heads_count as *const () as usize, mem);
+        let mem = HostFlags {
+            touches_memory: true,
+            ..HostFlags::default()
+        };
+        let h = b.declare_host_once(
+            "heads_count",
+            &[Type::Ptr, Type::I64, Type::I64, Type::Ptr, Type::Ptr],
+            Some(Type::I64),
+            gravity_kernels::dict::strategies::heads::heads_count as *const () as usize,
+            mem,
+        );
         let k = b.iconst(Type::I64, self.site as i64);
-        let words = env.words.unwrap_or_else(|| crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a heads emit without its frame words" }));
+        let words = env.words.unwrap_or_else(|| {
+            crate::refuse!(
+                env.node,
+                crate::admit::refusal::Reason::Bug {
+                    payload: "a heads emit without its frame words"
+                }
+            )
+        });
         let memo = b.ptr_add(words, env.zero, 1, self.w_memo);
         // D3027 (B): the count pass's directory (null below width 2, or without the pass)
         let dir = match self.dir {
             Some(wd) => b.load(Type::Ptr, env.params, 8 * wd as i32),
             None => b.conv(ConvOp::IntToPtr, Type::Ptr, env.zero),
         };
-        let c = b.call_host(h, &[env.ctx, k, mark, memo, dir], Some(Type::I64)).expect("heads_count returns the rows");
+        let c = b
+            .call_host(h, &[env.ctx, k, mark, memo, dir], Some(Type::I64))
+            .expect("heads_count returns the rows");
         let bad = b.icmp(IntCond::Slt, c, env.zero);
         b.cond_br(bad, (l_eof, &[c]), (l_set, &[c]));
         b.switch_to(l_set);
@@ -235,11 +449,23 @@ impl SourceMech for Emit<'_> {
         b.br(l_have, &[]);
         b.switch_to(l_have);
         let (x, left) = (env.load_word(b, self.w_x), env.load_word(b, self.w_left));
-        Win { cursor: x, end: b.int_bin(IntBinOp::Add, x, left), facts: WinConds::default() }
+        Win {
+            cursor: x,
+            end: b.int_bin(IntBinOp::Add, x, left),
+            facts: WinConds::default(),
+        }
     }
 
     /// Row `j`: the held row's cells, its mark dropped.
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let pi = env.load_word(b, self.w_p);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, pi);
         let mut r = self.inner.vals(b, env, p, carry, next, j);

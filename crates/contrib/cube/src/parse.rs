@@ -130,7 +130,11 @@ impl<'a> Lexer<'a> {
             i += 1;
         }
         let rest = &s[i..];
-        let lower3: Vec<u8> = rest.iter().take(8).map(|b| b.to_ascii_lowercase()).collect();
+        let lower3: Vec<u8> = rest
+            .iter()
+            .take(8)
+            .map(|b| b.to_ascii_lowercase())
+            .collect();
         if lower3.starts_with(b"infinity") {
             return i - p + 8;
         }
@@ -146,7 +150,8 @@ impl<'a> Lexer<'a> {
 
     fn next(&mut self) -> Tok<'a> {
         let s = self.input;
-        while self.pos < s.len() && matches!(s[self.pos], b' ' | b'\t' | b'\n' | b'\r' | 0x0c | 0x0b)
+        while self.pos < s.len()
+            && matches!(s[self.pos], b' ' | b'\t' | b'\n' | b'\r' | 0x0c | 0x0b)
         {
             self.pos += 1;
         }
@@ -307,7 +312,8 @@ fn write_box(l1: &[&str], l2: &[&str]) -> PgResult<Vec<u8>> {
     }
     for e in l2 {
         coords.push(parse_element(e, &s2)?);
-    }build_image_auto(dim, &coords)
+    }
+    build_image_auto(dim, &coords)
 }
 
 /// `write_point_as_box(dim, str, ...)`.
@@ -316,7 +322,8 @@ fn write_point_as_box(l: &[&str]) -> PgResult<Vec<u8>> {
     let mut coords = ::mcx::std_vec_with_capacity("cube", l.len())?;
     for e in l {
         coords.push(parse_element(e, &s)?);
-    }build_image(l.len(), true, &coords)
+    }
+    build_image(l.len(), true, &coords)
 }
 
 fn check_dim(n: usize) -> PgResult<()> {
@@ -407,15 +414,26 @@ mod tests {
             e.detail_raw.as_deref(),
             Some(&b"syntax error at or near \"\xff\""[..])
         );
-        assert_eq!(err_detail("(1,2"), "invalid input syntax for cube|syntax error at end of input");
-        assert_eq!(err_detail("1,2)"), "invalid input syntax for cube|syntax error at or near \")\"");
+        assert_eq!(
+            err_detail("(1,2"),
+            "invalid input syntax for cube|syntax error at end of input"
+        );
+        assert_eq!(
+            err_detail("1,2)"),
+            "invalid input syntax for cube|syntax error at or near \")\""
+        );
     }
 
     // C 18.6 (cubescan.l:63, signed char) accepts a complete cube followed
     // by a high-bit byte as if the input had ended; that is garbage here.
     #[test]
     fn trailing_high_bit_byte_is_garbage_not_eof() {
-        for s in [&b"(1,2)\xc3\xa9"[..], b"(1,2)\xff", b"1,2 \xc3\xa9", b"[(1),(2)]\xff"] {
+        for s in [
+            &b"(1,2)\xc3\xa9"[..],
+            b"(1,2)\xff",
+            b"1,2 \xc3\xa9",
+            b"[(1),(2)]\xff",
+        ] {
             let e = parse_cube(s).unwrap_err();
             assert_eq!(e.sqlstate, types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
         }

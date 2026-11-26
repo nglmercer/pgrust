@@ -16,9 +16,15 @@ pub(super) fn trimmed(b: &[u8]) -> &[u8] {
 /// Each code's rank among the distinct trimmed images `sweep` hands out (a code it never names: 0), one word per code on
 /// `out`. The images are copied back to back into one buffer and each code's `(offset, length, code)` kept beside it, both
 /// on arenas charged to `owner` (none: to no owner) and freed once the ranks are made.
-pub(super) fn ranks(out: &OpArena, owner: BuildOwner, ncodes: u32, sweep: &mut dyn FnMut(&mut dyn FnMut(u32, &[u8]))) -> Result<AVec<i64>, TableBuildError> {
+pub(super) fn ranks(
+    out: &OpArena,
+    owner: BuildOwner,
+    ncodes: u32,
+    sweep: &mut dyn FnMut(&mut dyn FnMut(u32, &[u8])),
+) -> Result<AVec<i64>, TableBuildError> {
     let ia = arena_of(owner);
-    let mut images: AVec<(usize, u32, u32)> = AVec::with_capacity(&ia, ncodes as usize).map_err(refused)?;
+    let mut images: AVec<(usize, u32, u32)> =
+        AVec::with_capacity(&ia, ncodes as usize).map_err(refused)?;
     let mut bytes: Grow<u8> = Grow::new(owner);
     let mut step = cancelpoll::step("text_hosts rank: a bpchar part's trimmed images copied");
     let mut stopped: Option<Stop> = None;
@@ -27,7 +33,14 @@ pub(super) fn ranks(out: &OpArena, owner: BuildOwner, ncodes: u32, sweep: &mut d
             return;
         }
         let (t, at) = (trimmed(e), bytes.len());
-        let put = bytes.reserve(&mut step, t.len()).and_then(|()| bytes.extend_from_slice(t)).and_then(|()| images.push(&ia, (at, t.len() as u32, c)).map_err(Stop::Refused));
+        let put = bytes
+            .reserve(&mut step, t.len())
+            .and_then(|()| bytes.extend_from_slice(t))
+            .and_then(|()| {
+                images
+                    .push(&ia, (at, t.len() as u32, c))
+                    .map_err(Stop::Refused)
+            });
         stopped = put.err();
     });
     if let Some(s) = stopped {
@@ -35,7 +48,9 @@ pub(super) fn ranks(out: &OpArena, owner: BuildOwner, ncodes: u32, sweep: &mut d
     }
     let b = bytes.as_slice();
     let image = |x: &(usize, u32, u32)| &b[x.0..x.0 + x.1 as usize];
-    images.as_mut_slice(&ia).sort_unstable_by(|x, y| image(x).cmp(image(y)).then(x.2.cmp(&y.2)));
+    images
+        .as_mut_slice(&ia)
+        .sort_unstable_by(|x, y| image(x).cmp(image(y)).then(x.2.cmp(&y.2)));
     let mut by_code: AVec<i64> = AVec::default();
     by_code.resize(out, ncodes as usize, 0).map_err(refused)?;
     let (o, imgs) = (by_code.as_mut_slice(out), images.as_slice(&ia));
@@ -49,7 +64,11 @@ pub(super) fn ranks(out: &OpArena, owner: BuildOwner, ncodes: u32, sweep: &mut d
 
 /// The `I64` rank table of `dict` in `region`, from one sweep of its entries (a verbatim part's decodes its rows); its
 /// working memory charged to `owner`.
-pub(super) fn build(dict: &dyn Dict, owner: BuildOwner, region: &mut Region) -> Result<I64, TableBuildError> {
+pub(super) fn build(
+    dict: &dyn Dict,
+    owner: BuildOwner,
+    region: &mut Region,
+) -> Result<I64, TableBuildError> {
     let null = dict.null_code();
     let a = arena_of(owner);
     let by_code = ranks(&a, owner, dict.ncodes(), &mut |f| {
@@ -60,7 +79,14 @@ pub(super) fn build(dict: &dyn Dict, owner: BuildOwner, region: &mut Region) -> 
         })
     })?;
     let by_code = by_code.as_slice(&a);
-    Ok(I64::build_by_code(&Codes { ncodes: dict.ncodes(), null }, region, &mut |c| Ok(by_code[c as usize]))?)
+    Ok(I64::build_by_code(
+        &Codes {
+            ncodes: dict.ncodes(),
+            null,
+        },
+        region,
+        &mut |c| Ok(by_code[c as usize]),
+    )?)
 }
 
 #[cfg(test)]
@@ -95,7 +121,10 @@ mod tests {
     #[test]
     fn a_tab_sorts_after_the_padded_a() {
         // a part's byte order: '', ' ', 'a', 'a' || chr(9), 'a  ', 'b'
-        assert_eq!(table(&[b"", b" ", b"a", b"a\t", b"a  ", b"b"], None), [0, 0, 1, 2, 1, 3]);
+        assert_eq!(
+            table(&[b"", b" ", b"a", b"a\t", b"a  ", b"b"], None),
+            [0, 0, 1, 2, 1, 3]
+        );
     }
 
     #[test]
@@ -130,17 +159,24 @@ mod tests {
     fn a_rank_builds_working_memory_is_its_owners_while_it_runs() {
         use memledger::{charge::usage, Kind};
         super::super::owner_tests::in_statement(3974, Kind::TopK, |a, slot| {
-            let vals: Vec<Vec<u8>> = (0..50_000u32).map(|i| format!("{:08}   ", 49_999 - i).into_bytes()).collect(); // alloc: Cold
+            let vals: Vec<Vec<u8>> = (0..50_000u32)
+                .map(|i| format!("{:08}   ", 49_999 - i).into_bytes())
+                .collect(); // alloc: Cold
             let entries: Vec<&[u8]> = vals.iter().map(|v| &v[..]).collect();
             let ranked = |owner| {
                 let mut buf = vec![0u64; 1 << 17]; // alloc: Cold
                 let mut region = super::super::raw::region(&mut buf);
-                super::super::raw::i64_values(&build(&Entries(&entries, None), owner, &mut region).expect("built"))
+                super::super::raw::i64_values(
+                    &build(&Entries(&entries, None), owner, &mut region).expect("built"),
+                )
             };
             let before = usage(slot).held;
             let ranks = ranked(Some((slot, Kind::TopK)));
             assert_eq!(usage(slot).held, before, "gone after the build");
-            assert_eq!(ranks, (0..50_000i64).map(|c| 49_999 - c).collect::<Vec<_>>());
+            assert_eq!(
+                ranks,
+                (0..50_000i64).map(|c| 49_999 - c).collect::<Vec<_>>()
+            );
             assert_eq!(ranks, ranked(None), "as with no owner");
             let mut peak = 0;
             memledger::for_each_kind_row(|r| {
@@ -149,7 +185,10 @@ mod tests {
                 }
             });
             // 50,000 triples of 16 bytes, the trimmed images' 400,000 bytes, 50,000 ranks of 8 bytes
-            assert!(peak >= 50_000 * 16 + 400_000 + 50_000 * 8, "the build's working memory on its owner at its peak: {peak}");
+            assert!(
+                peak >= 50_000 * 16 + 400_000 + 50_000 * 8,
+                "the build's working memory on its owner at its peak: {peak}"
+            );
         });
     }
 

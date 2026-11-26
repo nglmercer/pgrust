@@ -19,9 +19,9 @@ use gravity_ir::{builder::ProgramBuilder, Type, Value};
 use gravity_program::{table_fn, LaneId, TableDecl};
 use mcx::{CollectIn, GrowIn, Mcx, PgVec};
 
+use crate::admit::refusal::Reason;
 use crate::dict::face::{PerValue, PerValueImpl};
 use crate::frame::px::{ExId, Px};
-use crate::admit::refusal::Reason;
 
 crate::strategies! {
     /// Pure function of one Code lane once per entry, read as a word mask; LIKE verdict tables come from hosts
@@ -29,8 +29,13 @@ crate::strategies! {
     PERCODE_TABLE = 21, "percode.table", CodeExpr;
 }
 
-pub(crate) const ROWS: crate::ops::Table =
-    crate::ops::Table { strategies: &[(PERCODE_TABLE, &PerValueImpl(&crate::dict::percode_len::ROAD))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(
+        PERCODE_TABLE,
+        &PerValueImpl(&crate::dict::percode_len::ROAD),
+    )],
+    ..crate::ops::NONE
+};
 
 /// How the row reads a bound table (`agg_bind`'s class).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -118,39 +123,91 @@ pub(crate) fn tables(px: &mut Px<'_, '_>, k: usize) -> Rc<RefCell<Tables>> {
 /// swapped side) reads another site's slots: its rows, and any verdict a cache keeps from them, would be another
 /// expression's. Asked where a making takes compiled quals (step/filter.rs `make`, pgrc `declare_verdicts`).
 pub(crate) fn owns(px: &mut Px<'_, '_>, k: usize, q: ExId) -> bool {
-    let Some(tabs) = px.placed(q).ext.as_deref().and_then(|x| x.downcast_ref::<Plan>()).map(|p| Rc::clone(&p.tabs)) else { return true };
+    let Some(tabs) = px
+        .placed(q)
+        .ext
+        .as_deref()
+        .and_then(|x| x.downcast_ref::<Plan>())
+        .map(|p| Rc::clone(&p.tabs))
+    else {
+        return true;
+    };
     let key = tables_key(px, k);
-    crate::step::expr::ext(px).tables.iter().any(|(at, t)| *at == key && Rc::ptr_eq(t, &tabs))
+    crate::step::expr::ext(px)
+        .tables
+        .iter()
+        .any(|(at, t)| *at == key && Rc::ptr_eq(t, &tabs))
 }
 
 /// `decl` declared on pipeline `k`'s site and bound per window as `class`: the site table. Every table of a site goes
 /// through here (a fingerprint table too), so the bind covers the site's tables in order.
-pub(crate) fn declare_table(px: &mut Px<'_, '_>, k: usize, decl: TableDecl, class: Class) -> Option<u16> {
-    let (fits, s) = (crate::dict::strategies::percode_guard::fits(px, k, 1), px.site_mut(k)?);
+pub(crate) fn declare_table(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    decl: TableDecl,
+    class: Class,
+) -> Option<u16> {
+    let (fits, s) = (
+        crate::dict::strategies::percode_guard::fits(px, k, 1),
+        px.site_mut(k)?,
+    );
     // D319: an equal table is one lane (two lanes of one key spin in the bind), its args compared by bytes (table_bytes_of appends); D1747: a new one only while its site lane (a u8 here) and the row slots (u8 fp_table) fit, a type bound, not a cap: past it the column is read as its datum
-    let t = match s.tables.iter().position(|x| TableDecl { args: decl.args, flags: unswept(x), ..*x } == decl && (0..2).all(|a| s.table_arg(x, a) == s.table_arg(&decl, a))) { Some(i) => i as u16, None if fits => s.declare_table(decl)?, None => return None };
+    let t = match s.tables.iter().position(|x| {
+        TableDecl {
+            args: decl.args,
+            flags: unswept(x),
+            ..*x
+        } == decl
+            && (0..2).all(|a| s.table_arg(x, a) == s.table_arg(&decl, a))
+    }) {
+        Some(i) => i as u16,
+        None if fits => s.declare_table(decl)?,
+        None => return None,
+    };
     let (lane, tabs) = (s.lane_index(LaneId::Table(t))? as u8, tables(px, k));
     let mut tb = tabs.borrow_mut();
     if t as usize == tb.lanes.len() {
         tb.lanes.push((lane, class)); // alloc: Program
     } else if t as usize > tb.lanes.len() {
-        crate::refuse!(px.gx.root_node(), Reason::Bug { payload: "a site table declared outside step_percode::declare_table" });
+        crate::refuse!(
+            px.gx.root_node(),
+            Reason::Bug {
+                payload: "a site table declared outside step_percode::declare_table"
+            }
+        );
     }
     Some(t)
 }
 
 /// A table's flags without D3115's `FLAG_SWEPT` (set on a `PROGRAM` table after its declaration, `mark_swept`).
 fn unswept(d: &TableDecl) -> u8 {
-    if d.func == table_fn::PROGRAM { d.flags & !table_fn::FLAG_SWEPT } else { d.flags }
+    if d.func == table_fn::PROGRAM {
+        d.flags & !table_fn::FLAG_SWEPT
+    } else {
+        d.flags
+    }
 }
 
 /// D3115: site table `t`'s `FLAG_SWEPT` from its sweep: a `PROGRAM` table the program sweeps (`percode_fill::lazy` false)
 /// is the statement's, its chunks swept by every source that reaches the part; a lazy one stays each source's own (its
 /// rows fill it). Called wherever a sweep's `every` / `walked` moves.
 pub(crate) fn mark_swept(px: &mut Px<'_, '_>, k: usize, tabs: &Rc<RefCell<Tables>>, t: usize) {
-    let swept = tabs.borrow().sweeps.iter().find(|s| s.t == t).is_some_and(|s| !crate::dict::percode_fill::lazy(s));
-    if let Some(d) = px.site_mut(k).and_then(|s| s.tables.get_mut(t)).filter(|d| d.func == table_fn::PROGRAM) {
-        d.flags = if swept { d.flags | table_fn::FLAG_SWEPT } else { d.flags & !table_fn::FLAG_SWEPT };
+    let swept = tabs
+        .borrow()
+        .sweeps
+        .iter()
+        .find(|s| s.t == t)
+        .is_some_and(|s| !crate::dict::percode_fill::lazy(s));
+    if let Some(d) = px
+        .site_mut(k)
+        .and_then(|s| s.tables.get_mut(t))
+        .filter(|d| d.func == table_fn::PROGRAM)
+    {
+        d.flags = if swept {
+            d.flags | table_fn::FLAG_SWEPT
+        } else {
+            d.flags & !table_fn::FLAG_SWEPT
+        };
     }
 }
 
@@ -164,31 +221,52 @@ pub(crate) fn mark_swept(px: &mut Px<'_, '_>, k: usize, tabs: &Rc<RefCell<Tables
 /// P5-02: any length: a constant list past `MAX_LIST` is bound as one word, its whole array (`ConstWord::list`). Any other
 /// array that is no constant keeps `pre_claim`. When `attach` declines it after all, step/expr.rs `compile_at` makes
 /// `pre_claim`'s claim then.
-pub(crate) fn sets_first(px: &mut Px<'_, '_>, k: usize, j: usize, c: &Compiled<'_>, node: types_nodes::Node<'_>) -> bool {
+pub(crate) fn sets_first(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    c: &Compiled<'_>,
+    node: types_nodes::Node<'_>,
+) -> bool {
     if !PerValue::Table.on() {
         return false;
     }
     let p = &c.prog;
     let mcx = px.mcx();
-    let saops: PgVec<'_, usize> = (0..p.nodes.len()).filter(|&i| matches!(p.nodes[i], ExprNode::ScalarArrayOp(_))).collect_in(mcx);
+    let saops: PgVec<'_, usize> = (0..p.nodes.len())
+        .filter(|&i| matches!(p.nodes[i], ExprNode::ScalarArrayOp(_)))
+        .collect_in(mcx);
     let mut hashed: PgVec<'_, bool> = PgVec::new_in(mcx);
-    gravity_decompose::expr::walk(node.as_target_entry().map_or(node, |te| te.expr), &mut |x| {
-        if let Some(s) = x.as_scalar_array_op_expr() {
-            hashed.push_in(s.hashfuncid != 0);
-        }
-        true
-    });
+    gravity_decompose::expr::walk(
+        node.as_target_entry().map_or(node, |te| te.expr),
+        &mut |x| {
+            if let Some(s) = x.as_scalar_array_op_expr() {
+                hashed.push_in(s.hashfuncid != 0);
+            }
+            true
+        },
+    );
     let array = |i: usize| match &p.nodes[i] {
-        ExprNode::ScalarArrayOp(s) => Some(p.kids[p.sites[s.site.0 as usize].args.start as usize + 1]),
+        ExprNode::ScalarArrayOp(s) => {
+            Some(p.kids[p.sites[s.site.0 as usize].args.start as usize + 1])
+        }
         _ => None,
     };
     let bound = |i: usize| array(i).and_then(|a| gravity_expr::percode::bound_list_len(p, a));
-    if saops.is_empty() || saops.len() != hashed.len() || !saops.iter().zip(&hashed).any(|(&i, &h)| h || bound(i).is_some()) {
+    if saops.is_empty()
+        || saops.len() != hashed.len()
+        || !saops
+            .iter()
+            .zip(&hashed)
+            .any(|(&i, &h)| h || bound(i).is_some())
+    {
         return false;
     }
     let codes = crate::step::project::code_cols(px, k, j);
     saops.iter().zip(hashed).all(|(&i, h)| {
-        let ExprNode::ScalarArrayOp(s) = &p.nodes[i] else { return false };
+        let ExprNode::ScalarArrayOp(s) = &p.nodes[i] else {
+            return false;
+        };
         let n = match array(i).map(|a| &p.nodes[a.0 as usize]) {
             Some(ExprNode::Const(a)) => a.list_count(s.elem),
             _ => match bound(i) {
@@ -197,13 +275,18 @@ pub(crate) fn sets_first(px: &mut Px<'_, '_>, k: usize, j: usize, c: &Compiled<'
             },
         };
         if !h && bound(i).is_none() {
-            return n.is_some_and(|n| n <= gravity_program::cost::expr::MAX_LIST); // pre_kind's `long`: not handed over
+            return n.is_some_and(|n| n <= gravity_program::cost::expr::MAX_LIST);
+            // pre_kind's `long`: not handed over
         }
-        let Some(v) = gravity_expr::percode::code_set_var(p, NodeId(i as u32)) else { return false };
+        let Some(v) = gravity_expr::percode::code_set_var(p, NodeId(i as u32)) else {
+            return false;
+        };
         // the column as `attach` reads it: a scan column, or an `OUTER` one that is one of the row's code columns (compile_at)
         // P5-02: any length: a constant list past MAX_LIST is one bound word (gravity_expr percode `ConstWord::list`), a
         // parameter list one cell per element; the per-code road against the datum is the cost call `reads_datum` makes
-        n.is_some_and(|n| n > 0) && matches!(v.src, VarSource::Scan | VarSource::Outer) && codes.iter().any(|x| x.0 == v.attno)
+        n.is_some_and(|n| n > 0)
+            && matches!(v.src, VarSource::Scan | VarSource::Outer)
+            && codes.iter().any(|x| x.0 == v.attno)
     })
 }
 
@@ -211,12 +294,30 @@ pub(crate) fn sets_first(px: &mut Px<'_, '_>, k: usize, j: usize, c: &Compiled<'
 /// root is served (the expression reads every column as its datum). A column some use of which is not per-code (a bare
 /// column under another node, a by-reference result, a road that is off) is read as its datum; the other columns'
 /// `Var`s are then `OUTER`, so the code columns alone are read by code.
-pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'_>, ex: ExId, node: i32) -> Option<Rc<Plan>> {
+pub(crate) fn attach(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    j: usize,
+    c: &mut Compiled<'_>,
+    ex: ExId,
+    node: i32,
+) -> Option<Rc<Plan>> {
     let mcx = px.mcx();
-    let reads = |c: &Compiled<'_>, a: i16| c.prog.nodes.iter().any(|n| matches!(n, ExprNode::Var(v) if v.src == VarSource::Scan && v.attno == a));
-    let mut cols: Vec<_> = crate::step::project::code_cols(px, k, j).into_iter().filter(|x| reads(c, x.0)).collect(); // alloc: Program
-    // R5-B: each code column's (rows, entries) for the body's datum choice (`reads_datum`), the server's widest width beside
-    let counts: PgVec<'_, (i16, Option<(u64, u64)>)> = cols.iter().map(|x| (x.0, col_counts(px, k, x.1))).collect_in(mcx);
+    let reads = |c: &Compiled<'_>, a: i16| {
+        c.prog
+            .nodes
+            .iter()
+            .any(|n| matches!(n, ExprNode::Var(v) if v.src == VarSource::Scan && v.attno == a))
+    };
+    let mut cols: Vec<_> = crate::step::project::code_cols(px, k, j)
+        .into_iter()
+        .filter(|x| reads(c, x.0))
+        .collect(); // alloc: Program
+                    // R5-B: each code column's (rows, entries) for the body's datum choice (`reads_datum`), the server's widest width beside
+    let counts: PgVec<'_, (i16, Option<(u64, u64)>)> = cols
+        .iter()
+        .map(|x| (x.0, col_counts(px, k, x.1)))
+        .collect_in(mcx);
     let widest = px.gx.facts.width().unwrap_or(0);
     let plan = loop {
         if cols.is_empty() || (!PerValue::Table.on() && !PerValue::Length.on()) {
@@ -224,15 +325,27 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
         }
         let cc: PgVec<'_, CodeCol> = cols.iter().map(|x| CodeCol { attno: x.0 }).collect_in(mcx);
         let plan = c.percode(&cc, mcx).ok()?;
-        let kept = |r: &gravity_expr::percode::Root| served(c, &plan, r) && !crate::step::expr_ext_lazy::twice(c, &plan, r);
+        let kept = |r: &gravity_expr::percode::Root| {
+            served(c, &plan, r) && !crate::step::expr_ext_lazy::twice(c, &plan, r)
+        };
         // PS1-15: an ILIKE the hosts' table does not take (`hosted_like`) is a body swept per entry, a bound one too
         let swept = |r: &gravity_expr::percode::Root, k: &Known| match k {
             Known::Body => true,
             Known::LikeBound { ilike, .. } => !hosted_like(c, r.node, *ilike, px.gx.catalog),
             _ => false,
         };
-        let dense = |r: &gravity_expr::percode::Root| counts.iter().find(|x| x.0 == r.attno).and_then(|x| x.1).is_some_and(|(rows, n)| reads_datum(c, r.node, rows, n, widest));
-        let body = |r: &gravity_expr::percode::Root| r.table.is_some_and(|t| swept(r, &plan.needs[t as usize].known)) && dense(r);
+        let dense = |r: &gravity_expr::percode::Root| {
+            counts
+                .iter()
+                .find(|x| x.0 == r.attno)
+                .and_then(|x| x.1)
+                .is_some_and(|(rows, n)| reads_datum(c, r.node, rows, n, widest))
+        };
+        let body = |r: &gravity_expr::percode::Root| {
+            r.table
+                .is_some_and(|t| swept(r, &plan.needs[t as usize].known))
+                && dense(r)
+        };
         let drop = plan.roots.iter().find(|r| !kept(r) || body(r));
         if drop.is_some_and(kept) {
             fires::fire("percode.datum");
@@ -246,7 +359,10 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
         let probed = drop_at.map_or_else(|| probe(c, &cols, &plan, mcx), Err);
         set_src(c, &ride, VarSource::Scan);
         match probed {
-            Ok(()) => break crate::dict::strategies::percode_guard::fits(px, k, plan.needs.len()).then_some(plan)?, // D1747: every need's table fits the u8 lane / slot types (else read as datum)
+            Ok(()) => {
+                break crate::dict::strategies::percode_guard::fits(px, k, plan.needs.len())
+                    .then_some(plan)?
+            } // D1747: every need's table fits the u8 lane / slot types (else read as datum)
             Err(a) => cols.retain(|x| x.0 != a),
         }
     };
@@ -255,25 +371,62 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
         let over = cols.iter().find(|x| x.0 == n.attno)?.1;
         let mut bound = None;
         let (decl, class) = match &n.known {
-            Known::Like { pattern, ilike, negated } if hosted_like(c, n.root, *ilike, px.gx.catalog) => {
-                let flags = if *ilike { table_fn::FLAG_ILIKE } else { 0 } | if *negated { table_fn::FLAG_NEGATED } else { 0 };
+            Known::Like {
+                pattern,
+                ilike,
+                negated,
+            } if hosted_like(c, n.root, *ilike, px.gx.catalog) => {
+                let flags = if *ilike { table_fn::FLAG_ILIKE } else { 0 }
+                    | if *negated { table_fn::FLAG_NEGATED } else { 0 };
                 let arg = px.site_mut(k)?.table_bytes_of(pattern);
-                (TableDecl { over, func: table_fn::LIKE, flags, collation: collation(c, n.root), encoding: 0, args: [arg, (0, 0)] }, Class::Bits)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::LIKE,
+                        flags,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args: [arg, (0, 0)],
+                    },
+                    Class::Bits,
+                )
             }
             Known::Eq { values, negated } => {
                 let mut bytes: PgVec<'_, u8> = PgVec::new_in(mcx);
                 table_fn::put_values(values, &mut |b| bytes.extend_from_slice_in(b));
                 let arg = px.site_mut(k)?.table_bytes_of(&bytes);
                 let flags = if *negated { table_fn::FLAG_NEGATED } else { 0 };
-                (TableDecl { over, func: table_fn::EQ, flags, collation: collation(c, n.root), encoding: 0, args: [arg, (0, 0)] }, Class::Set)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::EQ,
+                        flags,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args: [arg, (0, 0)],
+                    },
+                    Class::Set,
+                )
             }
-            Known::EqBound { values, params, consts, negated } => {
+            Known::EqBound {
+                values,
+                params,
+                consts,
+                negated,
+            } => {
                 // P5-02: a whole list's word (`ConstWord::list`) is a table of its own kind: every cell an array
-                if consts.iter().any(|w| w.list) && (consts.len() != 1 || !values.is_empty() || !params.is_empty()) {
+                if consts.iter().any(|w| w.list)
+                    && (consts.len() != 1 || !values.is_empty() || !params.is_empty())
+                {
                     return None;
                 }
-                let list = if consts.iter().any(|w| w.list) { table_fn::FLAG_LIST } else { 0 };
-                let flags = table_fn::FLAG_BOUND | list | if *negated { table_fn::FLAG_NEGATED } else { 0 };
+                let list = if consts.iter().any(|w| w.list) {
+                    table_fn::FLAG_LIST
+                } else {
+                    0
+                };
+                let flags =
+                    table_fn::FLAG_BOUND | list | if *negated { table_fn::FLAG_NEGATED } else { 0 };
                 let mut needs: PgVec<'_, u32> = mcx::reserved_in(consts.len(), mcx);
                 for &w in consts.iter() {
                     needs.push_in(c.const_need(w, mcx)?);
@@ -281,48 +434,127 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
                 let (args, bd) = bound_args(px, k, mcx, values, params, &needs, ex)?;
                 bound = Some(bd);
                 // read with its fault bit: a NULL parameter or constant faults every entry, and the row evaluates the body
-                (TableDecl { over, func: table_fn::EQ, flags, collation: collation(c, n.root), encoding: 0, args }, Class::Bits)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::EQ,
+                        flags,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args,
+                    },
+                    Class::Bits,
+                )
             }
             Known::RangeBound { at, below, nul } => {
                 // NEW-72 entry C: the byte interval's end is the constant the source reads per execution
-                let flags = table_fn::FLAG_BOUND | if *below { table_fn::FLAG_BELOW } else { 0 } | if *nul { table_fn::FLAG_NUL } else { 0 };
-                let (args, bd) = bound_args(px, k, mcx, &[] as &[&[u8]], &[], &[c.const_need(*at, mcx)?], ex)?;
+                let flags = table_fn::FLAG_BOUND
+                    | if *below { table_fn::FLAG_BELOW } else { 0 }
+                    | if *nul { table_fn::FLAG_NUL } else { 0 };
+                let (args, bd) = bound_args(
+                    px,
+                    k,
+                    mcx,
+                    &[] as &[&[u8]],
+                    &[],
+                    &[c.const_need(*at, mcx)?],
+                    ex,
+                )?;
                 bound = Some(bd);
-                (TableDecl { over, func: table_fn::RANGE, flags, collation: collation(c, n.root), encoding: 0, args }, Class::Bits)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::RANGE,
+                        flags,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args,
+                    },
+                    Class::Bits,
+                )
             }
-            Known::LikeBound { parts, params, ilike, negated } if hosted_like(c, n.root, *ilike, px.gx.catalog) => {
+            Known::LikeBound {
+                parts,
+                params,
+                ilike,
+                negated,
+            } if hosted_like(c, n.root, *ilike, px.gx.catalog) => {
                 // PS1-15: the pattern's constant runs and its parameters' cells, assembled by the source per execution
-                let flags = table_fn::FLAG_BOUND | if *ilike { table_fn::FLAG_ILIKE } else { 0 } | if *negated { table_fn::FLAG_NEGATED } else { 0 };
+                let flags = table_fn::FLAG_BOUND
+                    | if *ilike { table_fn::FLAG_ILIKE } else { 0 }
+                    | if *negated { table_fn::FLAG_NEGATED } else { 0 };
                 let (args, bd) = bound_args(px, k, mcx, parts, params, &[], ex)?;
                 bound = Some(bd);
-                (TableDecl { over, func: table_fn::LIKE, flags, collation: collation(c, n.root), encoding: 0, args }, Class::Bits)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::LIKE,
+                        flags,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args,
+                    },
+                    Class::Bits,
+                )
             }
             Known::Range { from, to } => {
                 let mut bytes: PgVec<'_, u8> = PgVec::new_in(mcx);
                 for v in std::iter::once(from).chain(to.iter()) {
-                    table_fn::put_values(core::slice::from_ref(v), &mut |b| bytes.extend_from_slice_in(b));
+                    table_fn::put_values(core::slice::from_ref(v), &mut |b| {
+                        bytes.extend_from_slice_in(b)
+                    });
                 }
                 let arg = px.site_mut(k)?.table_bytes_of(&bytes);
-                (TableDecl { over, func: table_fn::RANGE, flags: 0, collation: collation(c, n.root), encoding: 0, args: [arg, (0, 0)] }, Class::Bits)
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::RANGE,
+                        flags: 0,
+                        collation: collation(c, n.root),
+                        encoding: 0,
+                        args: [arg, (0, 0)],
+                    },
+                    Class::Bits,
+                )
             }
             Known::OctetLength | Known::CharLength => {
                 let mut decl = crate::dict::percode_len::decl(over, &n.known);
                 // D3038 (A): the column read for its lengths and emptiness alone (octet_lane.rs `sole`)
-                if matches!(n.known, Known::OctetLength) && crate::ops::scan::pgrc::strategies::octet_lane::sole(px.gx, k, n.attno) {
+                if matches!(n.known, Known::OctetLength)
+                    && crate::ops::scan::pgrc::strategies::octet_lane::sole(px.gx, k, n.attno)
+                {
                     decl.flags |= table_fn::FLAG_SOLE;
                     fires::fire("percode.sole"); // shapecheck fire signal (D3038 A)
                 }
                 (decl, Class::Len)
             }
             Known::Like { .. } | Known::LikeBound { .. } | Known::Body => {
-                let arg = px.site_mut(k)?.table_bytes_of(&n.table_fingerprint(ex.0).to_le_bytes()); // D1100: a word's root, its own table
-                let class = if n.elem == ELEM_BITS { Class::Bits } else { Class::Words };
-                (TableDecl { over, func: table_fn::PROGRAM, flags: n.elem, collation: 0, encoding: 0, args: [arg, (0, 0)] }, class)
+                let arg = px
+                    .site_mut(k)?
+                    .table_bytes_of(&n.table_fingerprint(ex.0).to_le_bytes()); // D1100: a word's root, its own table
+                let class = if n.elem == ELEM_BITS {
+                    Class::Bits
+                } else {
+                    Class::Words
+                };
+                (
+                    TableDecl {
+                        over,
+                        func: table_fn::PROGRAM,
+                        flags: n.elem,
+                        collation: 0,
+                        encoding: 0,
+                        args: [arg, (0, 0)],
+                    },
+                    class,
+                )
             }
         };
         let t = declare_table(px, k, decl, class)?;
         if let Some(bd) = bound {
-            if let Some(gravity_program::SiteKind::RangeSource { nkeys, .. }) = px.site_mut(k).map(|s| &mut s.kind) {
+            if let Some(gravity_program::SiteKind::RangeSource { nkeys, .. }) =
+                px.site_mut(k).map(|s| &mut s.kind)
+            {
                 *nkeys += bd.cells.len() as u16;
             }
             tables(px, k).borrow_mut().bound.push(bd); // alloc: Program
@@ -336,7 +568,17 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
             let mut tb = tabs.borrow_mut();
             match tb.sweeps.iter_mut().find(|s| s.t == t as usize) {
                 Some(s) => s.every |= every, // D319: one table for two equal roots; one every row reads is swept
-                None => tb.sweeps.push(Sweep { t: t as usize, over, ex, root: n.root, attno: n.attno, elem: n.elem, node, walked: false, every }), // alloc: Program
+                None => tb.sweeps.push(Sweep {
+                    t: t as usize,
+                    over,
+                    ex,
+                    root: n.root,
+                    attno: n.attno,
+                    elem: n.elem,
+                    node,
+                    walked: false,
+                    every,
+                }), // alloc: Program
             }
             drop(tb);
             mark_swept(px, k, &tabs, t as usize);
@@ -351,12 +593,28 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
         }
     }
     // shapecheck BG-03 / B2-17 / STEP-07: the per-code road is taken (every table declared)
-    for r in plan.roots.iter().filter(|r| cols.iter().any(|x| x.0 == r.attno)) {
+    for r in plan
+        .roots
+        .iter()
+        .filter(|r| cols.iter().any(|x| x.0 == r.attno))
+    {
         match (r.form, r.table.map(|t| &plan.needs[t as usize].known)) {
-            (_, Some(Known::Like { ilike, .. })) => fires::fire(if hosted_like(c, r.node, *ilike, px.gx.catalog) { "percode.like" } else { "percode.ilike_body" }), // H04
+            (_, Some(Known::Like { ilike, .. })) => {
+                fires::fire(if hosted_like(c, r.node, *ilike, px.gx.catalog) {
+                    "percode.like"
+                } else {
+                    "percode.ilike_body"
+                })
+            } // H04
             (_, Some(Known::Eq { .. })) => fires::fire("percode.eq"),
             (_, Some(Known::EqBound { .. })) => fires::fire("percode.eq_bound"), // X5
-            (_, Some(Known::LikeBound { ilike, .. })) => fires::fire(if hosted_like(c, r.node, *ilike, px.gx.catalog) { "percode.like_bound" } else { "percode.ilike_body" }), // PS1-15
+            (_, Some(Known::LikeBound { ilike, .. })) => {
+                fires::fire(if hosted_like(c, r.node, *ilike, px.gx.catalog) {
+                    "percode.like_bound"
+                } else {
+                    "percode.ilike_body"
+                })
+            } // PS1-15
             (_, Some(Known::Range { .. })) => fires::fire("percode.range"),
             (_, Some(Known::RangeBound { .. })) => fires::fire("percode.range_bound"), // NEW-72 entry C
             (_, Some(Known::OctetLength | Known::CharLength)) => fires::fire("percode.length"),
@@ -364,31 +622,66 @@ pub(crate) fn attach(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled<'
             _ => {}
         }
     }
-    Some(Rc::new(Plan { cols, tables: reads, tabs: tables(px, k), ext: Default::default() })) // alloc: Program
+    Some(Rc::new(Plan {
+        cols,
+        tables: reads,
+        tabs: tables(px, k),
+        ext: Default::default(),
+    })) // alloc: Program
 }
 
 /// X5 / PS1-15: a `FLAG_BOUND` table's arguments on pipeline `k`'s site: `values` (`put_values`: an EQ table's constants,
 /// a LIKE pattern's constant runs) and the key cells of `params`, then of `consts` (NEW-72 entry C: bound text constants'
 /// need indices), after every cell the site has (the sample's, the tid range's). The site's cell count grows only once the table is declared (`attach`): the source counts a site's bound
 /// cells from its declared tables.
-fn bound_args(px: &mut Px<'_, '_>, k: usize, mcx: Mcx<'_>, values: &[impl AsRef<[u8]>], params: &[(i32, u32)], consts: &[u32], ex: ExId) -> Option<([(u32, u32); 2], Bound)> {
+fn bound_args(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    mcx: Mcx<'_>,
+    values: &[impl AsRef<[u8]>],
+    params: &[(i32, u32)],
+    consts: &[u32],
+    ex: ExId,
+) -> Option<([(u32, u32); 2], Bound)> {
     let site = px.site_mut(k)?;
-    let gravity_program::SiteKind::RangeSource { nkeys, .. } = &site.kind else { return None };
+    let gravity_program::SiteKind::RangeSource { nkeys, .. } = &site.kind else {
+        return None;
+    };
     let first = *nkeys;
-    let cells: Vec<u16> = (first..first.checked_add(u16::try_from(params.len() + consts.len()).ok()?)?).collect(); // alloc: Program
+    let cells: Vec<u16> =
+        (first..first.checked_add(u16::try_from(params.len() + consts.len()).ok()?)?).collect(); // alloc: Program
     let (mut vb, mut cb): (PgVec<'_, u8>, PgVec<'_, u8>) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
     table_fn::put_values(values, &mut |b| vb.extend_from_slice_in(b));
     table_fn::put_cells(&cells, &mut |b| cb.extend_from_slice_in(b));
     let args = [site.table_bytes_of(&vb), site.table_bytes_of(&cb)];
-    Some((args, Bound { cells, params: params.to_vec(), consts: consts.to_vec(), ex })) // alloc: Program
+    Some((
+        args,
+        Bound {
+            cells,
+            params: params.to_vec(),
+            consts: consts.to_vec(),
+            ex,
+        },
+    )) // alloc: Program
 }
 
 /// Site lane `lane` of pipeline `k`'s relation rows and the column's entries, from the relation's parts
 /// (`Facts::rel_rows`, `att_entries`); `None` off a pgrc range or without the counts (the body keeps its table).
 fn col_counts(px: &mut Px<'_, '_>, k: usize, lane: u8) -> Option<(u64, u64)> {
-    let gravity_decompose::graph::Source::Range { relid, .. } = px.gx.pipelines()[k].source else { return None };
-    let Some(LaneId::Attr(a)) = px.site_mut(k).and_then(|s| s.lanes().get(lane as usize)).map(|l| l.id) else { return None };
-    Some((px.gx.facts.rel_rows(relid)?, px.gx.facts.att_entries(relid, a)?))
+    let gravity_decompose::graph::Source::Range { relid, .. } = px.gx.pipelines()[k].source else {
+        return None;
+    };
+    let Some(LaneId::Attr(a)) = px
+        .site_mut(k)
+        .and_then(|s| s.lanes().get(lane as usize))
+        .map(|l| l.id)
+    else {
+        return None;
+    };
+    Some((
+        px.gx.facts.rel_rows(relid)?,
+        px.gx.facts.att_entries(relid, a)?,
+    ))
 }
 
 /// PS1-29 / R5-B: a per-code body at root `root` over a column of `n` entries in `rows` rows reads the datum instead of its
@@ -398,7 +691,8 @@ fn col_counts(px: &mut Px<'_, '_>, k: usize, lane: u8) -> Option<(u64, u64)> {
 /// about once, and at least `cost::PERCODE_DATUM_ROWS_MIN` rows).
 fn reads_datum(c: &Compiled<'_>, root: NodeId, rows: u64, n: u64, widest: u16) -> bool {
     use gravity_program::cost::{forms::percode_datum, near_unique};
-    percode_datum(n, rows, transforms(&c.prog, root, false), widest).unwrap_or_else(|| near_unique(rows, n))
+    percode_datum(n, rows, transforms(&c.prog, root, false), widest)
+        .unwrap_or_else(|| near_unique(rows, n))
 }
 
 /// R5-B's body class: a call gravity_expr does not open-code under another call at or below `id` (`under`: inside one), a
@@ -407,10 +701,15 @@ fn reads_datum(c: &Compiled<'_>, root: NodeId, rows: u64, n: u64, widest: u16) -
 fn transforms(p: &gravity_expr::Program<'_>, id: NodeId, under: bool) -> bool {
     crate::stack_check();
     let here = match &p.nodes[id.0 as usize] {
-        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => !gravity_expr::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false),
+        ExprNode::Func(n) | ExprNode::Op(n) | ExprNode::Distinct(n) | ExprNode::NullIf(n) => {
+            !gravity_expr::emit::prim::is_prim(p, &p.sites[n.site.0 as usize], false)
+        }
         _ => false,
     };
-    (here && under) || gravity_expr::percode::walk_kids(p, id).into_iter().any(|k| transforms(p, k, under || here))
+    (here && under)
+        || gravity_expr::percode::walk_kids(p, id)
+            .into_iter()
+            .any(|k| transforms(p, k, under || here))
 }
 
 /// A root this road serves: no bare column at the top (the caller forwards the cell), no by-reference result, and the
@@ -421,7 +720,9 @@ fn served(c: &Compiled<'_>, plan: &PcPlan, r: &gravity_expr::percode::Root) -> b
         (Form::Code, _) => r.node != c.root,
         (Form::Derived, _) => false,
         (_, Some(Known::OctetLength | Known::CharLength)) => PerValue::Length.on(),
-        (_, Some(Known::Body)) => PerValue::Table.on() && need.is_some_and(|n| n.elem == ELEM_BITS || n.elem == ELEM_I64),
+        (_, Some(Known::Body)) => {
+            PerValue::Table.on() && need.is_some_and(|n| n.elem == ELEM_BITS || n.elem == ELEM_I64)
+        }
         _ => PerValue::Table.on(),
     }
 }
@@ -429,8 +730,16 @@ fn served(c: &Compiled<'_>, plan: &PcPlan, r: &gravity_expr::percode::Root) -> b
 /// H04: the hosts' LIKE table for a LIKE root; for an ILIKE only under a deterministic collation whose ctype is C (D2680:
 /// the table's matcher folds ASCII). Any other ILIKE is the root's own body under its collation, a bit per entry the rows
 /// fill (percode_fill.rs), so every ILIKE over a code column is evaluated once per entry.
-fn hosted_like(c: &Compiled<'_>, root: NodeId, ilike: bool, cat: &dyn gravity_expr::Catalog<'_>) -> bool {
-    !ilike || cat.text(collation(c, root)).is_ok_and(|t| t.deterministic && t.ctype_is_c)
+fn hosted_like(
+    c: &Compiled<'_>,
+    root: NodeId,
+    ilike: bool,
+    cat: &dyn gravity_expr::Catalog<'_>,
+) -> bool {
+    !ilike
+        || cat
+            .text(collation(c, root))
+            .is_ok_and(|t| t.deterministic && t.ctype_is_c)
 }
 
 fn set_src(c: &mut Compiled<'_>, at: &[usize], src: VarSource) {
@@ -449,7 +758,9 @@ fn collation(c: &Compiled<'_>, root: NodeId) -> u32 {
         _ => root,
     };
     match &p.nodes[id.0 as usize] {
-        ExprNode::Op(n) | ExprNode::Func(n) | ExprNode::Distinct(n) => p.sites[n.site.0 as usize].collation,
+        ExprNode::Op(n) | ExprNode::Func(n) | ExprNode::Distinct(n) => {
+            p.sites[n.site.0 as usize].collation
+        }
         _ => 0,
     }
 }
@@ -462,16 +773,68 @@ fn probe(c: &Compiled<'_>, cols: &[(i16, u8, u8)], plan: &PcPlan, mcx: Mcx<'_>) 
     let mut b = pb.define(f);
     let p = b.params()[0];
     let (zero, t, fl) = (b.iconst(Type::I64, 0), b.bconst(true), b.bconst(false));
-    let codes: PgVec<'_, CodeRef> = cols.iter().map(|&(attno, ordinal, width)| {
-        CodeRef { attno, lane: LaneRef { ptr: p, valid: p, valid_null: None, width, kind: KIND_CODES, all_valid: false }, code: None, ordinal, part: Some(zero) }
-    }).collect_in(mcx);
-    let tabs: PgVec<'_, TableRef> = plan.needs.iter().map(|_| TableRef::Words { vals: p, faults: Some(p) }).collect_in(mcx);
-    let width = c.prog.nodes.iter().filter_map(|n| if let ExprNode::Var(v) = n { Some(v.attno.max(0) as usize) } else { None }).max().unwrap_or(0);
-    let (vals, valid) = (mcx::pg_vec![in mcx; zero; width], mcx::pg_vec![in mcx; t; width]);
+    let codes: PgVec<'_, CodeRef> = cols
+        .iter()
+        .map(|&(attno, ordinal, width)| CodeRef {
+            attno,
+            lane: LaneRef {
+                ptr: p,
+                valid: p,
+                valid_null: None,
+                width,
+                kind: KIND_CODES,
+                all_valid: false,
+            },
+            code: None,
+            ordinal,
+            part: Some(zero),
+        })
+        .collect_in(mcx);
+    let tabs: PgVec<'_, TableRef> = plan
+        .needs
+        .iter()
+        .map(|_| TableRef::Words {
+            vals: p,
+            faults: Some(p),
+        })
+        .collect_in(mcx);
+    let width = c
+        .prog
+        .nodes
+        .iter()
+        .filter_map(|n| {
+            if let ExprNode::Var(v) = n {
+                Some(v.attno.max(0) as usize)
+            } else {
+                None
+            }
+        })
+        .max()
+        .unwrap_or(0);
+    let (vals, valid) = (
+        mcx::pg_vec![in mcx; zero; width],
+        mcx::pg_vec![in mcx; t; width],
+    );
     let n = c.param_count(mcx).unwrap_or(0);
     let (cv, cn) = (mcx::pg_vec![in mcx; zero; n], mcx::pg_vec![in mcx; fl; n]);
-    let cols_v = ColsRef::Values { values: &vals, valids: &valid };
-    let refs = RowRefs { scan: ColsRef::Lanes { row: zero, lanes: &[] }, outer: cols_v, inner: cols_v, codes: &codes, tables: &tabs, cells: Some(p), region: Some(p), ctx: Some(p), ..RowRefs::scan(ColsRef::None, &cv, &cn, mcx) };
+    let cols_v = ColsRef::Values {
+        values: &vals,
+        valids: &valid,
+    };
+    let refs = RowRefs {
+        scan: ColsRef::Lanes {
+            row: zero,
+            lanes: &[],
+        },
+        outer: cols_v,
+        inner: cols_v,
+        codes: &codes,
+        tables: &tabs,
+        cells: Some(p),
+        region: Some(p),
+        ctx: Some(p),
+        ..RowRefs::scan(ColsRef::None, &cv, &cn, mcx)
+    };
     let r = c.emit(&mut b, &refs);
     b.ret(&[zero]);
     match r {

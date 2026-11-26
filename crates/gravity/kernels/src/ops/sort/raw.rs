@@ -10,19 +10,24 @@ use core::cmp::Ordering;
 
 use gravity_abi::breaker::{SortRun, SORTRUN_HDR, TABLE_SORT};
 use gravity_abi::ctx::cancel_pending;
-use gravity_abi::program::{consumed, partial, SPILL_RUN_CLOSE, SPILL_RUN_DROP, SPILL_RUN_SHAPE, STREAM_CONSUMED};
+use gravity_abi::program::{
+    consumed, partial, SPILL_RUN_CLOSE, SPILL_RUN_DROP, SPILL_RUN_SHAPE, STREAM_CONSUMED,
+};
 use gravity_abi::status::{CANCELLED, ERROR};
 use gravity_abi::Ctx;
 
-use crate::contract::Host;
-use crate::host_abi::{bare, cmp_failed, SortSpec};
-use super::entries::{RunShape, DESCRIBED};
-use super::rowsort::{cmp_rows, point_images, reader_of, relaid, spool_pointed, tbl_shape, var_alloc, var_shape, Order, RowCmp, VarShape, CMP_ERR, HEAPS, HEAPS_SWEPT, SPOOL_EMPTY, SPOOL_SPILLED_WHAT};
 use super::cut::{first_n, PgHeap, CUT_EXACT, CUT_LENIENT, CUT_NATURAL, CUT_TIES};
+use super::entries::{RunShape, DESCRIBED};
 use super::polled::{Poll, Stopped, SORT_RUN};
-use crate::table::emit::{Road, Work};
+use super::rowsort::{
+    cmp_rows, point_images, reader_of, relaid, spool_pointed, tbl_shape, var_alloc, var_shape,
+    Order, RowCmp, VarShape, CMP_ERR, HEAPS, HEAPS_SWEPT, SPOOL_EMPTY, SPOOL_SPILLED_WHAT,
+};
 use super::runmerge::{RunCur, RunMerge};
 use super::runs::{index, RUN_CUT, RUN_HEAP, RUN_KEYLANE, RUN_ORDERED};
+use crate::contract::Host;
+use crate::host_abi::{bare, cmp_failed, SortSpec};
+use crate::table::emit::{Road, Work};
 
 /// F3 (b): the merge laid at `own` given up before its end (its reader stopped reading and will not resume): each run
 /// reader it holds open closed (a run whose buffer still holds rows; an over run's reader was dropped by its last fill,
@@ -54,7 +59,11 @@ impl Host for SortFinish {
     /// # Safety
     /// `k` is a consumed region of the running pipeline (or `u64::MAX`) and `tbl` its reader's emit table.
     unsafe fn run(ctx: *mut Ctx, (k, tbl): (u64, u64)) -> u64 {
-        let own = if k == u64::MAX { partial(ctx) } else { consumed(ctx, k as usize) };
+        let own = if k == u64::MAX {
+            partial(ctx)
+        } else {
+            consumed(ctx, k as usize)
+        };
         let reader = reader_of(ctx, tbl as *const u32);
         match relaid(own) {
             Some(m) if m.active != 0 && m.reader == reader => abandon(ctx, own) as u64,
@@ -74,10 +83,18 @@ impl Host for SortStreamRearm {
     /// # Safety
     /// `k` is a consumed region of the running pipeline (or `u64::MAX`) and `tbl` its reader's emit table.
     unsafe fn run(ctx: *mut Ctx, (k, tbl): (u64, u64)) -> u64 {
-        let (own, stream) = if k == u64::MAX { (partial(ctx), 0) } else { (consumed(ctx, k as usize), STREAM_CONSUMED | k) };
+        let (own, stream) = if k == u64::MAX {
+            (partial(ctx), 0)
+        } else {
+            (consumed(ctx, k as usize), STREAM_CONSUMED | k)
+        };
         let (bytes, active) = match relaid(own) {
             Some(m) => (m.region, m.active != 0),
-            None => return bare("Bug: an incremental stream's region re-armed with no merge laid over it") as u64,
+            None => {
+                return bare(
+                    "Bug: an incremental stream's region re-armed with no merge laid over it",
+                ) as u64
+            }
         };
         if active && abandon(ctx, own) < 0 {
             return ERROR as u64;
@@ -101,7 +118,11 @@ impl Host for SortStreamRecycle {
     /// # Safety
     /// `k` is a consumed region of the running pipeline (or `u64::MAX`) holding a live run, `tbl` its reader's emit table.
     unsafe fn run(ctx: *mut Ctx, (k, tbl, closed): (u64, u64, u64)) -> u64 {
-        let own = if k == u64::MAX { partial(ctx) } else { consumed(ctx, k as usize) };
+        let own = if k == u64::MAX {
+            partial(ctx)
+        } else {
+            consumed(ctx, k as usize)
+        };
         if relaid(own).is_some() {
             return bare("Bug: an incremental stream's run recycled under a merge") as u64;
         }
@@ -151,7 +172,10 @@ impl Host for NumOrderWord {
     /// # Safety
     /// `p` is readable for `len` bytes.
     unsafe fn run(_ctx: *mut Ctx, (p, len): (u64, u64)) -> u64 {
-        gravity_fn::typesem::numeric::order_word(core::slice::from_raw_parts(p as usize as *const u8, len as usize)) as u64
+        gravity_fn::typesem::numeric::order_word(core::slice::from_raw_parts(
+            p as usize as *const u8,
+            len as usize,
+        )) as u64
     }
 }
 
@@ -163,7 +187,10 @@ impl Host for NetOrderWord {
     /// # Safety
     /// `p` is readable for `len` bytes.
     unsafe fn run(_ctx: *mut Ctx, (p, len): (u64, u64)) -> u64 {
-        gravity_fn::typesem::prefix::net_word(core::slice::from_raw_parts(p as usize as *const u8, len as usize)) as u64
+        gravity_fn::typesem::prefix::net_word(core::slice::from_raw_parts(
+            p as usize as *const u8,
+            len as usize,
+        )) as u64
     }
 }
 
@@ -175,7 +202,10 @@ impl Host for BitsOrderWord {
     /// # Safety
     /// `p` is readable for `len` bytes.
     unsafe fn run(_ctx: *mut Ctx, (p, len): (u64, u64)) -> u64 {
-        gravity_fn::typesem::prefix::bits_word(core::slice::from_raw_parts(p as usize as *const u8, len as usize)) as u64
+        gravity_fn::typesem::prefix::bits_word(core::slice::from_raw_parts(
+            p as usize as *const u8,
+            len as usize,
+        )) as u64
     }
 }
 
@@ -187,7 +217,11 @@ impl Host for BytesOrderWord {
     /// # Safety
     /// `p` is readable for `len` bytes.
     unsafe fn run(_ctx: *mut Ctx, (p, len): (u64, u64)) -> u64 {
-        let b = if len == 0 { &[][..] } else { core::slice::from_raw_parts(p as usize as *const u8, len as usize) };
+        let b = if len == 0 {
+            &[][..]
+        } else {
+            core::slice::from_raw_parts(p as usize as *const u8, len as usize)
+        };
         gravity_fn::typesem::prefix::bytes_word(b) as u64
     }
 }
@@ -230,7 +264,14 @@ pub(crate) unsafe fn live(r: *mut SortRun, tbl: *const u32) -> *const u8 {
 /// `ctx`'s grant on `road`; the allocator's on a null ctx or under the memory policy's floor); `Err` (the run untouched)
 /// when the grant refuses it. `road` `None`: the allocator's road whatever the grant (a heap or span cut's, as before),
 /// LEDGER2 step 5 its bytes carved from a scratch arena under `ctx`'s slot owner (`SortCopy::allocator`), never refused.
-pub(crate) unsafe fn relay(ctx: *mut Ctx, road: Option<Road>, run: *mut SortRun, keep: usize, row: &dyn Fn(usize) -> *const u8, var: Option<VarShape>) -> Result<(), i64> {
+pub(crate) unsafe fn relay(
+    ctx: *mut Ctx,
+    road: Option<Road>,
+    run: *mut SortRun,
+    keep: usize,
+    row: &dyn Fn(usize) -> *const u8,
+    var: Option<VarShape>,
+) -> Result<(), i64> {
     let (rb, base) = ((*run).row_bytes as usize, (*run).row(0) as *mut u8);
     let slot = |c: usize| *var.unwrap().slots.add(2 * c + 1) as usize;
     let nvar = var.map_or(0, |v| v.nvar);
@@ -259,7 +300,10 @@ pub(crate) unsafe fn relay(ctx: *mut Ctx, road: Option<Road>, run: *mut SortRun,
             let size = size_at(r, so);
             if size != 0 {
                 let off = (r.add(so + 4) as *const u32).read_unaligned() as usize;
-                tmp.extend_from_slice(core::slice::from_raw_parts(r.add(so + off), var_alloc(size) as usize));
+                tmp.extend_from_slice(core::slice::from_raw_parts(
+                    r.add(so + off),
+                    var_alloc(size) as usize,
+                ));
             }
         }
     }
@@ -279,7 +323,11 @@ pub(crate) unsafe fn relay(ctx: *mut Ctx, road: Option<Road>, run: *mut SortRun,
             if size != 0 {
                 let len = var_alloc(size) as usize;
                 at -= len;
-                core::ptr::copy_nonoverlapping(tmp.as_ptr().add(src), (run as *mut u8).add(at), len);
+                core::ptr::copy_nonoverlapping(
+                    tmp.as_ptr().add(src),
+                    (run as *mut u8).add(at),
+                    len,
+                );
                 src += len;
                 let slot = SORTRUN_HDR + j * rb + so;
                 ((run as *mut u8).add(slot + 4) as *mut u32).write_unaligned((at - slot) as u32);
@@ -307,10 +355,17 @@ impl Host for SortHeapStep {
         let (run, tbl) = (run as usize as *mut SortRun, tbl as usize as *const u32);
         let cmp = RowCmp::of(tbl);
         #[allow(clippy::unnecessary_cast)]
-        let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *const u8);
+        let (len, rb, base) = (
+            (*run).len as usize,
+            (*run).row_bytes as usize,
+            (*run).row(0) as *const u8,
+        );
         let n = n.min(u32::MAX as u64 / 4) as usize;
         CMP_ERR.with(|c| c.set(false));
-        let rc = |a: u32, b: u32| cmp.cmp(base.add(a as usize * rb), base.add(b as usize * rb)).reverse();
+        let rc = |a: u32, b: u32| {
+            cmp.cmp(base.add(a as usize * rb), base.add(b as usize * rb))
+                .reverse()
+        };
         let pg = PgHeap { rc: &rc };
         let heap = match take_heap(run, len, true) {
             Some(mut h) => {
@@ -330,7 +385,11 @@ impl Host for SortHeapStep {
             }
             _ => {
                 (*run).pad[2] &= !RUN_HEAP;
-                (if CMP_ERR.with(|c| c.get()) { crate::host_abi::cmp_failed("a sort compare failed") } else { 0 }) as u64
+                (if CMP_ERR.with(|c| c.get()) {
+                    crate::host_abi::cmp_failed("a sort compare failed")
+                } else {
+                    0
+                }) as u64
             }
         }
     }
@@ -374,8 +433,18 @@ fn sweep_heaps() {
 /// ordered.
 /// # Safety
 /// `run` is a live var sort run of `var`'s shape; `cmp` its row compare.
-pub(crate) unsafe fn heap_cut(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, var: VarShape, n: u64) -> i64 {
-    let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *mut u8);
+pub(crate) unsafe fn heap_cut(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    var: VarShape,
+    n: u64,
+) -> i64 {
+    let (len, rb, base) = (
+        (*run).len as usize,
+        (*run).row_bytes as usize,
+        (*run).row(0) as *mut u8,
+    );
     (*run).pad[2] &= !(RUN_CUT | RUN_ORDERED);
     let n = n.min(u32::MAX as u64 / 4) as usize;
     let rc = |a: u32, b: u32| cmp(base.add(a as usize * rb), base.add(b as usize * rb)).reverse();
@@ -389,7 +458,14 @@ pub(crate) unsafe fn heap_cut(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*co
         return len as i64;
     }
     let keep = h.len();
-    if let Err(e) = relay(ctx, None, run, keep, &|j| base.add(h[j] as usize * rb) as *const u8, Some(var)) {
+    if let Err(e) = relay(
+        ctx,
+        None,
+        run,
+        keep,
+        &|j| base.add(h[j] as usize * rb) as *const u8,
+        Some(var),
+    ) {
         return e;
     }
     keep_heap(run, keep, (0..keep as u32).collect()); // alloc: Exec
@@ -402,9 +478,17 @@ pub(crate) unsafe fn heap_cut(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*co
 /// the allocator's road (`Work::scratch`: from `ARENA_SCRATCH_MIN` bytes on, a scratch arena under `ctx`'s slot owner).
 /// # Safety
 /// `run` is a live sort run; `cmp` its row compare; `ctx` is null or bound.
-pub(crate) unsafe fn heap_order(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*const u8, *const u8) -> Ordering) -> Option<Work<u32>> {
+pub(crate) unsafe fn heap_order(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+) -> Option<Work<u32>> {
     #[allow(clippy::unnecessary_cast)]
-    let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *const u8);
+    let (len, rb, base) = (
+        (*run).len as usize,
+        (*run).row_bytes as usize,
+        (*run).row(0) as *const u8,
+    );
     let h = take_heap(run, len, false)?;
     (*run).pad[2] &= !RUN_HEAP;
     let rc = |a: u32, b: u32| cmp(base.add(a as usize * rb), base.add(b as usize * rb)).reverse();
@@ -412,7 +496,21 @@ pub(crate) unsafe fn heap_order(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*
     let mut held = Work::scratch(ctx, len, |_| false, false).expect("an infallible scratch");
     top.iter().for_each(|&i| held[i as usize] = true);
     let mut rest = (0..len as u32).filter(|&i| !held[i as usize]);
-    Some(Work::scratch(ctx, len, |j| if j < top.len() { top[j] } else { rest.next().unwrap_or(0) }, false).expect("an infallible scratch"))
+    Some(
+        Work::scratch(
+            ctx,
+            len,
+            |j| {
+                if j < top.len() {
+                    top[j]
+                } else {
+                    rest.next().unwrap_or(0)
+                }
+            },
+            false,
+        )
+        .expect("an infallible scratch"),
+    )
 }
 
 /// D2690 (`SpanCut` / `SpanSeen`'s middle word): keep one row of each run of equal rows (the Unique above the sort
@@ -422,7 +520,11 @@ pub const SPAN_DISTINCT: u64 = 1 << 63;
 /// The middle word's parts: the open group's first row (low 32 bits), the count (`k`, or a cut's `2 n + full`; bits 32
 /// to 62), `SPAN_DISTINCT`.
 fn span_word(w: u64) -> (usize, usize, bool) {
-    ((w & 0xffff_ffff) as usize, ((w >> 32) & 0x7fff_ffff) as usize, w & SPAN_DISTINCT != 0)
+    (
+        (w & 0xffff_ffff) as usize,
+        ((w >> 32) & 0x7fff_ffff) as usize,
+        w & SPAN_DISTINCT != 0,
+    )
 }
 
 /// The run row compare of emit table `tbl`: a var run's `RowCmp`, a fixed run's key words (`cmp_rows`, as
@@ -434,7 +536,13 @@ unsafe fn table_cmp(tbl: *const u32) -> (impl Fn(*const u8, *const u8) -> Orderi
     let (_, nkey, _, spec) = tbl_shape(tbl);
     let rc = var_shape(tbl).map(|_| RowCmp::of(tbl));
     let order = rc.as_ref().map_or(Order::Images, RowCmp::order);
-    (move |a, b| rc.as_ref().map_or_else(|| cmp_rows(nkey / 2, spec, a, b), |c| c.cmp(a, b)), order)
+    (
+        move |a, b| {
+            rc.as_ref()
+                .map_or_else(|| cmp_rows(nkey / 2, spec, a, b), |c| c.cmp(a, b))
+        },
+        order,
+    )
 }
 
 /// D2690, the top-K DISTINCT incremental sort (lowerv4 ops/sort/incremental.rs `Top`): `sort_cut_span(ctx, run, word,
@@ -467,18 +575,36 @@ impl Host for SpanCut {
 /// LEDGER2 step 5: its index, kept list and relay copy are the allocator's road (`Work::scratch`, `relay`'s `None`: from
 /// `ARENA_SCRATCH_MIN` bytes on, a scratch arena under `ctx`'s slot owner).
 #[allow(clippy::too_many_arguments)]
-unsafe fn span_cut(ctx: *mut Ctx, run: *mut SortRun, from: usize, k: usize, distinct: bool, order: Order, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, var: Option<VarShape>) -> i64 {
-    let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *mut u8);
+unsafe fn span_cut(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    from: usize,
+    k: usize,
+    distinct: bool,
+    order: Order,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    var: Option<VarShape>,
+) -> i64 {
+    let (len, rb, base) = (
+        (*run).len as usize,
+        (*run).row_bytes as usize,
+        (*run).row(0) as *mut u8,
+    );
     if from >= len {
         return 0;
     }
     let row = |i: usize| base.add(i * rb) as *const u8;
-    let Some(mut idx) = Work::scratch(ctx, len - from, |i| (from + i) as u32, true) else { return ERROR };
-    super::rowsort::sort_by_order(&mut idx, order, &|a: u32, b: u32| cmp(row(a as usize), row(b as usize)).then(a.cmp(&b)));
+    let Some(mut idx) = Work::scratch(ctx, len - from, |i| (from + i) as u32, true) else {
+        return ERROR;
+    };
+    super::rowsort::sort_by_order(&mut idx, order, &|a: u32, b: u32| {
+        cmp(row(a as usize), row(b as usize)).then(a.cmp(&b))
+    });
     if order == Order::Exact && crate::host_abi::CMP_ERR.with(|c| c.get()) {
         return ERROR; // the run untouched, the error stashed (no further call, as PostgreSQL's ERROR leaves the sort)
     }
-    let mut kept = Work::scratch(ctx, k.min(idx.len()), |_| 0u32, false).expect("an infallible scratch");
+    let mut kept =
+        Work::scratch(ctx, k.min(idx.len()), |_| 0u32, false).expect("an infallible scratch");
     let mut nk = 0;
     for &i in idx.iter() {
         if nk == kept.len() {
@@ -491,7 +617,20 @@ unsafe fn span_cut(ctx: *mut Ctx, run: *mut SortRun, from: usize, k: usize, dist
         nk += 1;
     }
     drop(idx);
-    if let Err(e) = relay(ctx, None, run, from + nk, &|j| if j < from { row(j) } else { row(kept[j - from] as usize) }, var) {
+    if let Err(e) = relay(
+        ctx,
+        None,
+        run,
+        from + nk,
+        &|j| {
+            if j < from {
+                row(j)
+            } else {
+                row(kept[j - from] as usize)
+            }
+        },
+        var,
+    ) {
         return e;
     }
     nk as i64
@@ -514,12 +653,28 @@ impl Host for SpanSeen {
         let (tbl, r) = (tbl as usize as *const u32, run as usize as *mut SortRun);
         let (cmp, _) = table_cmp(tbl);
         RowCmp::failed();
-        let st = span_seen(r, from, cut >> 1, cut & 1 != 0, distinct, &cmp, var_shape(tbl));
+        let st = span_seen(
+            r,
+            from,
+            cut >> 1,
+            cut & 1 != 0,
+            distinct,
+            &cmp,
+            var_shape(tbl),
+        );
         (if RowCmp::failed() { ERROR } else { st }) as u64
     }
 }
 
-unsafe fn span_seen(r: *mut SortRun, from: usize, n: usize, full: bool, distinct: bool, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, var: Option<VarShape>) -> i64 {
+unsafe fn span_seen(
+    r: *mut SortRun,
+    from: usize,
+    n: usize,
+    full: bool,
+    distinct: bool,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    var: Option<VarShape>,
+) -> i64 {
     let len = (*r).len as usize;
     if n == 0 || from + n >= len {
         return 0;
@@ -559,14 +714,15 @@ unsafe fn span_seen(r: *mut SortRun, from: usize, n: usize, full: bool, distinct
             }
         }
         if bytes != 0 && low == (*r).var_top() {
-            let words = (r as *mut u8).add(SORTRUN_HDR + (*r).cap as usize * (*r).row_bytes as usize) as *mut u32;
+            let words = (r as *mut u8)
+                .add(SORTRUN_HDR + (*r).cap as usize * (*r).row_bytes as usize)
+                as *mut u32;
             words.write(low + bytes);
         }
     }
     (*r).len -= 1;
     1
 }
-
 
 // The cut's host entries and its in-place cut, moved unchanged from cut.rs (its consts, first_n and PgHeap stay there).
 crate::contract::host! {
@@ -613,11 +769,35 @@ crate::contract::host! {
 }
 
 /// # Safety — `ctx` is bound; `run` is a live sort run (the host entries' contracts).
-unsafe fn cut(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, var: Option<VarShape>, n: u64, flags: u64, out: *mut u64) -> i64 {
-    let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *mut u8);
+unsafe fn cut(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    nkey: usize,
+    cmp: &dyn Fn(*const u8, *const u8) -> Ordering,
+    var: Option<VarShape>,
+    n: u64,
+    flags: u64,
+    out: *mut u64,
+) -> i64 {
+    let (len, rb, base) = (
+        (*run).len as usize,
+        (*run).row_bytes as usize,
+        (*run).row(0) as *mut u8,
+    );
     let exact = flags & CUT_EXACT != 0;
-    let order = if exact { Order::Exact } else if flags & CUT_LENIENT != 0 { Order::Lenient } else { Order::Images };
-    let idx = if order == Order::Images && (n as usize) < len && n > 0 && nkey > 0 && (*run).pad[2] & (RUN_ORDERED | RUN_KEYLANE) == 0 {
+    let order = if exact {
+        Order::Exact
+    } else if flags & CUT_LENIENT != 0 {
+        Order::Lenient
+    } else {
+        Order::Images
+    };
+    let idx = if order == Order::Images
+        && (n as usize) < len
+        && n > 0
+        && nkey > 0
+        && (*run).pad[2] & (RUN_ORDERED | RUN_KEYLANE) == 0
+    {
         // D4140 (C9's kernel face, polled.rs): the cut's sort polls the statement through the kernels' own check
         let pending = || unsafe { cancel_pending(ctx) };
         // D4373 (b): the index and the sort's scratch are blocks of the grant
@@ -625,11 +805,20 @@ unsafe fn cut(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, cmp: &dyn Fn(*const
             Ok(w) => w,
             Err(e) => return e,
         };
-        let mut scratch = match Work::<u32>::block_on(ctx, if len > SORT_RUN { len } else { 0 }, Road::Seal) {
-            Ok(w) => w,
-            Err(e) => return e,
-        };
-        match first_n(&mut Poll::new(&pending), &mut idx, n as usize, flags & CUT_TIES != 0, &mut scratch, &|i| base.add(i as usize * rb) as *const u8, cmp) {
+        let mut scratch =
+            match Work::<u32>::block_on(ctx, if len > SORT_RUN { len } else { 0 }, Road::Seal) {
+                Ok(w) => w,
+                Err(e) => return e,
+            };
+        match first_n(
+            &mut Poll::new(&pending),
+            &mut idx,
+            n as usize,
+            flags & CUT_TIES != 0,
+            &mut scratch,
+            &|i| base.add(i as usize * rb) as *const u8,
+            cmp,
+        ) {
             Ok(()) => Some(idx),
             Err(Stopped) => return CANCELLED,
         }
@@ -672,7 +861,8 @@ unsafe fn cut(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, cmp: &dyn Fn(*const
     if n > 0 && keep as u64 >= n {
         (*run).pad[2] |= RUN_CUT; // D508: row n-1 in place, the row walk's bound (exec v4/m3_sort.rs run_bound)
         let b = (base.add((n as usize - 1) * rb) as *const [u64; 2]).read_unaligned();
-        out.write(b[0]); out.add(1).write(b[1]);
+        out.write(b[0]);
+        out.add(1).write(b[1]);
     } else {
         (*run).pad[2] &= !RUN_CUT;
     }
@@ -688,15 +878,22 @@ impl RunShape {
     /// # Safety
     /// `run` is a live sort run.
     pub unsafe fn of_run(run: *const SortRun) -> Option<RunShape> {
-        let end = (run as *const u8).add(SORTRUN_HDR + (*run).cap as usize * (*run).row_bytes as usize);
+        let end =
+            (run as *const u8).add(SORTRUN_HDR + (*run).cap as usize * (*run).row_bytes as usize);
         let [n, magic] = (end.sub(8) as *const [u32; 2]).read_unaligned();
         let copy = (4 * n as usize + 8).next_multiple_of(8);
         // a put's clear leaves the copy's bytes but not its reservation
-        if magic != DESCRIBED || (*run).var_top() as usize > end.offset_from(run as *const u8) as usize - copy {
+        if magic != DESCRIBED
+            || (*run).var_top() as usize > end.offset_from(run as *const u8) as usize - copy
+        {
             return None;
         }
         let tbl = end.sub(copy) as *const u32;
-        Some(RunShape { cmp: RowCmp::of(tbl), rb: (*run).row_bytes as usize, var: var_shape(tbl) })
+        Some(RunShape {
+            cmp: RowCmp::of(tbl),
+            rb: (*run).row_bytes as usize,
+            var: var_shape(tbl),
+        })
     }
 
     /// The bytes a sealed run's var copies take (its table copy not counted).
@@ -707,7 +904,9 @@ impl RunShape {
             return 0;
         }
         let end = SORTRUN_HDR + (*run).cap as usize * self.rb;
-        let copy = (4 * ((run as *const u8).add(end - 8) as *const u32).read_unaligned() as usize + 8).next_multiple_of(8);
+        let copy = (4 * ((run as *const u8).add(end - 8) as *const u32).read_unaligned() as usize
+            + 8)
+        .next_multiple_of(8);
         (end - copy - (*run).var_top() as usize) as u64
     }
 
@@ -727,7 +926,13 @@ impl RunShape {
     /// D3190: row `a` of this shape against row `b` of `other`'s on their first `nkey` keys (`RowCmp::cmp_cross`).
     /// # Safety
     /// `a` is a row of this shape, `b` one of `other`'s, and `cross_ok(other, nkey)`.
-    pub unsafe fn cmp_cross(&self, a: *const u8, other: &RunShape, b: *const u8, nkey: usize) -> Ordering {
+    pub unsafe fn cmp_cross(
+        &self,
+        a: *const u8,
+        other: &RunShape,
+        b: *const u8,
+        nkey: usize,
+    ) -> Ordering {
         self.cmp.cmp_cross(a, &other.cmp, b, nkey)
     }
 
@@ -739,7 +944,8 @@ impl RunShape {
         let mut t = 0u64;
         for i in 0..n as usize {
             for c in 0..v.nvar {
-                let size = (row.add(i * self.rb + *v.slots.add(2 * c + 1) as usize) as *const u32).read_unaligned();
+                let size = (row.add(i * self.rb + *v.slots.add(2 * c + 1) as usize) as *const u32)
+                    .read_unaligned();
                 t += if size == 0 { 0 } else { var_alloc(size) as u64 };
             }
         }
@@ -784,7 +990,11 @@ impl RunShape {
                 let size = (src.add(so) as *const u32).read_unaligned();
                 if size != 0 {
                     let alloc = var_alloc(size) as usize;
-                    core::ptr::copy_nonoverlapping(src.add(so + (src.add(so + 4) as *const u32).read_unaligned() as usize), vo, alloc);
+                    core::ptr::copy_nonoverlapping(
+                        src.add(so + (src.add(so + 4) as *const u32).read_unaligned() as usize),
+                        vo,
+                        alloc,
+                    );
                     (o.add(so + 4) as *mut u32).write_unaligned(vo.offset_from(o.add(so)) as u32);
                     vo = vo.add(alloc);
                 }
@@ -810,7 +1020,11 @@ impl RunShape {
 pub unsafe fn table_bytes(run: *const SortRun) -> usize {
     let end = (run as *const u8).add(SORTRUN_HDR + (*run).cap as usize * (*run).row_bytes as usize);
     let [n, magic] = (end.sub(8) as *const [u32; 2]).read_unaligned();
-    if magic == DESCRIBED { (4 * n as usize + 8).next_multiple_of(8) } else { 0 }
+    if magic == DESCRIBED {
+        (4 * n as usize + 8).next_multiple_of(8)
+    } else {
+        0
+    }
 }
 
 /// `dst`, emptied, takes `src`'s table copy at its top as `describe` lays one: a run exec v4 holds past its worker's region
@@ -819,7 +1033,12 @@ pub unsafe fn table_bytes(run: *const SortRun) -> usize {
 /// `dst` is a live emptied sort run, `src` a live sort run.
 pub unsafe fn take_table(dst: *mut SortRun, src: *const SortRun) -> bool {
     let copy = table_bytes(src);
-    let Some(top) = (copy != 0).then(|| (*dst).reserve_var(copy as u32)).flatten() else { return false };
+    let Some(top) = (copy != 0)
+        .then(|| (*dst).reserve_var(copy as u32))
+        .flatten()
+    else {
+        return false;
+    };
     let end = (src as *const u8).add(SORTRUN_HDR + (*src).cap as usize * (*src).row_bytes as usize);
     core::ptr::copy_nonoverlapping(end.sub(copy), (dst as *mut u8).add(top as usize), copy);
     true
@@ -855,32 +1074,69 @@ mod pulled_tests {
         let p = buf.as_mut_ptr() as *mut u8;
         let tbl = TBL.as_ptr();
         unsafe {
-            *(p as *mut SortRun) = SortRun { cap: 4, len: 0, row_bytes: 48, pad: [0; 3], kind: TABLE_SORT };
-            assert_eq!(live(p as *mut SortRun, tbl), p as *const u8, "a run with no row yet is itself");
+            *(p as *mut SortRun) = SortRun {
+                cap: 4,
+                len: 0,
+                row_bytes: 48,
+                pad: [0; 3],
+                kind: TABLE_SORT,
+            };
+            assert_eq!(
+                live(p as *mut SortRun, tbl),
+                p as *const u8,
+                "a run with no row yet is itself"
+            );
             for i in 0..3 {
                 store(p, i, i == 1);
-                assert_eq!(SpoolPoint::run(core::ptr::null_mut(), (p as u64, tbl as u64, i as u64)), 0);
+                assert_eq!(
+                    SpoolPoint::run(core::ptr::null_mut(), (p as u64, tbl as u64, i as u64)),
+                    0
+                );
                 let r = &*(live(p as *mut SortRun, tbl) as *const SortRun);
                 assert_eq!(r.len as usize, i + 1, "the rows stored so far");
             }
             let r = &*(p as *const SortRun);
             assert!(pointed(r, 0) && pointed(r, 2));
-            assert_eq!(*(r.row(1).add(8) as *const u64), 0, "a NULL cell is not pointed");
+            assert_eq!(
+                *(r.row(1).add(8) as *const u64),
+                0,
+                "a NULL cell is not pointed"
+            );
             // the rows moved (a growth reopened the region elsewhere): the view points them where they lie now
             let mut moved = buf.clone(); // alloc: Cold
             let q = moved.as_mut_ptr() as *mut u8;
-            assert!(!pointed(&*(q as *const SortRun), 0), "a moved row's datum names its old place");
+            assert!(
+                !pointed(&*(q as *const SortRun), 0),
+                "a moved row's datum names its old place"
+            );
             let r = &*(live(q as *mut SortRun, tbl) as *const SortRun);
-            assert!(pointed(r, 0) && pointed(r, 2), "pointed again where they lie");
+            assert!(
+                pointed(r, 0) && pointed(r, 2),
+                "pointed again where they lie"
+            );
             // a growth that reopened in place moved only the var copies: the end points every row again (`from` 0)
             *(r.row(2).add(8) as *mut u64) = 7;
-            assert_eq!(SpoolPoint::run(core::ptr::null_mut(), (q as u64, tbl as u64, 0)), 0);
+            assert_eq!(
+                SpoolPoint::run(core::ptr::null_mut(), (q as u64, tbl as u64, 0)),
+                0
+            );
             assert!(pointed(r, 2));
-            assert_eq!(live(core::ptr::null_mut(), tbl), SPOOL_EMPTY.as_ptr() as *const u8, "no region: the empty run");
+            assert_eq!(
+                live(core::ptr::null_mut(), tbl),
+                SPOOL_EMPTY.as_ptr() as *const u8,
+                "no region: the empty run"
+            );
             let mut unarmed = vec![0u64; 8]; // alloc: Cold
-            assert_eq!(live(unarmed.as_mut_ptr() as *mut SortRun, tbl), SPOOL_EMPTY.as_ptr() as *const u8, "cap 0: the empty run");
+            assert_eq!(
+                live(unarmed.as_mut_ptr() as *mut SortRun, tbl),
+                SPOOL_EMPTY.as_ptr() as *const u8,
+                "cap 0: the empty run"
+            );
             (*(q as *mut SortRun)).len = 5;
-            assert!((live(q as *mut SortRun, tbl) as i64) < 0, "past its capacity: the named error");
+            assert!(
+                (live(q as *mut SortRun, tbl) as i64) < 0,
+                "past its capacity: the named error"
+            );
         }
     }
 }
@@ -924,7 +1180,8 @@ mod span_tests {
             let top = r.reserve_var(16).expect("room for a copy") as usize;
             let so = 16 + 8 * c;
             (at.add(so) as *mut u32).write_unaligned(8);
-            (at.add(so + 4) as *mut u32).write_unaligned((top - (SORTRUN_HDR + r.len as usize * RB + so)) as u32);
+            (at.add(so + 4) as *mut u32)
+                .write_unaligned((top - (SORTRUN_HDR + r.len as usize * RB + so)) as u32);
             (run.add(top) as *mut u64).write_unaligned(100 * k + c as u64);
         }
         r.len += 1;
@@ -933,18 +1190,26 @@ mod span_tests {
     /// Each row's key and the values its copies hold (`100 k + c` when the slot still points at its own row's copy).
     unsafe fn rows(run: *const u8) -> Vec<(u64, Vec<u64>)> {
         let r = &*(run as *const SortRun);
-        (0..r.len as usize).map(|i| {
-            let at = run.add(SORTRUN_HDR + i * RB);
-            let copies = (0..NVAR).map(|c| {
-                let slot = at.add(16 + 8 * c);
-                (slot.add((slot.add(4) as *const u32).read_unaligned() as usize) as *const u64).read_unaligned()
-            }).collect(); // alloc: Cold
-            ((at.add(8) as *const u64).read_unaligned(), copies)
-        }).collect() // alloc: Cold
+        (0..r.len as usize)
+            .map(|i| {
+                let at = run.add(SORTRUN_HDR + i * RB);
+                let copies = (0..NVAR)
+                    .map(|c| {
+                        let slot = at.add(16 + 8 * c);
+                        (slot.add((slot.add(4) as *const u32).read_unaligned() as usize)
+                            as *const u64)
+                            .read_unaligned()
+                    })
+                    .collect(); // alloc: Cold
+                ((at.add(8) as *const u64).read_unaligned(), copies)
+            })
+            .collect() // alloc: Cold
     }
 
     fn own(keys: &[u64]) -> Vec<(u64, Vec<u64>)> {
-        keys.iter().map(|&k| (k, (0..NVAR as u64).map(|c| 100 * k + c).collect())).collect() // alloc: Cold
+        keys.iter()
+            .map(|&k| (k, (0..NVAR as u64).map(|c| 100 * k + c).collect()))
+            .collect() // alloc: Cold
     }
 
     fn word(from: u64, n: u64, distinct: bool) -> u64 {
@@ -969,7 +1234,11 @@ mod span_tests {
             assert_eq!(cut(run, word(2, 3, true), &tbl), 3);
             assert_eq!(rows(run), own(&[5, 3, 1, 3, 7]));
             let r = &*(run as *const SortRun);
-            assert_eq!(r.var_top() as usize, SORTRUN_HDR + CAP * RB - 5 * NVAR * 16, "five rows' copies left");
+            assert_eq!(
+                r.var_top() as usize,
+                SORTRUN_HDR + CAP * RB - 5 * NVAR * 16,
+                "five rows' copies left"
+            );
             // without SPAN_DISTINCT the first three rows, equal ones too
             let (mut buf, tbl) = var_run(&[5, 3, 9, 1, 3, 7, 3, 1]);
             let run = buf.as_mut_ptr() as *mut u8;
@@ -998,7 +1267,11 @@ mod span_tests {
             // the cut's word: three rows, the group's first three (full)
             for k in [6, 7, 2, 4] {
                 push(run, k);
-                assert_eq!(seen(run, word(1, 2 * 3 + 1, true), &tbl), 1, "{k} is held or past the bound");
+                assert_eq!(
+                    seen(run, word(1, 2 * 3 + 1, true), &tbl),
+                    1,
+                    "{k} is held or past the bound"
+                );
                 assert_eq!(((*r).len, (*r).var_top()), (4, top));
             }
             push(run, 3);

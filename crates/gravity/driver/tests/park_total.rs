@@ -13,7 +13,10 @@ use gravity_driver::{Node, Park};
 use gravity_program::{Generation, Handle, PlanKey, Program};
 
 fn key(k: u64) -> PlanKey {
-    PlanKey { handle: Handle(0x7000 + k), generation: Generation(1) }
+    PlanKey {
+        handle: Handle(0x7000 + k),
+        generation: Generation(1),
+    }
 }
 
 /// A Node over its own `Program` (the same content as every other: the park tells the entries apart by the Arc).
@@ -58,31 +61,59 @@ fn the_running_total_and_the_hint_match_the_linear_park_over_random_puts_takes_a
                 }
                 stamp += 1;
                 model.push((k, stamp, ptr, bytes));
-                assert_eq!(park.put(key(k), n), room, "step {step}: a free slot iff the model had room");
+                assert_eq!(
+                    park.put(key(k), n),
+                    room,
+                    "step {step}: a free slot iff the model had room"
+                );
             }
             5..=8 => {
-                let want = model.iter().enumerate().filter(|(_, e)| e.0 == k).max_by_key(|(_, e)| e.1).map(|(i, _)| i);
+                let want = model
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.0 == k)
+                    .max_by_key(|(_, e)| e.1)
+                    .map(|(i, _)| i);
                 match (park.take(key(k), content), want) {
                     (Some(n), Some(i)) => {
-                        assert_eq!(Arc::as_ptr(n.program()), model[i].2, "step {step}: the newest entry of key {k}");
+                        assert_eq!(
+                            Arc::as_ptr(n.program()),
+                            model[i].2,
+                            "step {step}: the newest entry of key {k}"
+                        );
                         model.remove(i);
                         n.teardown();
                         hits += 1;
                     }
                     (None, None) => misses += 1,
-                    (got, want) => panic!("step {step}: take of key {k} got {} want {}", got.is_some(), want.is_some()),
+                    (got, want) => panic!(
+                        "step {step}: take of key {k} got {} want {}",
+                        got.is_some(),
+                        want.is_some()
+                    ),
                 }
             }
             _ => {
                 let before = model.len();
                 model.retain(|e| e.0 != k);
-                assert_eq!(park.drop_for(key(k).handle), before - model.len(), "step {step}: the handle's entries dropped");
+                assert_eq!(
+                    park.drop_for(key(k).handle),
+                    before - model.len(),
+                    "step {step}: the handle's entries dropped"
+                );
             }
         }
         assert_eq!(park.len(), model.len(), "step {step}: the entry count");
-        assert_eq!(park.bytes(), model.iter().map(|e| e.3).sum::<usize>(), "step {step}: the running byte total");
+        assert_eq!(
+            park.bytes(),
+            model.iter().map(|e| e.3).sum::<usize>(),
+            "step {step}: the running byte total"
+        );
     }
-    assert!(hits > 50 && misses > 10, "the walk took both ways ({hits} hits, {misses} misses)");
+    assert!(
+        hits > 50 && misses > 10,
+        "the walk took both ways ({hits} hits, {misses} misses)"
+    );
     park.clear();
     assert_eq!((park.len(), park.bytes()), (0, 0));
 }
@@ -98,8 +129,14 @@ fn a_take_after_two_puts_of_one_key_gets_the_newer_then_the_older() {
     park.put(key(1), b);
     park.put(key(2), c);
     // the last put's slot (key 2) is the hint: key 1's take scans, and gets the newer
-    assert_eq!(Arc::as_ptr(park.take(key(1), content).expect("key 1").program()), pb);
-    assert_eq!(Arc::as_ptr(park.take(key(1), content).expect("key 1 again").program()), pa);
+    assert_eq!(
+        Arc::as_ptr(park.take(key(1), content).expect("key 1").program()),
+        pb
+    );
+    assert_eq!(
+        Arc::as_ptr(park.take(key(1), content).expect("key 1 again").program()),
+        pa
+    );
     assert!(park.take(key(1), content).is_none());
     assert_eq!(park.len(), 1);
 }
@@ -117,10 +154,22 @@ fn the_byte_cap_evicts_older_entries_and_keeps_the_one_just_parked() {
         let (n, ptr) = node();
         park.put(key(k), n);
         last = ptr;
-        assert!(park.len() <= 2 && park.bytes() <= cap, "put {k}: {} entries, {} of {cap} bytes", park.len(), park.bytes());
+        assert!(
+            park.len() <= 2 && park.bytes() <= cap,
+            "put {k}: {} entries, {} of {cap} bytes",
+            park.len(),
+            park.bytes()
+        );
     }
     assert!(park.evictions() >= 18, "{} evictions", park.evictions());
-    assert_eq!(Arc::as_ptr(park.take(key(19), content).expect("the last put stays").program()), last);
+    assert_eq!(
+        Arc::as_ptr(
+            park.take(key(19), content)
+                .expect("the last put stays")
+                .program()
+        ),
+        last
+    );
     assert_eq!(park.bytes(), park.len() * b);
 }
 
@@ -142,14 +191,32 @@ fn a_content_mismatch_drops_every_entry_of_the_handle() {
 #[test]
 fn a_park_grows_its_slots_with_its_puts() {
     let mut park = Park::with_bytes(4, usize::MAX);
-    assert_eq!((park.held_slots(), park.capacity()), (0, 4), "a new park holds no slot");
+    assert_eq!(
+        (park.held_slots(), park.capacity()),
+        (0, 4),
+        "a new park holds no slot"
+    );
     let content = Arc::new(p_rows(64)).key;
-    assert!(park.take(key(1), content).is_none(), "a take from an empty park misses");
+    assert!(
+        park.take(key(1), content).is_none(),
+        "a take from an empty park misses"
+    );
     for k in 0..6u64 {
         let (n, _) = node();
         park.put(key(k), n);
-        assert_eq!(park.held_slots(), (k as usize + 1).min(4), "one slot a put, up to the capacity");
+        assert_eq!(
+            park.held_slots(),
+            (k as usize + 1).min(4),
+            "one slot a put, up to the capacity"
+        );
     }
-    assert_eq!((park.len(), park.evictions()), (4, 2), "past the capacity a put evicts, as before");
-    assert!(park.take(key(5), content).is_some(), "the newest put is taken back");
+    assert_eq!(
+        (park.len(), park.evictions()),
+        (4, 2),
+        "past the capacity a put evicts, as before"
+    );
+    assert!(
+        park.take(key(5), content).is_some(),
+        "the newest put is taken back"
+    );
 }

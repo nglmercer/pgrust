@@ -1,6 +1,6 @@
 use super::*;
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::cell::RefCell;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 thread_local! {
     static LOG: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
@@ -43,7 +43,11 @@ fn proc_exit_runs_stages_in_c_order_lifo() {
     on_shmem_exit(|_, _| log("shmem2"), 0);
     before_shmem_exit(
         |code, _| {
-            log(if code == 7 { "before1(code7)" } else { "before1" });
+            log(if code == 7 {
+                "before1(code7)"
+            } else {
+                "before1"
+            });
             Ok(())
         },
         Datum::from_i32(0),
@@ -62,7 +66,14 @@ fn proc_exit_runs_stages_in_c_order_lifo() {
     assert_eq!(code, 7);
     assert_eq!(
         take_log(),
-        vec!["before2", "before1(code7)", "shmem2", "shmem1", "proc2", "proc1"]
+        vec![
+            "before2",
+            "before1(code7)",
+            "shmem2",
+            "shmem1",
+            "proc2",
+            "proc1"
+        ]
     );
     assert!(proc_exit_inprogress());
     assert!(!shmem_exit_inprogress());
@@ -80,7 +91,10 @@ fn b118_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn b118_capture(err: &types_error::PgError, _output_to_server: &mut bool) {
-    B118_LOG.lock().unwrap().push((err.level.0, err.message.clone()));
+    B118_LOG
+        .lock()
+        .unwrap()
+        .push((err.level.0, err.message.clone()));
 }
 
 fn b118_capture_log(f: impl FnOnce()) -> Vec<(i32, String)> {
@@ -102,13 +116,18 @@ fn proc_exit_on_wrong_thread_is_a_logged_panic_like_c() {
     let log = b118_capture_log(|| {
         let payload = catch_unwind(AssertUnwindSafe(|| proc_exit(0, 2222))).unwrap_err();
         assert!(
-            payload.downcast_ref::<types_error::PanicExitThread>().is_some(),
+            payload
+                .downcast_ref::<types_error::PanicExitThread>()
+                .is_some(),
             "elog(PANIC) unwinds as PanicExitThread; got a Rust panic: {:?}",
             payload.downcast_ref::<&str>().copied()
         );
     });
     assert!(
-        log.contains(&(types_error::PANIC.0, "proc_exit() called in child process".to_string())),
+        log.contains(&(
+            types_error::PANIC.0,
+            "proc_exit() called in child process".to_string()
+        )),
         "captured log: {log:?}"
     );
 }
@@ -156,7 +175,10 @@ fn failing_before_callback_reenters_and_finishes_with_code_1() {
     init_small::globals::SetMyProcPid(5151);
     let _ = take_log();
 
-    on_shmem_exit(|code, _| log(if code == 1 { "shmem(code1)" } else { "shmem" }), 0);
+    on_shmem_exit(
+        |code, _| log(if code == 1 { "shmem(code1)" } else { "shmem" }),
+        0,
+    );
     before_shmem_exit(
         |_, _| {
             log("before-ok");
@@ -190,7 +212,11 @@ fn failing_before_callback_outside_proc_exit_logs_the_error_as_fatal() {
     let _ = take_log();
     on_shmem_exit(|_, _| log("shmem"), 0);
     before_shmem_exit(
-        |_, _| Err(Box::new(PgError::error("exit callback exploded outside proc_exit"))),
+        |_, _| {
+            Err(Box::new(PgError::error(
+                "exit callback exploded outside proc_exit",
+            )))
+        },
         Datum::from_i32(0),
     )
     .unwrap();
@@ -199,7 +225,10 @@ fn failing_before_callback_outside_proc_exit_logs_the_error_as_fatal() {
     assert_eq!(take_log(), vec!["shmem"]);
     assert!(!shmem_exit_inprogress());
     assert!(
-        log_lines.contains(&(FATAL.0, "exit callback exploded outside proc_exit".to_string())),
+        log_lines.contains(&(
+            FATAL.0,
+            "exit callback exploded outside proc_exit".to_string()
+        )),
         "captured log: {log_lines:?}"
     );
     assert!(
@@ -224,7 +253,11 @@ fn cancel_before_shmem_exit_is_strict_lifo() {
     before_shmem_exit(cb_b, Datum::from_i32(2)).unwrap();
 
     let err = cancel_before_shmem_exit(cb_a, Datum::from_i32(1)).unwrap_err();
-    assert!(err.message.contains("is not the latest entry"), "{}", err.message);
+    assert!(
+        err.message.contains("is not the latest entry"),
+        "{}",
+        err.message
+    );
 
     cancel_before_shmem_exit(cb_b, Datum::from_i32(2)).unwrap();
     cancel_before_shmem_exit(cb_a, Datum::from_i32(1)).unwrap();
@@ -254,7 +287,11 @@ fn shmem_exit_alone_clears_inprogress_and_keeps_proc_lists() {
     on_shmem_exit(|_, _| log("shmem"), 0);
     before_shmem_exit(
         |_, _| {
-            log(if shmem_exit_inprogress() { "before(inprogress)" } else { "before" });
+            log(if shmem_exit_inprogress() {
+                "before(inprogress)"
+            } else {
+                "before"
+            });
             Ok(())
         },
         Datum::from_i32(0),
@@ -325,7 +362,10 @@ fn deferred_drain_reentrant_proc_exit_continues_with_last_code() {
     init_small::globals::SetIsUnderPostmaster(true);
     let _ = take_log();
 
-    on_shmem_exit(|code, _| log(if code == 9 { "shmem(code9)" } else { "shmem" }), 0);
+    on_shmem_exit(
+        |code, _| log(if code == 9 { "shmem(code9)" } else { "shmem" }),
+        0,
+    );
     before_shmem_exit(
         |_, _| {
             log("b-first");
@@ -398,10 +438,7 @@ fn exit_callback_panic_reraises_killed_by_signal() {
     init_small::globals::SetIsUnderPostmaster(true);
     let _ = take_log();
 
-    on_proc_exit(
-        |_, _| std::panic::panic_any(KilledBySignal { signo: 9 }),
-        0,
-    );
+    on_proc_exit(|_, _| std::panic::panic_any(KilledBySignal { signo: 9 }), 0);
     let payload = catch_unwind(AssertUnwindSafe(|| proc_exit(0, 9393))).unwrap_err();
     assert_eq!(payload.downcast_ref::<ProcExitThread>().unwrap().code, 0);
 
@@ -428,7 +465,8 @@ fn cancel_before_shmem_exit_reports_the_full_datum_word() {
     before_shmem_exit(cb_b, arg).unwrap();
     let err = cancel_before_shmem_exit(cb_a, arg).unwrap_err();
     assert!(
-        err.message.ends_with(",0x100000005) is not the latest entry"),
+        err.message
+            .ends_with(",0x100000005) is not the latest entry"),
         "{}",
         err.message
     );

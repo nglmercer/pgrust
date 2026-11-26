@@ -27,7 +27,10 @@ crate::strategies! {
     SRF_LIMITCUT = 103, "srf.limitcut", SrfLimit;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(SRF_LIMITCUT, &LimitCut)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(SRF_LIMITCUT, &LimitCut)],
+    ..crate::ops::NONE
+};
 
 /// The road's value; its rule is `cut`.
 pub(crate) struct LimitCut;
@@ -46,7 +49,13 @@ pub(crate) enum Cut {
 /// Function `f`'s cut at `place`. `streams`: its form raises every error at open and yields row by row (srf/iter.rs's
 /// iterators, a library entry flagged so), which the FROM caller knows from the form it chose.
 pub(crate) fn cut(gx: &Gx<'_, '_>, f: &SrfFn<'_>, place: SrfPlace, streams: bool) -> Cut {
-    rule(place, f.kind, effects::of_call(gx.facts, f.funcid).acts, streams, ExpandKind::LimitCut.on())
+    rule(
+        place,
+        f.kind,
+        effects::of_call(gx.facts, f.funcid).acts,
+        streams,
+        ExpandKind::LimitCut.on(),
+    )
 }
 
 /// The cut as a table: the target list always; FROM only within D21 (a library entry, whose call does not act, a
@@ -71,13 +80,28 @@ mod tests {
     use super::*;
 
     const TL: SrfPlace = SrfPlace::TargetList;
-    const FROM: SrfPlace = SrfPlace::From { scanrelid: 1, ordinality: false };
-    const SERIES: SrfKind = SrfKind::SeriesInt { width: 4, step: false };
+    const FROM: SrfPlace = SrfPlace::From {
+        scanrelid: 1,
+        ordinality: false,
+    };
+    const SERIES: SrfKind = SrfKind::SeriesInt {
+        width: 4,
+        step: false,
+    };
 
     /// A target-list set is cut lazily whatever it is (PG's ProjectSet stops too), road on or off.
     #[test]
     fn a_target_list_set_is_cut_lazily() {
-        for (kind, acts, streams, on) in [(SERIES, false, true, true), (SrfKind::Other, true, false, false), (SrfKind::JsonbArrayElements { text: false }, false, false, true)] {
+        for (kind, acts, streams, on) in [
+            (SERIES, false, true, true),
+            (SrfKind::Other, true, false, false),
+            (
+                SrfKind::JsonbArrayElements { text: false },
+                false,
+                false,
+                true,
+            ),
+        ] {
             assert_eq!(rule(TL, kind, acts, streams, on), Cut::Lazy);
         }
     }
@@ -88,7 +112,16 @@ mod tests {
     #[test]
     fn from_streams_only_within_d21() {
         assert_eq!(rule(FROM, SERIES, false, true, true), Cut::Stream);
-        assert_eq!(rule(FROM, SrfKind::JsonbArrayElements { text: false }, false, true, true), Cut::Stream);
+        assert_eq!(
+            rule(
+                FROM,
+                SrfKind::JsonbArrayElements { text: false },
+                false,
+                true,
+                true
+            ),
+            Cut::Stream
+        );
         for (kind, acts, streams, on) in [
             (SrfKind::Other, true, true, true),
             (SrfKind::Other, false, true, true),
@@ -98,7 +131,11 @@ mod tests {
             (SrfKind::Expr, false, true, true),
             (SrfKind::Scalar, false, true, true),
         ] {
-            assert_eq!(rule(FROM, kind, acts, streams, on), Cut::Drain, "{kind:?} acts {acts} streams {streams} on {on}");
+            assert_eq!(
+                rule(FROM, kind, acts, streams, on),
+                Cut::Drain,
+                "{kind:?} acts {acts} streams {streams} on {on}"
+            );
         }
     }
 }

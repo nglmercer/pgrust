@@ -123,8 +123,11 @@ fn ShmemAllocRaw(size: usize, allocated_size: &mut usize) -> (*mut u8, usize) {
     if new_space.is_null() {
         return (std::ptr::null_mut(), 0);
     }
-    let Some(off) = carve(&SHMEM_FREEOFFSET, SHMEM_TOTALSIZE.load(Ordering::Relaxed), padded)
-    else {
+    let Some(off) = carve(
+        &SHMEM_FREEOFFSET,
+        SHMEM_TOTALSIZE.load(Ordering::Relaxed),
+        padded,
+    ) else {
         // SAFETY: new_space came from alloc_zeroed(layout) just above.
         unsafe { std::alloc::dealloc(new_space, layout) };
         return (std::ptr::null_mut(), 0);
@@ -222,7 +225,9 @@ pub fn ShmemIndexAdopt(name: &str, size: usize, location: *mut u8) -> PgResult<(
     if index.iter().any(|e| e.name == name) {
         drop(index);
         ereport(ERROR)
-            .errmsg(format!("ShmemIndex entry for data structure \"{name}\" already exists"))
+            .errmsg(format!(
+                "ShmemIndex entry for data structure \"{name}\" already exists"
+            ))
             .finish(loc("ShmemIndexAdopt"))?;
         unreachable!();
     }
@@ -235,8 +240,11 @@ pub fn ShmemIndexAdopt(name: &str, size: usize, location: *mut u8) -> PgResult<(
         not_enough_shmem(name, size)?;
         unreachable!();
     };
-    let Some(off) = carve(&SHMEM_FREEOFFSET, SHMEM_TOTALSIZE.load(Ordering::Relaxed), padded)
-    else {
+    let Some(off) = carve(
+        &SHMEM_FREEOFFSET,
+        SHMEM_TOTALSIZE.load(Ordering::Relaxed),
+        padded,
+    ) else {
         drop(index);
         not_enough_shmem(name, size)?;
         unreachable!();

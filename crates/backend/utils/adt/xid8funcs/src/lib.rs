@@ -168,13 +168,18 @@ pub fn snapshot_image<'mcx>(
 #[inline(never)]
 fn bad_format_err(input: &[u8]) -> PgError {
     let err = match core::str::from_utf8(input) {
-        Ok(s) => PgError::error(format!("invalid input syntax for type pg_snapshot: \"{s}\"")),
+        Ok(s) => PgError::error(format!(
+            "invalid input syntax for type pg_snapshot: \"{s}\""
+        )),
         Err(_) => {
             const PREFIX: &[u8] = b"invalid input syntax for type pg_snapshot: \"";
             let mut msg: Vec<u8> = Vec::new();
             // The message is built while reporting: an allocation failure
             // here is the out-of-memory ERROR itself.
-            if msg.try_reserve_exact(PREFIX.len() + input.len() + 1).is_err() {
+            if msg
+                .try_reserve_exact(PREFIX.len() + input.len() + 1)
+                .is_err()
+            {
                 return ::mcx::oom_named("ErrorContext", PREFIX.len() + input.len() + 1);
             }
             msg.extend_from_slice(PREFIX);

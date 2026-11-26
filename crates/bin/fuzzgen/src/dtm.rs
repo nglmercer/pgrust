@@ -188,20 +188,55 @@ const INTERVALS: &[&str] = &[
 /// valid for some source types (identical two-sided rejection is the
 /// assertion for the rest).
 const TRUNC_FIELDS: &[&str] = &[
-    "millennium", "century", "decade", "year", "quarter", "month", "week",
-    "day", "hour", "minute", "second", "milliseconds", "microseconds",
+    "millennium",
+    "century",
+    "decade",
+    "year",
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "hour",
+    "minute",
+    "second",
+    "milliseconds",
+    "microseconds",
 ];
 
 const EXTRACT_FIELDS: &[&str] = &[
-    "epoch", "millennium", "century", "decade", "year", "quarter", "month",
-    "week", "day", "hour", "minute", "second", "milliseconds",
-    "microseconds", "dow", "isodow", "doy", "isoyear", "julian",
-    "timezone", "timezone_hour", "timezone_minute",
+    "epoch",
+    "millennium",
+    "century",
+    "decade",
+    "year",
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "hour",
+    "minute",
+    "second",
+    "milliseconds",
+    "microseconds",
+    "dow",
+    "isodow",
+    "doy",
+    "isoyear",
+    "julian",
+    "timezone",
+    "timezone_hour",
+    "timezone_minute",
 ];
 
 /// date_bin strides; month/year and zero strides are deliberate error
 /// fuel (kept rare by the caller).
-const BIN_STRIDES: &[&str] = &["'15 minutes'", "'1 hour'", "'1 day'", "'7 days'", "'0.000001 seconds'"];
+const BIN_STRIDES: &[&str] = &[
+    "'15 minutes'",
+    "'1 hour'",
+    "'1 day'",
+    "'7 days'",
+    "'0.000001 seconds'",
+];
 const BIN_STRIDES_ERR: &[&str] = &["'1 month'", "'0'", "'-1 hour'"];
 
 /// The six matrix types (timestamptz/timetz have no SqlType — dtm is
@@ -372,7 +407,11 @@ fn gen_arith(g: &mut Gen) -> String {
         }
         // interval / numeric factor (÷0 = error fuel, rare)
         _ => {
-            let k = if g.rng.chance(1, 8) { "0" } else { *g.rng.pick(&["2", "-0.5", "3", "1e6"]) };
+            let k = if g.rng.chance(1, 8) {
+                "0"
+            } else {
+                *g.rng.pick(&["2", "-0.5", "3", "1e6"])
+            };
             format!("({}) / ({})", lit(g, Interval), k)
         }
     }
@@ -395,7 +434,12 @@ fn gen_cmp(g: &mut Gen) -> String {
         _ => (Interval, Interval),
     };
     if g.rng.chance(1, 5) {
-        format!("({}) BETWEEN ({}) AND ({})", lit(g, l), lit(g, r), lit(g, r))
+        format!(
+            "({}) BETWEEN ({}) AND ({})",
+            lit(g, l),
+            lit(g, r),
+            lit(g, r)
+        )
     } else if g.rng.chance(1, 2) {
         format!("({}) {} ({})", lit(g, l), op, lit(g, r))
     } else {
@@ -432,7 +476,12 @@ fn gen_trunc(g: &mut Gen) -> String {
         // 3-arg zone form (timestamptz only)
         _ => {
             let zone = *g.rng.pick(TZ_NAMES);
-            format!("date_trunc('{}', {}, '{}')", field, lit(g, Timestamptz), zone)
+            format!(
+                "date_trunc('{}', {}, '{}')",
+                field,
+                lit(g, Timestamptz),
+                zone
+            )
         }
     }
 }
@@ -441,7 +490,9 @@ fn gen_extract(g: &mut Gen) -> String {
     g.fire("dtm:extract");
     use DtmTy::*;
     let field = *g.rng.pick(EXTRACT_FIELDS);
-    let ty = *ALL_DTM.get(g.rng.below_usize(ALL_DTM.len())).unwrap_or(&Timestamp);
+    let ty = *ALL_DTM
+        .get(g.rng.below_usize(ALL_DTM.len()))
+        .unwrap_or(&Timestamp);
     let arg = lit(g, ty);
     if g.rng.chance(1, 2) {
         // EXTRACT returns numeric (lowercase `from`: statement-level
@@ -461,7 +512,11 @@ fn gen_bin(g: &mut Gen) -> String {
     } else {
         *g.rng.pick(BIN_STRIDES)
     };
-    let ty = if g.rng.chance(1, 2) { Timestamp } else { Timestamptz };
+    let ty = if g.rng.chance(1, 2) {
+        Timestamp
+    } else {
+        Timestamptz
+    };
     let src = lit(g, ty);
     let origin = lit(g, ty);
     format!("date_bin({}, {}, {})", stride, src, origin)
@@ -470,11 +525,19 @@ fn gen_bin(g: &mut Gen) -> String {
 fn gen_age(g: &mut Gen) -> String {
     g.fire("dtm:age");
     use DtmTy::*;
-    let ty = if g.rng.chance(1, 2) { Timestamp } else { Timestamptz };
+    let ty = if g.rng.chance(1, 2) {
+        Timestamp
+    } else {
+        Timestamptz
+    };
     if g.rng.chance(1, 4) {
         // Single-arity age(): hidden current-date operand — deterministic
         // ONLY over ±infinity (the result saturates regardless of today).
-        let inf = if g.rng.chance(1, 2) { "'infinity'" } else { "'-infinity'" };
+        let inf = if g.rng.chance(1, 2) {
+            "'infinity'"
+        } else {
+            "'-infinity'"
+        };
         format!("age({} {})", ty.name().to_uppercase(), inf)
     } else {
         format!("age({}, {})", lit(g, ty), lit(g, ty))
@@ -483,7 +546,9 @@ fn gen_age(g: &mut Gen) -> String {
 
 fn gen_justify(g: &mut Gen) -> String {
     g.fire("dtm:justify");
-    let f = *g.rng.pick(&["justify_hours", "justify_days", "justify_interval"]);
+    let f = *g
+        .rng
+        .pick(&["justify_hours", "justify_days", "justify_interval"]);
     format!("{}({})", f, lit(g, DtmTy::Interval))
 }
 
@@ -495,7 +560,11 @@ fn gen_make(g: &mut Gen) -> String {
     } else {
         *g.rng.pick(&["2024", "1970", "-44", "1", "5874897", "9999"])
     };
-    let month = if fuel { "13" } else { *g.rng.pick(&["1", "2", "6", "12"]) };
+    let month = if fuel {
+        "13"
+    } else {
+        *g.rng.pick(&["1", "2", "6", "12"])
+    };
     let day = if fuel {
         *g.rng.pick(&["32", "0", "30"]) // Feb 30 via month=2 stays fuel too
     } else {
@@ -507,7 +576,11 @@ fn gen_make(g: &mut Gen) -> String {
             let (h, m, s) = if fuel {
                 ("24", "60", "61.0")
             } else {
-                (*g.rng.pick(&["0", "12", "23"]), "59", *g.rng.pick(&["0.0", "59.999999", "30.5"]))
+                (
+                    *g.rng.pick(&["0", "12", "23"]),
+                    "59",
+                    *g.rng.pick(&["0.0", "59.999999", "30.5"]),
+                )
             };
             format!("make_time({}, {}, {})", h, m, s)
         }
@@ -534,9 +607,15 @@ fn gen_make(g: &mut Gen) -> String {
             )
         }
         _ => {
-            let months = if fuel { "2147483647" } else { *g.rng.pick(&["0", "13", "-14"]) };
+            let months = if fuel {
+                "2147483647"
+            } else {
+                *g.rng.pick(&["0", "13", "-14"])
+            };
             let days = *g.rng.pick(&["0", "40", "-40"]);
-            let secs = *g.rng.pick(&["0.0", "0.000001", "-86400.5", "9223372036.854"]);
+            let secs = *g
+                .rng
+                .pick(&["0.0", "0.000001", "-86400.5", "9223372036.854"]);
             format!(
                 "make_interval(years => 0, months => {}, days => {}, secs => {})",
                 months, days, secs
@@ -596,11 +675,7 @@ fn gen_cast(g: &mut Gen) -> String {
         // ::text round-trip: type -> text -> type (identity modulo
         // canonicalization — the I/O function pair under one roof).
         let ty = *g.rng.pick(ALL_DTM);
-        format!(
-            "CAST(CAST(({}) AS text) AS {})",
-            lit(g, ty),
-            ty.name()
-        )
+        format!("CAST(CAST(({}) AS text) AS {})", lit(g, ty), ty.name())
     } else {
         let (from, to) = *g.rng.pick(CASTS);
         format!("CAST(({}) AS {})", lit(g, from), to.name())
@@ -629,7 +704,11 @@ mod tests {
             let stmts = gen_dtm_module(&mut g);
             // Single SELECT for the matrix shapes; dtm:decode groups may
             // carry up to 3 statements (the dtmdec style bracket).
-            assert!((1..=3).contains(&stmts.len()), "bad group size: {}", stmts.len());
+            assert!(
+                (1..=3).contains(&stmts.len()),
+                "bad group size: {}",
+                stmts.len()
+            );
             for stmt in &stmts {
                 let sql = stmt.to_sql();
                 assert!(!sql.contains('\n'), "multi-line: {sql}");
@@ -641,9 +720,15 @@ mod tests {
                 );
                 let low = sql.to_ascii_lowercase();
                 assert!(!low.contains("now("), "nondeterministic now(): {sql}");
-                assert!(!low.contains("current_"), "nondeterministic current_*: {sql}");
+                assert!(
+                    !low.contains("current_"),
+                    "nondeterministic current_*: {sql}"
+                );
                 if low.starts_with("select age(timestamp") && !low.contains(',') {
-                    assert!(low.contains("infinity"), "1-ary age over finite input: {sql}");
+                    assert!(
+                        low.contains("infinity"),
+                        "1-ary age over finite input: {sql}"
+                    );
                 }
             }
             for p in &prods {
@@ -652,9 +737,19 @@ mod tests {
         }
         // Every production fires under defaults within the budget.
         for p in [
-            "dtm:arith", "dtm:cmp", "dtm:overlaps", "dtm:trunc", "dtm:extract",
-            "dtm:bin", "dtm:age", "dtm:justify", "dtm:make", "dtm:attz",
-            "dtm:tochar", "dtm:cast", "dtm:decode",
+            "dtm:arith",
+            "dtm:cmp",
+            "dtm:overlaps",
+            "dtm:trunc",
+            "dtm:extract",
+            "dtm:bin",
+            "dtm:age",
+            "dtm:justify",
+            "dtm:make",
+            "dtm:attz",
+            "dtm:tochar",
+            "dtm:cast",
+            "dtm:decode",
         ] {
             assert!(seen.contains(p), "production {p} never fired");
         }

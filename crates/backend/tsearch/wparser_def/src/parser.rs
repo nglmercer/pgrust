@@ -341,11 +341,13 @@ fn char2wchar_default(head: &[u8]) -> PgResult<Vec<u32>> {
     ::mcx::check_alloc_size(n1)?;
     ::mcx::check_alloc_size(n1.saturating_mul(core::mem::size_of::<libc::wchar_t>()))?;
     let mut nul = Vec::new();
-    nul.try_reserve_exact(n1).map_err(|_| ::mcx::oom_named("char2wchar", n1))?;
+    nul.try_reserve_exact(n1)
+        .map_err(|_| ::mcx::oom_named("char2wchar", n1))?;
     nul.extend_from_slice(head);
     nul.push(0);
     let mut out: Vec<libc::wchar_t> = Vec::new();
-    out.try_reserve_exact(n1).map_err(|_| ::mcx::oom_named("char2wchar", n1 * 4))?;
+    out.try_reserve_exact(n1)
+        .map_err(|_| ::mcx::oom_named("char2wchar", n1 * 4))?;
     out.resize(n1, 0);
     // SAFETY: nul is NUL-terminated; at most out.len() wchars written.
     let n = ::pg_locale::with_backend_ctype(|| unsafe {
@@ -915,6 +917,9 @@ mod tests {
     #[test]
     fn invalid_multibyte_for_locale_sqlstate() {
         let e = super::invalid_multibyte_for_locale();
-        assert_eq!(e.sqlstate(), ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
+        assert_eq!(
+            e.sqlstate(),
+            ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
+        );
     }
 }

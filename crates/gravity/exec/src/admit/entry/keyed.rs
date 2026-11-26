@@ -10,8 +10,16 @@ use types_portal::{CachedPlanHandle, ParamListHandle};
 
 /// `ident` (D3865 L5): the identity admission filed under the plan's identity key, `pstmt` the desc's own plan; it brings
 /// its own plan copy (`Admitted::ident`), which its reader's kind is read over, as at its admission.
-pub fn take(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &'static PlannedStmt<'static>, params: ParamListHandle, ident: bool) -> PgResult<Option<(PlanKey, Box<Admitted>)>> {
-    let Some((key, a)) = take_served(b, cplan, pstmt, params, ident) else { return Ok(None) };
+pub fn take(
+    b: &mut Backend,
+    cplan: CachedPlanHandle,
+    pstmt: &'static PlannedStmt<'static>,
+    params: ParamListHandle,
+    ident: bool,
+) -> PgResult<Option<(PlanKey, Box<Admitted>)>> {
+    let Some((key, a)) = take_served(b, cplan, pstmt, params, ident) else {
+        return Ok(None);
+    };
     // D3865 L5: an identity key's admission without its copy (none is filed so): dropped, and this start admits again
     let read = match ident {
         true => a.pstmt.filter(|_| a.ident.is_some()),
@@ -24,7 +32,10 @@ pub fn take(b: &mut Backend, cplan: CachedPlanHandle, pstmt: &'static PlannedStm
     // a program admitted for another root reader's kind (a named cursor's FETCH, or the reverse: GraphWords::partial) is
     // dropped, and this start admits again under its own; D2926: the counted start of the unnamed portal (`run_counted`)
     // leaves the whole reader's program filed for the plan's uncounted runs
-    if a.graph.as_ref().is_some_and(|g| g.partial != super::partial_reader(read)) {
+    if a.graph
+        .as_ref()
+        .is_some_and(|g| g.partial != super::partial_reader(read))
+    {
         if super::counted_start(pstmt) {
             give_back(b, key, cplan, pstmt, a);
         } else {
@@ -63,7 +74,13 @@ pub fn forsake(home: usize, key: Option<PlanKey>, a: Box<Admitted>) {
     }
 }
 
-pub fn release(home: usize, key: Option<PlanKey>, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, a: Box<Admitted>) {
+pub fn release(
+    home: usize,
+    key: Option<PlanKey>,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    a: Box<Admitted>,
+) {
     let Some(key) = key else { return };
     let mut served = Some(a); // D1216: boxed since its take (or its admission): never copied back into a box
     let _ = crate::admit::reentry::enter(None, None, false, |b, depth| {

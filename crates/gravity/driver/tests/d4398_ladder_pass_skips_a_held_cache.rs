@@ -24,7 +24,9 @@ fn l2() -> u64 {
     lock_or_skip(&L2).map_or(0, |g| *g)
 }
 fn l2_trim(to: u64) -> u64 {
-    let Some(mut g) = lock_or_skip(&L2) else { return 0 };
+    let Some(mut g) = lock_or_skip(&L2) else {
+        return 0;
+    };
     let freed = g.saturating_sub(to);
     *g -= freed;
     freed
@@ -63,8 +65,24 @@ fn in_pass<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> (T, Dur
 fn the_ladders_pass_leaves_out_a_cache_whose_lock_another_thread_holds_and_frees_the_next() {
     *L2.lock().unwrap() = 300 * MIB;
     CODE.store(200 * MIB, Ordering::Relaxed);
-    assert!(budget::register(Consumer::CatalogL2, Hooks { current: l2, floor: l2, cap: l2, reclaim: None }));
-    assert!(budget::register(Consumer::ProgramCaches, Hooks { current: code, floor: code, cap: code, reclaim: None }));
+    assert!(budget::register(
+        Consumer::CatalogL2,
+        Hooks {
+            current: l2,
+            floor: l2,
+            cap: l2,
+            reclaim: None
+        }
+    ));
+    assert!(budget::register(
+        Consumer::ProgramCaches,
+        Hooks {
+            current: code,
+            floor: code,
+            cap: code,
+            reclaim: None
+        }
+    ));
     budget::register_ladder_reclaim(Consumer::CatalogL2, none_in_use, l2_trim);
     budget::register_ladder_reclaim(Consumer::ProgramCaches, code_in_use, code_trim);
     budget::note_b(4096 * MIB);
@@ -72,12 +90,32 @@ fn the_ladders_pass_leaves_out_a_cache_whose_lock_another_thread_holds_and_frees
     // this thread holds the L2's lock while the ladder's pass runs: R2a's count leaves it out, its reclaim skips it and
     // frees the code cache next, and the pass returns at once
     let held = L2.lock().unwrap();
-    let ((elastic, freed), took) = in_pass(|| (reclaim::ladder_elastic(), reclaim::ladder_reclaim(350 * MIB)));
+    let ((elastic, freed), took) = in_pass(|| {
+        (
+            reclaim::ladder_elastic(),
+            reclaim::ladder_reclaim(350 * MIB),
+        )
+    });
     drop(held);
-    assert_eq!(elastic, 150 * MIB, "the held L2 is left out of R2a's count: the code cache's 150 MiB above its in use");
-    assert_eq!(freed, 150 * MIB, "R2a skips the held L2 and frees the code cache");
-    assert!(took < Duration::from_millis(500), "the pass never waited on the lock: {took:?}");
-    assert_eq!((*L2.lock().unwrap(), code()), (300 * MIB, code_in_use()), "the held cache is untouched");
+    assert_eq!(
+        elastic,
+        150 * MIB,
+        "the held L2 is left out of R2a's count: the code cache's 150 MiB above its in use"
+    );
+    assert_eq!(
+        freed,
+        150 * MIB,
+        "R2a skips the held L2 and frees the code cache"
+    );
+    assert!(
+        took < Duration::from_millis(500),
+        "the pass never waited on the lock: {took:?}"
+    );
+    assert_eq!(
+        (*L2.lock().unwrap(), code()),
+        (300 * MIB, code_in_use()),
+        "the held cache is untouched"
+    );
 
     // the next pass with the lock free takes the L2
     let (freed, _) = in_pass(|| reclaim::ladder_reclaim(350 * MIB));
@@ -94,7 +132,15 @@ fn the_ladders_pass_leaves_out_a_cache_whose_lock_another_thread_holds_and_frees
     });
     taken.recv().unwrap();
     let at = Instant::now();
-    assert_eq!(reclaim::ladder_reclaim(100 * MIB), 100 * MIB, "waited for, then freed");
-    assert!(at.elapsed() >= Duration::from_millis(150), "outside a pass the lock was waited for: {:?}", at.elapsed());
+    assert_eq!(
+        reclaim::ladder_reclaim(100 * MIB),
+        100 * MIB,
+        "waited for, then freed"
+    );
+    assert!(
+        at.elapsed() >= Duration::from_millis(150),
+        "outside a pass the lock was waited for: {:?}",
+        at.elapsed()
+    );
     holder.join().unwrap();
 }

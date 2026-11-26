@@ -188,9 +188,7 @@ fn gen_basic(g: &mut Gen, id: u32) -> Vec<StmtKind> {
         "CREATE TABLE {p} (pk int PRIMARY KEY, a int, b text);"
     )));
     // child inherits pk/a/b and adds its own column `extra`.
-    out.push(raw(format!(
-        "CREATE TABLE {c} (extra int) INHERITS ({p});"
-    )));
+    out.push(raw(format!("CREATE TABLE {c} (extra int) INHERITS ({p});")));
     for pk in 1..=3 {
         out.push(raw(format!(
             "INSERT INTO {p} (pk, a, b) VALUES ({pk}, {}, '{}');",
@@ -266,9 +264,7 @@ fn gen_multi(g: &mut Gen, id: u32) -> Vec<StmtKind> {
     // COLLATION-conflict arm: same name+type text, different collation ->
     // ERROR "column ... has a collation conflict". "C"/"POSIX" are
     // universal (no host-locale dependency).
-    out.push(raw(format!(
-        "CREATE TABLE {r1} (x text COLLATE \"C\");"
-    )));
+    out.push(raw(format!("CREATE TABLE {r1} (x text COLLATE \"C\");")));
     out.push(raw(format!(
         "CREATE TABLE {r2} (x text COLLATE \"POSIX\");"
     )));
@@ -321,20 +317,18 @@ fn gen_constraint(_g: &mut Gen, id: u32) -> Vec<StmtKind> {
     for pk in 1..=3 {
         out.push(raw(format!(
             "INSERT INTO {p} (pk, a) VALUES ({pk}, {});",
-            1 +pk
+            1 + pk
         )));
         out.push(raw(format!(
             "INSERT INTO {c} (pk, a) VALUES ({}, {});",
             10 + pk,
-            1 +pk
+            1 + pk
         )));
     }
     out.push(raw("SET constraint_exclusion = on;".to_string()));
     // WHERE contradicts chk_a (a>0) -> planner may exclude both rels via the
     // inherited CHECK; result identity is the comparison surface.
-    out.push(raw(format!(
-        "SELECT count(*) FROM {p} WHERE a < 0;"
-    )));
+    out.push(raw(format!("SELECT count(*) FROM {p} WHERE a < 0;")));
     out.push(probe_rows(&p, false, "pk, a", 2));
     out.push(raw("RESET constraint_exclusion;".to_string()));
     out.push(probe_constraints(names));
@@ -372,14 +366,10 @@ fn gen_alter(g: &mut Gen, id: u32) -> Vec<StmtKind> {
     out.push(probe_rows(&p, false, "pk, a, added1", 3));
     // ONLY ADD COLUMN arm (parent-only path; error-or-success, identical
     // both sides).
-    out.push(raw(format!(
-        "ALTER TABLE ONLY {p} ADD COLUMN ponly int;"
-    )));
+    out.push(raw(format!("ALTER TABLE ONLY {p} ADD COLUMN ponly int;")));
     out.push(probe_attrs(names));
     // ALTER COLUMN TYPE propagation to child.
-    out.push(raw(format!(
-        "ALTER TABLE {p} ALTER COLUMN a TYPE bigint;"
-    )));
+    out.push(raw(format!("ALTER TABLE {p} ALTER COLUMN a TYPE bigint;")));
     out.push(probe_attrs(names));
     // DROP COLUMN propagation.
     out.push(raw(format!("ALTER TABLE {p} DROP COLUMN a;")));
@@ -397,13 +387,9 @@ fn gen_attach(g: &mut Gen, id: u32) -> Vec<StmtKind> {
     let bad = format!("fz_inh_{id}_bad");
     let miss = format!("fz_inh_{id}_miss");
     let mut out = Vec::new();
-    out.push(raw(format!(
-        "CREATE TABLE {p} (pk int, a int, b text);"
-    )));
+    out.push(raw(format!("CREATE TABLE {p} (pk int, a int, b text);")));
     // standalone child with matching columns -> attachable.
-    out.push(raw(format!(
-        "CREATE TABLE {c} (pk int, a int, b text);"
-    )));
+    out.push(raw(format!("CREATE TABLE {c} (pk int, a int, b text);")));
     for pk in 1..=2 {
         out.push(raw(format!(
             "INSERT INTO {p} (pk, a, b) VALUES ({pk}, {}, '{}');",
@@ -468,9 +454,7 @@ fn gen_dml(_g: &mut Gen, id: u32) -> Vec<StmtKind> {
     }
     out.push(probe_rows(&p, false, "pk, a", 2));
     // UPDATE ONLY parent: only the 3 parent rows shift.
-    out.push(raw(format!(
-        "UPDATE ONLY {p} SET a = a + 1000;"
-    )));
+    out.push(raw(format!("UPDATE ONLY {p} SET a = a + 1000;")));
     out.push(probe_rows(&p, false, "pk, a", 2));
     // UPDATE recursive from the mid level: c + g rows shift, parent does not.
     out.push(raw(format!("UPDATE {c} SET a = a + 1;")));

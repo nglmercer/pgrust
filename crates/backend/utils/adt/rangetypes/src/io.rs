@@ -14,9 +14,9 @@ use ::types_fmgr::{
 };
 
 use crate::{
-    make_range, range_deserialize, range_get_flags, range_has_lbound, range_has_ubound,
-    RangeBound, RangeInfo, RANGE_EMPTY, RANGE_EMPTY_LITERAL, RANGE_LB_INC, RANGE_LB_INF,
-    RANGE_UB_INC, RANGE_UB_INF,
+    make_range, range_deserialize, range_get_flags, range_has_lbound, range_has_ubound, RangeBound,
+    RangeInfo, RANGE_EMPTY, RANGE_EMPTY_LITERAL, RANGE_LB_INC, RANGE_LB_INF, RANGE_UB_INC,
+    RANGE_UB_INF,
 };
 
 // RangeIOData (rangetypes.c): fn_extra cache for the I/O functions.
@@ -40,10 +40,10 @@ fn no_binary_io(recv: bool, elem_typid: Oid) -> Box<PgError> {
 }
 
 pub fn cached_range_io_data(
-    flinfo: & mut FmgrInfo,
+    flinfo: &mut FmgrInfo,
     rngtypid: Oid,
     func: IOFuncSelector,
-) -> PgResult<& mut RangeIOData> {
+) -> PgResult<&mut RangeIOData> {
     let need = match flinfo.fn_extra_ref::<RangeIOData>() {
         Some(c) => c.ri.rngtypid != rngtypid,
         None => true,
@@ -52,10 +52,17 @@ pub fn cached_range_io_data(
         let ri = RangeInfo::lookup(rngtypid)?;
         let io = get_type_io_data(ri.elem_typid, func)?;
         if io.func == 0 {
-            return Err(no_binary_io(matches!(func, IOFuncSelector::IOFunc_receive), ri.elem_typid));
+            return Err(no_binary_io(
+                matches!(func, IOFuncSelector::IOFunc_receive),
+                ri.elem_typid,
+            ));
         }
         let typioproc = ::fmgr_seams::fmgr_info::call(io.func)?;
-        flinfo.set_fn_extra(RangeIOData { ri, typioproc, typioparam: io.typioparam });
+        flinfo.set_fn_extra(RangeIOData {
+            ri,
+            typioproc,
+            typioparam: io.typioparam,
+        });
     }
     Ok(flinfo.fn_extra_mut::<RangeIOData>().unwrap())
 }
@@ -123,17 +130,23 @@ pub fn range_parse<'m>(
     }
 
     let emp = RANGE_EMPTY_LITERAL.as_bytes();
-    if string.len() - pos >= emp.len()
-        && string[pos..pos + emp.len()].eq_ignore_ascii_case(emp)
-    {
+    if string.len() - pos >= emp.len() && string[pos..pos + emp.len()].eq_ignore_ascii_case(emp) {
         pos += emp.len();
         while pos < string.len() && is_space(string[pos]) {
             pos += 1;
         }
         if pos != string.len() {
-            return ereturn(esc, None, malformed(string, "Junk after \"empty\" key word."));
+            return ereturn(
+                esc,
+                None,
+                malformed(string, "Junk after \"empty\" key word."),
+            );
         }
-        return Ok(Some(ParsedRange { flags: RANGE_EMPTY, lbound: None, ubound: None }));
+        return Ok(Some(ParsedRange {
+            flags: RANGE_EMPTY,
+            lbound: None,
+            ubound: None,
+        }));
     }
 
     let mut flags = 0u8;
@@ -163,7 +176,11 @@ pub fn range_parse<'m>(
     if string.get(pos) == Some(&b',') {
         pos += 1;
     } else {
-        return ereturn(esc, None, malformed(string, "Missing comma after lower bound."));
+        return ereturn(
+            esc,
+            None,
+            malformed(string, "Missing comma after lower bound."),
+        );
     }
 
     let (ubound, infinite) = match parse_bound(mcx, string, &mut pos, esc.as_deref_mut())? {
@@ -194,7 +211,11 @@ pub fn range_parse<'m>(
         );
     }
 
-    Ok(Some(ParsedRange { flags, lbound, ubound }))
+    Ok(Some(ParsedRange {
+        flags,
+        lbound,
+        ubound,
+    }))
 }
 
 // range_parse_bound (rangetypes.c): (bound, infinite); `Ok(None)` = soft error.
@@ -260,7 +281,11 @@ pub fn range_deparse<'m>(
         return Ok(out);
     }
     let mut out = ::stringinfo::StringInfo::with_capacity_in(mcx, 32)?;
-    out.append_byte(if flags & RANGE_LB_INC != 0 { b'[' } else { b'(' })?;
+    out.append_byte(if flags & RANGE_LB_INC != 0 {
+        b'['
+    } else {
+        b'('
+    })?;
     if range_has_lbound(flags) {
         bound_escape(&mut out, lbound.expect("lower bound string"))?;
     }
@@ -268,7 +293,11 @@ pub fn range_deparse<'m>(
     if range_has_ubound(flags) {
         bound_escape(&mut out, ubound.expect("upper bound string"))?;
     }
-    out.append_byte(if flags & RANGE_UB_INC != 0 { b']' } else { b')' })?;
+    out.append_byte(if flags & RANGE_UB_INC != 0 {
+        b']'
+    } else {
+        b')'
+    })?;
     // StringInfo keeps data[len] == NUL with capacity > len, so materializing
     // the NUL into the cstring image never reallocates.
     let mut out = out.into_vec();
@@ -279,7 +308,12 @@ pub fn range_deparse<'m>(
 // C appends only what the bound needs; reserving 2 * len + 2 up front would
 // trip the StringInfo ceiling on a large bound C outputs fine.
 pub(crate) fn bound_escape_len(value: &[u8], nq: bool) -> usize {
-    value.len() + value.iter().filter(|&&ch| ch == b'"' || ch == b'\\').count() + if nq { 2 } else { 0 }
+    value.len()
+        + value
+            .iter()
+            .filter(|&&ch| ch == b'"' || ch == b'\\')
+            .count()
+        + if nq { 2 } else { 0 }
 }
 
 // range_bound_escape (rangetypes.c).
@@ -386,7 +420,14 @@ pub fn range_in<'m>(
     };
 
     let ctx = soft.map(|n| &mut n.ctx);
-    make_range(mcx, &mut cache.ri, &mut lower, &mut upper, flags & RANGE_EMPTY != 0, ctx)
+    make_range(
+        mcx,
+        &mut cache.ri,
+        &mut lower,
+        &mut upper,
+        flags & RANGE_EMPTY != 0,
+        ctx,
+    )
 }
 
 /// range_out body: NUL-terminated cstring image.
@@ -406,16 +447,24 @@ pub fn range_out<'m>(
     let mut lbound_copy: PgVec<'m, u8> = ::mcx::vec_with_capacity_in(mcx, 0)?;
     let mut lb: Option<&[u8]> = None;
     if range_has_lbound(flags) {
-        let d =
-            function_call1_coll_in(&mut cache.typioproc, ::types_core::InvalidOid, mcx, lower.val)?;
+        let d = function_call1_coll_in(
+            &mut cache.typioproc,
+            ::types_core::InvalidOid,
+            mcx,
+            lower.val,
+        )?;
         ::mcx::vec_append_bytes(&mut lbound_copy, cstr_bytes(d))?;
         lb = Some(&lbound_copy);
     }
     let ubound_str;
     let mut ub: Option<&[u8]> = None;
     if range_has_ubound(flags) {
-        ubound_str =
-            function_call1_coll_in(&mut cache.typioproc, ::types_core::InvalidOid, mcx, upper.val)?;
+        ubound_str = function_call1_coll_in(
+            &mut cache.typioproc,
+            ::types_core::InvalidOid,
+            mcx,
+            upper.val,
+        )?;
         ub = Some(cstr_bytes(ubound_str));
     }
     range_deparse(mcx, flags, lb, ub)
@@ -509,8 +558,15 @@ pub fn range_recv<'m>(
         lower: false,
     };
 
-    Ok(make_range(mcx, &mut cache.ri, &mut lower, &mut upper, flags & RANGE_EMPTY != 0, None)?
-        .expect("hard error path returns Some"))
+    Ok(make_range(
+        mcx,
+        &mut cache.ri,
+        &mut lower,
+        &mut upper,
+        flags & RANGE_EMPTY != 0,
+        None,
+    )?
+    .expect("hard error path returns Some"))
 }
 
 /// range_send body: bytea image.

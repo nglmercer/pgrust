@@ -21,7 +21,9 @@ pub fn RelationGetStatExtList<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<PgVe
         }
         crate::l2core::StatExtProbe::Miss(gen) => gen,
     };
-    let oids = gravity_deps::suppressed(|| relcache_build_seams::scan_pg_statistic_ext_oids::call(mcx, relid))?;
+    let oids = gravity_deps::suppressed(|| {
+        relcache_build_seams::scan_pg_statistic_ext_oids::call(mcx, relid)
+    })?;
     let built: Rc<[Oid]> = Rc::from(&oids[..]);
     if let Some(gen) = gen {
         crate::l2core::statext_publish(relid, gen, &built);

@@ -24,8 +24,8 @@ use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::jointype::JoinType;
 use types_nodes::plannodes::RowMarkType;
 
-use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::graph::Gx;
 
 const RERUN_FIRST: ShapeWhy = ShapeWhy("a row lock whose recheck reruns first a producer PG's EvalPlanQual may not run, one that may raise or call a function (D2033)");
 const BUILD_FIRST: ShapeWhy = ShapeWhy("a row lock whose later rechecks PG may run build-first over a build that may be empty, skipping an outer side that may raise or call a function (D2050)");
@@ -43,7 +43,14 @@ const NULL_SIDE: ShapeWhy = ShapeWhy("a row lock whose recheck reruns a producer
 /// run. Both forms (marks.rs's, lower.rs's L1) ask it. The recheck's run ahead of PostgreSQL's demand comes back with
 /// its licence: a quiet constant fill it reruns before PG's fill at the nest's first inner fetch (D3653, `fill_licence`);
 /// `None` when it reruns none.
-pub(crate) fn admit_lazy(gx: &Gx<'_, '_>, k: usize, node: i32, marks: &[RowMark], (nulls, init): (bool, &[usize]), lazy: &[usize]) -> Option<Licence> {
+pub(crate) fn admit_lazy(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    node: i32,
+    marks: &[RowMark],
+    (nulls, init): (bool, &[usize]),
+    lazy: &[usize],
+) -> Option<Licence> {
     match verdict_held(gx, k, marks, Road::Lock { nulls, init }, lazy) {
         Ok(ahead) => ahead,
         Err(why) => crate::refuse!(node, Reason::Shape { why }),
@@ -60,31 +67,59 @@ pub(crate) enum Road<'a> {
     /// D4154 INITMULTI: `init` the InitPlans' members the M4 pair's B (marks.rs's runner recheck) never reruns, as the
     /// write road's; empty for any other lock.
     Lock { nulls: bool, init: &'a [usize] },
-    Write { targets: &'a [u32], arena: gravity_program::ArenaRef, init: &'a [usize] },
+    Write {
+        targets: &'a [u32],
+        arena: gravity_program::ArenaRef,
+        init: &'a [usize],
+    },
 }
 
 /// `admit_lazy`'s and the write road's (rerun/epq/write_road.rs `admit`) answer: the refusal (NULL_SIDE, RERUN_FIRST or BUILD_FIRST) recheck pipeline `k`
 /// takes on `road`, `None` when its recheck runs what PG's EvalPlanQual runs.
-pub(crate) fn verdict(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, lazy: &[usize]) -> Option<ShapeWhy> {
+pub(crate) fn verdict(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    marks: &[RowMark],
+    road: Road<'_>,
+    lazy: &[usize],
+) -> Option<ShapeWhy> {
     verdict_held(gx, k, marks, road, lazy).err()
 }
 
 /// `verdict`, with the licence of the quiet constant fill the recheck reruns ahead (`fill_licence`) when it passes.
-fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, lazy: &[usize]) -> Result<Option<Licence>, ShapeWhy> {
+fn verdict_held(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    marks: &[RowMark],
+    road: Road<'_>,
+    lazy: &[usize],
+) -> Result<Option<Licence>, ShapeWhy> {
     let ps = gx.pipelines();
     let producer = |c: usize, slot: u8| (0..c).rev().find(|&p| ps[p].desc.produces() == Some(slot));
     // D732-rest: where a COPY mark's stored row enters its producer (a VALUES scan emits it), and the producers below
-    let (mut from, mut copied, mut never): (PgVec<'_, usize>, PgVec<'_, bool>, PgVec<'_, usize>) = (mcx::pg_vec![in gx.mcx; 0usize; ps.len()], mcx::pg_vec![in gx.mcx; false; ps.len()], PgVec::new_in(gx.mcx));
-    for m in marks.iter().filter(|m| m.mark == RowMarkType::ROW_MARK_COPY) {
+    let (mut from, mut copied, mut never): (PgVec<'_, usize>, PgVec<'_, bool>, PgVec<'_, usize>) = (
+        mcx::pg_vec![in gx.mcx; 0usize; ps.len()],
+        mcx::pg_vec![in gx.mcx; false; ps.len()],
+        PgVec::new_in(gx.mcx),
+    );
+    for m in marks
+        .iter()
+        .filter(|m| m.mark == RowMarkType::ROW_MARK_COPY)
+    {
         if let Some(q) = (0..ps.len()).find(|&q| matches!(ps[q].source, Source::Values { scanrelid, .. } if u32::from(scanrelid) == m.rti)) {
             copied[q] = true;
             continue;
         }
         let rec = gx.graph.record_rows.iter().find(|r| r.scanrelid == m.rti);
-        if let Some((q, at)) = rec.and_then(|r| (0..ps.len()).find_map(|q| crate::rerun::epq::copy_row::boundary(gx, q, r).map(|at| (q, at)))) {
+        if let Some((q, at)) = rec.and_then(|r| {
+            (0..ps.len())
+                .find_map(|q| crate::rerun::epq::copy_row::boundary(gx, q, r).map(|at| (q, at)))
+        }) {
             (from[q], copied[q]) = (at, true);
             never.extend_in(crate::rerun::epq::copy_row::upstream(gx, q, at));
-        } else if let Some((x, at)) = rec.and_then(|r| crate::rerun::epq::copy_row::inner_entry(gx, r)) {
+        } else if let Some((x, at)) =
+            rec.and_then(|r| crate::rerun::epq::copy_row::inner_entry(gx, r))
+        {
             // D3592: an embedded nest inner's entry (rerun/epq/marks.rs `producer_copy`): the producers below it never
             // rerun
             never.extend_in(crate::rerun::epq::copy_row::upstream(gx, x, at));
@@ -113,13 +148,19 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
             never.extend_in(init.iter().copied());
             (nulls, None)
         }
-        Road::Write { targets, arena, init } => {
+        Road::Write {
+            targets,
+            arena,
+            init,
+        } => {
             never.extend_in(init.iter().copied());
             (false, Some((targets, arena)))
         }
     };
     if let Some((targets, arena)) = write {
-        let target = |q: usize| crate::ops::lockrows::marks::own(&ps[q].source).is_some_and(|r| targets.contains(&r));
+        let target = |q: usize| {
+            crate::ops::lockrows::marks::own(&ps[q].source).is_some_and(|r| targets.contains(&r))
+        };
         let reads = |x: usize| {
             let mut t = mcx::pg_vec![in gx.mcx; x];
             let mut i = 0;
@@ -137,25 +178,46 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
             false
         };
         let acts = |q: usize| {
-            let node = gx.graph.stmt.zip(ps[q].node_ops.last()).and_then(|(s, n)| gravity_decompose::lifetime::node_of(s, n.node_id).map(|(n, _)| (s, n)));
-            node.is_none_or(|(s, n)| gravity_decompose::effects::of_plan(&gravity_decompose::effects::Cx::new(s, gx.facts, arena), n).acts)
+            let node = gx.graph.stmt.zip(ps[q].node_ops.last()).and_then(|(s, n)| {
+                gravity_decompose::lifetime::node_of(s, n.node_id).map(|(n, _)| (s, n))
+            });
+            node.is_none_or(|(s, n)| {
+                gravity_decompose::effects::of_plan(
+                    &gravity_decompose::effects::Cx::new(s, gx.facts, arena),
+                    n,
+                )
+                .acts
+            })
         };
-        let fixed_calm = (0..k).filter(|&q| ps[q].desc.produces().is_some() && !never.contains(&q) && !reads(q)).all(|q| !acts(q));
+        let fixed_calm = (0..k)
+            .filter(|&q| ps[q].desc.produces().is_some() && !never.contains(&q) && !reads(q))
+            .all(|q| !acts(q));
         // the stopped pipeline's ops ahead of its first read of a result relation, its source reading none: those before
         // its first join, SubPlan or set-returning step, each a filter, gate, projection or Append marker (an arm's, a
         // feed's, or a settled union's reader, which hands its feeds' rows on as they come). They run over the fixed row
         // the statement read, through the same expressions: a VOLATILE call among them runs again where PG's runs (D4127:
         // one whose answer follows its own state, not its row, may stop PG before the result relation's producers, which
         // the rerun has run first)
-        let src_reads = target(k) || matches!(ps[k].source, Source::Breaker { slot } if producer(k, slot).is_some_and(reads));
+        let src_reads = target(k)
+            || matches!(ps[k].source, Source::Breaker { slot } if producer(k, slot).is_some_and(reads));
         let ahead = {
-            let first = ps[k].ops.iter().position(|o| matches!(o, Op::Join(_) | Op::SubPlan(_) | Op::Srf(_))).unwrap_or(ps[k].ops.len());
+            let first = ps[k]
+                .ops
+                .iter()
+                .position(|o| matches!(o, Op::Join(_) | Op::SubPlan(_) | Op::Srf(_)))
+                .unwrap_or(ps[k].ops.len());
             #[allow(clippy::match_like_matches_macro)]
-            ps[k].ops[from[k].min(first)..first].iter().all(|o| match o {
-                Op::Filter(_) | Op::Gate(_) | Op::Project(_) => true,
-                Op::Append(gravity_decompose::ops::shared::append::AppendDesc::Arm { .. } | gravity_decompose::ops::shared::append::AppendDesc::Feed { .. } | gravity_decompose::ops::shared::append::AppendDesc::Union { .. }) => true,
-                _ => false,
-            })
+            ps[k].ops[from[k].min(first)..first]
+                .iter()
+                .all(|o| match o {
+                    Op::Filter(_) | Op::Gate(_) | Op::Project(_) => true,
+                    Op::Append(
+                        gravity_decompose::ops::shared::append::AppendDesc::Arm { .. }
+                        | gravity_decompose::ops::shared::append::AppendDesc::Feed { .. }
+                        | gravity_decompose::ops::shared::append::AppendDesc::Union { .. },
+                    ) => true,
+                    _ => false,
+                })
         };
         if src_reads || fixed_calm && ahead {
             return Ok(None);
@@ -169,46 +231,91 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
     // runs nothing (a COPY mark's NULL row keeps the refusal). D3379 RDRAIN: nor then the RIGHT probe whose spooled drain is
     // the lock's own pipeline (hashjoin drain/spool_admit.rs `free_lock`: its outer the nullable side, a drained build row
     // carrying the outer's NULL ctid, so the rerun probe has no outer row and the rerun drain null-extends it again)
-    let refs = marks.iter().all(|m| m.lock != LockKind::None || m.mark == RowMarkType::ROW_MARK_REFERENCE);
-    let rdrain = |q: usize| refs && gx.free_lock(k, k).is_some() && gx.spooled_drain(q).is_some_and(|(d, _)| d == k);
+    let refs = marks
+        .iter()
+        .all(|m| m.lock != LockKind::None || m.mark == RowMarkType::ROW_MARK_REFERENCE);
+    let rdrain = |q: usize| {
+        refs && gx.free_lock(k, k).is_some() && gx.spooled_drain(q).is_some_and(|(d, _)| d == k)
+    };
     #[allow(clippy::nonminimal_bool)]
     let outer = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { jointype, .. } | JoinDesc::Merge { jointype, .. } | JoinDesc::Nest { jointype, .. } | JoinDesc::Drain { jointype, .. }) if !matches!(*jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_RIGHT_SEMI) && !(refs && *jointype == JoinType::JOIN_LEFT) && !(*jointype == JoinType::JOIN_RIGHT && rdrain(q)));
     // D3592: nor a LEFT nest whose inner enters a COPY mark's stored row (rerun/epq/marks.rs `producer_copy`): a
     // null-extended row's NULL whole row is the empty copy (D1685), the re-open's no row, so the rerun nest
     // null-extends it again, as EvalPlanQualFetchRowMark's copy leg hands the Subquery Scan no row
-    let copy_left = |q: usize, i: usize| marks.iter().any(|m| m.mark == RowMarkType::ROW_MARK_COPY && crate::rerun::epq::ref_copy::inner(gx, q, i, m).is_some());
+    let copy_left = |q: usize, i: usize| {
+        marks.iter().any(|m| {
+            m.mark == RowMarkType::ROW_MARK_COPY
+                && crate::rerun::epq::ref_copy::inner(gx, q, i, m).is_some()
+        })
+    };
     let at = |q: usize| from[q].min(ps[q].ops.len());
-    if nulls && (0..ps.len()).any(|q| q != k && !never.contains(&q) && live(q).iter().enumerate().any(|(i, o)| outer(q, o) && !copy_left(q, at(q) + i))) {
+    if nulls
+        && (0..ps.len()).any(|q| {
+            q != k
+                && !never.contains(&q)
+                && live(q)
+                    .iter()
+                    .enumerate()
+                    .any(|(i, o)| outer(q, o) && !copy_left(q, at(q) + i))
+        })
+    {
         return Err(NULL_SIDE);
     }
     // S3: a build may be empty at a recheck when a pipeline its rows come from (it, and the producers of what those
     // consume) reads a locked relation (its newest version may fail a qual or carry a NULL key) or is not quiet
     let locked: PgVec<'_, u32> = match write {
         Some((targets, _)) => mcx::to_vec_in(targets, gx.mcx),
-        None => marks.iter().filter(|m| m.lock != LockKind::None).map(|m| m.rti).collect_in(gx.mcx),
+        None => marks
+            .iter()
+            .filter(|m| m.lock != LockKind::None)
+            .map(|m| m.rti)
+            .collect_in(gx.mcx),
     };
     // lockrows REFFAM: a producer over a REFERENCE-marked relation's own scan alone (no locked relation, nothing consumed)
     // reruns over the row version the statement already read (EvalPlanQualFetchRowMark's), through the same expressions
     // that row passed then: it raises nothing anew, so only a user or VOLATILE call counts (effects `span_calls_free`)
-    let refs: PgVec<'_, u32> = marks.iter().filter(|m| m.lock == LockKind::None && m.mark == RowMarkType::ROW_MARK_REFERENCE && !m.parent).map(|m| m.rti).collect_in(gx.mcx);
-    let same_row = |x: usize| from[x] == 0 && ps[x].desc.consumes.is_empty() && crate::ops::lockrows::marks::own(&ps[x].source).is_some_and(|r| refs.contains(&r)) && crate::effects::span_calls_free(gx, &ps[x]);
+    let refs: PgVec<'_, u32> = marks
+        .iter()
+        .filter(|m| {
+            m.lock == LockKind::None && m.mark == RowMarkType::ROW_MARK_REFERENCE && !m.parent
+        })
+        .map(|m| m.rti)
+        .collect_in(gx.mcx);
+    let same_row = |x: usize| {
+        from[x] == 0
+            && ps[x].desc.consumes.is_empty()
+            && crate::ops::lockrows::marks::own(&ps[x].source).is_some_and(|r| refs.contains(&r))
+            && crate::effects::span_calls_free(gx, &ps[x])
+    };
     // lockrows REFFAM: or a producer reading only a REFERENCE family's settled union (its every feed a `same_row` one)
     // a settled union reader's feeds: those after the slot's previous reader (a slot is reused after its life: portals#244's
     // locked family's union and the REFERENCE family's union share slot 0), never every producer of the slot
-    let union_feeds = |x: usize| match (&ps[x].source, crate::rerun::union_arms::union_reader(&ps[x])) {
+    let union_feeds = |x: usize| match (
+        &ps[x].source,
+        crate::rerun::union_arms::union_reader(&ps[x]),
+    ) {
         (Source::Breaker { slot }, true) => crate::rerun::union_join_arms::feeds(gx, x, *slot),
         _ => Vec::new(),
     };
     let union_row = |x: usize| {
         let feeds = union_feeds(x);
-        from[x] == 0 && ps[x].desc.consumes.len() == 1 && !feeds.is_empty() && feeds.iter().all(|&p| same_row(p)) && crate::effects::span_calls_free(gx, &ps[x])
+        from[x] == 0
+            && ps[x].desc.consumes.len() == 1
+            && !feeds.is_empty()
+            && feeds.iter().all(|&p| same_row(p))
+            && crate::effects::span_calls_free(gx, &ps[x])
     };
     let empty = |b: usize| {
         let mut t = mcx::pg_vec![in gx.mcx; b];
         let mut i = 0;
         while let Some(&q) = t.get(i) {
             // lockrows REFFAM: a REFERENCE family's same rows (`same_row` / `union_row`) fill the build again
-            if (crate::ops::lockrows::marks::own(&ps[q].source).is_some_and(|r| locked.contains(&r)) || !crate::effects::span_quiet(gx, &ps[q], from[q], usize::MAX, copied[q])) && !same_row(q) && !union_row(q) {
+            if (crate::ops::lockrows::marks::own(&ps[q].source)
+                .is_some_and(|r| locked.contains(&r))
+                || !crate::effects::span_quiet(gx, &ps[q], from[q], usize::MAX, copied[q]))
+                && !same_row(q)
+                && !union_row(q)
+            {
                 return true;
             }
             for &s in ps[q].desc.consumes.iter() {
@@ -233,8 +340,11 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
     // entry's) on through every op to its sink: quiet projections, a sort, an Append arm's marker, and quiet filters
     // where it reads no locked relation (the REFERENCE row the statement read passed them then)
     let yields = |p: usize| {
-        let fixed = !crate::ops::lockrows::marks::own(&ps[p].source).is_some_and(|r| locked.contains(&r));
-        let one = from[p] > 0 || matches!(&ps[p].source, Source::Range { .. }) || matches!(&ps[p].source, Source::Index { keys, recheck, .. } if keys.is_empty() && recheck.iter().next().is_none());
+        let fixed =
+            !crate::ops::lockrows::marks::own(&ps[p].source).is_some_and(|r| locked.contains(&r));
+        let one = from[p] > 0
+            || matches!(&ps[p].source, Source::Range { .. })
+            || matches!(&ps[p].source, Source::Index { keys, recheck, .. } if keys.is_empty() && recheck.iter().next().is_none());
         one && live(p).iter().all(|o| match o {
             Op::Project(l) => l.iter().all(|n| crate::effects::expr_quiet(gx, n)),
             Op::Filter(n) => fixed && crate::effects::expr_quiet(gx, *n),
@@ -251,24 +361,48 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
         }
         let mut runs: PgVec<'_, usize> = PgVec::new_in(gx.mcx);
         // lockrows REFFAM: or a REFERENCE family's settled union whose feeds give the same rows (`same_row`)
-        let ref_union = from[q] == 0 && { let f = union_feeds(q); !f.is_empty() && f.iter().all(|&p| same_row(p)) };
+        let ref_union = from[q] == 0 && {
+            let f = union_feeds(q);
+            !f.is_empty() && f.iter().all(|&p| same_row(p))
+        };
         // portals#244 (FOR UPDATE of both aliases): or a locked family's settled union whose every feed is a plain range scan
         // of a locked child (projections and Append markers, no filter): the recheck's one active child (`Marks::gate`)
         // yields its test tuple, as PG's EvalPlanQual scan of that child does, so the union yields exactly that one row
-        let plain_feed = |f: usize| from[f] == 0 && ps[f].desc.consumes.is_empty() && matches!(ps[f].source, Source::Range { .. })
-            && crate::ops::lockrows::marks::own(&ps[f].source).is_some_and(|r| locked.contains(&r))
-            && ps[f].ops.iter().all(|o| matches!(o, Op::Project(_)) || crate::rerun::union_arms::feed_op(o));
-        let lock_union = from[q] == 0 && { let f = union_feeds(q); !f.is_empty() && f.iter().all(|&p| plain_feed(p)) };
-        let one = from[q] > 0 || ref_union || lock_union || matches!(&ps[q].source, Source::Range { .. }) || matches!(&ps[q].source, Source::Index { keys, recheck, .. } if keys.is_empty() && recheck.iter().next().is_none());
+        let plain_feed = |f: usize| {
+            from[f] == 0
+                && ps[f].desc.consumes.is_empty()
+                && matches!(ps[f].source, Source::Range { .. })
+                && crate::ops::lockrows::marks::own(&ps[f].source)
+                    .is_some_and(|r| locked.contains(&r))
+                && ps[f]
+                    .ops
+                    .iter()
+                    .all(|o| matches!(o, Op::Project(_)) || crate::rerun::union_arms::feed_op(o))
+        };
+        let lock_union = from[q] == 0 && {
+            let f = union_feeds(q);
+            !f.is_empty() && f.iter().all(|&p| plain_feed(p))
+        };
+        let one = from[q] > 0
+            || ref_union
+            || lock_union
+            || matches!(&ps[q].source, Source::Range { .. })
+            || matches!(&ps[q].source, Source::Index { keys, recheck, .. } if keys.is_empty() && recheck.iter().next().is_none());
         // lockrows L1-RERUN: a pipeline reading no locked relation reruns over the REFERENCE / COPY row the join read,
         // which passed its filters then: a pure filter passes it again
-        let fixed = !crate::ops::lockrows::marks::own(&ps[q].source).is_some_and(|r| locked.contains(&r));
-        let reaches = |o: &Op<'_>| matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n))) || fixed && matches!(o, Op::Filter(n) if crate::effects::expr_quiet(gx, *n)) || (ref_union || lock_union) && crate::rerun::union_arms::union_op(o);
+        let fixed =
+            !crate::ops::lockrows::marks::own(&ps[q].source).is_some_and(|r| locked.contains(&r));
+        let reaches = |o: &Op<'_>| {
+            matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n)))
+                || fixed && matches!(o, Op::Filter(n) if crate::effects::expr_quiet(gx, *n))
+                || (ref_union || lock_union) && crate::rerun::union_arms::union_op(o)
+        };
         // D3269 (a): or a merge join's sorted outer whose every feed hands its one test row on to its sort (`yields`)
-        let sorted = from[q] == 0 && matches!(&ps[q].source, Source::Breaker { slot } if !crate::rerun::union_arms::union_reader(&ps[q]) && {
-            let mut feeds = (0..q).filter(|&p| ps[p].desc.produces() == Some(*slot)).peekable();
-            feeds.peek().is_some() && feeds.all(yields)
-        });
+        let sorted = from[q] == 0
+            && matches!(&ps[q].source, Source::Breaker { slot } if !crate::rerun::union_arms::union_reader(&ps[q]) && {
+                let mut feeds = (0..q).filter(|&p| ps[p].desc.produces() == Some(*slot)).peekable();
+                feeds.peek().is_some() && feeds.all(yields)
+            });
         let mut cut = false;
         for (i, o) in ops.iter().enumerate().rev() {
             // D3269 (a): a merge join runs its inner (the sorted run's producer) once its outer's first row comes
@@ -279,12 +413,17 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
                 }
                 continue;
             }
-            let Op::Join(JoinDesc::Probe { slot, outer_first, .. }) = o else { continue };
+            let Op::Join(JoinDesc::Probe {
+                slot, outer_first, ..
+            }) = o
+            else {
+                continue;
+            };
             if !outer_first || one && ops[..i].iter().all(reaches) {
                 runs.extend_in(producer(q, *slot));
             }
             // lockrows REFFAM: a build-first probe over a build that cannot be empty (`empty`) runs its outer side
-            if !outer_first && producer(q, *slot).is_none_or(& empty) || flips(q, o) {
+            if !outer_first && producer(q, *slot).is_none_or(&empty) || flips(q, o) {
                 cut = true;
                 break;
             }
@@ -307,15 +446,32 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
     }
     // D3379 SUBSET: a correlated SubPlan's rerun set member is never rerun whole (exec runner `rerun_producer` steps it
     // past): its SubPlan step reruns the set where PG's EvalPlanQual evaluates the SubPlan (rerun/epq/marks.rs `sub_sets`)
-    let sub_member = |x: usize| gx.graph.reruns.iter().any(|r| r.plan_id != 0 && r.pipelines.iter().any(|&m| usize::from(m) == x));
+    let sub_member = |x: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.plan_id != 0 && r.pipelines.iter().any(|&m| usize::from(m) == x))
+    };
     // D3568 HASHSET: nor a hashed SubPlan's set build, which the recheck steps past (rerun/epq/marks.rs
     // `hashed_skipped`): its probe reads the set as built, or builds it there at its first probe, as PG's EvalPlanQual
     // builds its own
-    let rerun = |x: usize| ps[x].desc.produces().is_some() && !never.contains(&x) && !sub_member(x) && !crate::rerun::epq::marks::hashed_skipped(gx, x);
+    let rerun = |x: usize| {
+        ps[x].desc.produces().is_some()
+            && !never.contains(&x)
+            && !sub_member(x)
+            && !crate::rerun::epq::marks::hashed_skipped(gx, x)
+    };
     // portals#244: a union feed (a range scan, quiet projections, its Append marker) is quiet: the marker evaluates nothing
     // (effects `span_quiet` knows no Append op)
-    let quiet_feed = |x: usize| from[x] == 0 && ps[x].desc.consumes.is_empty() && matches!(ps[x].source, Source::Range { .. })
-        && ps[x].ops.iter().all(|o| matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n))) || crate::rerun::union_arms::feed_op(o));
+    let quiet_feed = |x: usize| {
+        from[x] == 0
+            && ps[x].desc.consumes.is_empty()
+            && matches!(ps[x].source, Source::Range { .. })
+            && ps[x].ops.iter().all(|o| {
+                matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n)))
+                    || crate::rerun::union_arms::feed_op(o)
+            })
+    };
     // lockrows J182: a pulled plan Material's fill runs nothing itself (rerun/spool/form.rs `spool_pull`): its reader, a nest
     // inner, pulls the child row by row only when the nest reaches it, as PostgreSQL's Material pulls its child
     let pulled = |x: usize| crate::pipes::spool_pull(gx, x).is_ok();
@@ -323,8 +479,23 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
     // list, the COPY mark's entry, emits its stored row there): run ahead of PostgreSQL's fill at the nest's first inner
     // fetch, it raises and calls nothing (effects `span_quiet` knows no Spool op), under `fill_licence`'s licence
     let licensed = std::cell::Cell::new(None);
-    let quiet_fill = |x: usize| from[x] == 0 && fill_licence(gx, x).inspect(|l| licensed.set(Some(*l))).is_some();
-    if (0..k).any(|x| rerun(x) && !always[x] && !lazy.contains(&x) && !same_row(x) && !union_row(x) && !quiet_feed(x) && !pulled(x) && !quiet_fill(x) && !crate::effects::span_quiet(gx, &ps[x], from[x], usize::MAX, copied[x])) {
+    let quiet_fill = |x: usize| {
+        from[x] == 0
+            && fill_licence(gx, x)
+                .inspect(|l| licensed.set(Some(*l)))
+                .is_some()
+    };
+    if (0..k).any(|x| {
+        rerun(x)
+            && !always[x]
+            && !lazy.contains(&x)
+            && !same_row(x)
+            && !union_row(x)
+            && !quiet_feed(x)
+            && !pulled(x)
+            && !quiet_fill(x)
+            && !crate::effects::span_quiet(gx, &ps[x], from[x], usize::MAX, copied[x])
+    }) {
         return Err(RERUN_FIRST);
     }
     // S3: in every pipeline the recheck runs, the source and the ops before a probe that flips. D2674: not the lock
@@ -335,9 +506,15 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
             Op::Join(JoinDesc::Probe { slot, .. }) => producer(q, *slot),
             _ => None,
         };
-        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(& rerun)
+        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(&rerun)
     };
-    let skipped = |q: usize| (from[q]..ps[q].ops.len()).any(|i| flips(q, &ps[q].ops[i]) && !exact(q, i) && !crate::effects::span_quiet(gx, &ps[q], from[q], i, copied[q]));
+    let skipped = |q: usize| {
+        (from[q]..ps[q].ops.len()).any(|i| {
+            flips(q, &ps[q].ops[i])
+                && !exact(q, i)
+                && !crate::effects::span_quiet(gx, &ps[q], from[q], i, copied[q])
+        })
+    };
     if (0..=k).any(|q| (q == k || q < k && rerun(q)) && skipped(q)) {
         return Err(BUILD_FIRST);
     }
@@ -349,7 +526,11 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
 /// first inner fetch: it acts, raises and reads nothing, the same rows at every run (`effects::unobservable`).
 /// `None`: another fill.
 fn fill_licence(gx: &Gx<'_, '_>, x: usize) -> Option<Licence> {
-    crate::effects::visible::material::quiet(gx, x).then(|| gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)).flatten()
+    crate::effects::visible::material::quiet(gx, x)
+        .then(|| {
+            gravity_decompose::effects::unobservable(gravity_decompose::effects::Effects::NONE)
+        })
+        .flatten()
 }
 
 /// D2033 step 2: the build PG may not run of lock pipeline `k`'s FIRST probe below its epq probe (rerun/epq/marks.rs
@@ -362,35 +543,78 @@ fn fill_licence(gx: &Gx<'_, '_>, x: usize) -> Option<Licence> {
 /// own lazy group (`epq`), so the order of the two builds shows nothing either. The epq probe's order (D2050 / D2674)
 /// decides whether the call runs at all. The recheck keeps the build in the statement run's order (`recheck_hold`):
 /// lazy, it waits for the probe's first row; held, its error waits for it.
-pub(crate) fn first_held<'g>(px: &crate::frame::px::Px<'g, '_>, k: usize, marks: &[RowMark], epq: &[usize]) -> PgVec<'g, usize> {
+pub(crate) fn first_held<'g>(
+    px: &crate::frame::px::Px<'g, '_>,
+    k: usize,
+    marks: &[RowMark],
+    epq: &[usize],
+) -> PgVec<'g, usize> {
     let gx = px.gx;
     let mcx = px.mcx();
     let ps = gx.pipelines();
     let p = &ps[k];
-    let Some(top) = crate::rerun::epq::marks::epq_probe(gx, k) else { return PgVec::new_in(mcx) };
-    let probes: PgVec<'_, usize> = p.ops.iter().enumerate().filter(|(_, o)| matches!(o, Op::Join(_))).map(|(j, _)| j).collect_in(mcx);
-    let Some(&j) = probes.first().filter(|&&j| j != top) else { return PgVec::new_in(mcx) };
-    let outer_first = |i: usize| matches!(&p.ops[i], Op::Join(JoinDesc::Probe { outer_first: true, jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI, catalog: false, .. }));
-    let marked = crate::ops::lockrows::marks::own(&p.source).is_some_and(|r| marks.iter().any(|m| m.rti == r));
-    let below = p.ops[..j].iter().all(|o| matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n))));
-    if !probes.iter().all(|&i| outer_first(i)) || !matches!(p.source, Source::Range { .. }) || !marked || !below {
+    let Some(top) = crate::rerun::epq::marks::epq_probe(gx, k) else {
+        return PgVec::new_in(mcx);
+    };
+    let probes: PgVec<'_, usize> = p
+        .ops
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Op::Join(_)))
+        .map(|(j, _)| j)
+        .collect_in(mcx);
+    let Some(&j) = probes.first().filter(|&&j| j != top) else {
+        return PgVec::new_in(mcx);
+    };
+    let outer_first = |i: usize| {
+        matches!(
+            &p.ops[i],
+            Op::Join(JoinDesc::Probe {
+                outer_first: true,
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI,
+                catalog: false,
+                ..
+            })
+        )
+    };
+    let marked = crate::ops::lockrows::marks::own(&p.source)
+        .is_some_and(|r| marks.iter().any(|m| m.rti == r));
+    let below = p.ops[..j].iter().all(
+        |o| matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n))),
+    );
+    if !probes.iter().all(|&i| outer_first(i))
+        || !matches!(p.source, Source::Range { .. })
+        || !marked
+        || !below
+    {
         return PgVec::new_in(mcx);
     }
     let build = |i: usize| match &p.ops[i] {
         Op::Join(JoinDesc::Probe { slot, .. }) => gx.life_of(k, *slot).map(|l| l.0 as usize),
         _ => None,
     };
-    let (Some(t), Some(b)) = (build(top), build(j)) else { return PgVec::new_in(mcx) };
+    let (Some(t), Some(b)) = (build(top), build(j)) else {
+        return PgVec::new_in(mcx);
+    };
     if !epq.contains(&t) && !crate::effects::span_quiet(gx, &ps[t], 0, usize::MAX, false) {
         return PgVec::new_in(mcx);
     }
-    let lazy: PgVec<'_, usize> = px.lazy.iter().filter(|&&(_, q)| q == k).map(|&(x, _)| x).collect_in(mcx);
+    let lazy: PgVec<'_, usize> = px
+        .lazy
+        .iter()
+        .filter(|&&(_, q)| q == k)
+        .map(|&(x, _)| x)
+        .collect_in(mcx);
     if lazy.contains(&b) {
         let mut group = mcx::pg_vec![in mcx; b];
         let mut i = 0;
         while let Some(&m) = group.get(i) {
             for &s in ps[m].desc.consumes.iter() {
-                if let Some(q) = (0..m).rev().find(|&q| ps[q].desc.produces() == Some(s)).filter(|q| lazy.contains(q) && !group.contains(q)) {
+                if let Some(q) = (0..m)
+                    .rev()
+                    .find(|&q| ps[q].desc.produces() == Some(s))
+                    .filter(|q| lazy.contains(q) && !group.contains(q))
+                {
                     group.push_in(q);
                 }
             }
@@ -412,20 +636,55 @@ pub(crate) fn first_held<'g>(px: &crate::frame::px::Px<'g, '_>, k: usize, marks:
 /// statement's rechecks have not set that join's hj_OuterNotEmpty, PG's recheck fetches the test row first and builds only
 /// if it passes the filters; once one set it, PG builds first whatever the outer gives (D2050 / D2674). The recheck holds
 /// the build's error for the probe's first row until then and raises it at once after (`recheck_hold_epq`).
-pub(crate) fn epq_held(px: &crate::frame::px::Px<'_, '_>, k: usize, marks: &[RowMark], lazy: &[usize]) -> Option<usize> {
+pub(crate) fn epq_held(
+    px: &crate::frame::px::Px<'_, '_>,
+    k: usize,
+    marks: &[RowMark],
+    lazy: &[usize],
+) -> Option<usize> {
     let gx = px.gx;
     let ps = gx.pipelines();
     let p = &ps[k];
     let j = crate::rerun::epq::marks::epq_probe(gx, k)?;
-    let mut joins = p.ops.iter().enumerate().filter(|(_, o)| matches!(o, Op::Join(_)));
-    let (Some((i, Op::Join(JoinDesc::Probe { slot, outer_first: true, jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI, catalog: false, .. }))), None) = (joins.next(), joins.next()) else { return None };
-    let marked = crate::ops::lockrows::marks::own(&p.source).is_some_and(|r| marks.iter().any(|m| m.rti == r));
-    let quiet = |o: &Op<'_>| matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n))) || matches!(o, Op::Filter(n) if crate::effects::expr_quiet(gx, *n));
-    if i != j || !matches!(p.source, Source::Range { .. }) || !marked || !p.ops[..j].iter().all(quiet) {
+    let mut joins = p
+        .ops
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o, Op::Join(_)));
+    let (
+        Some((
+            i,
+            Op::Join(JoinDesc::Probe {
+                slot,
+                outer_first: true,
+                jointype: JoinType::JOIN_INNER | JoinType::JOIN_SEMI,
+                catalog: false,
+                ..
+            }),
+        )),
+        None,
+    ) = (joins.next(), joins.next())
+    else {
+        return None;
+    };
+    let marked = crate::ops::lockrows::marks::own(&p.source)
+        .is_some_and(|r| marks.iter().any(|m| m.rti == r));
+    let quiet = |o: &Op<'_>| {
+        matches!(o, Op::Project(l) if l.iter().all(|n| crate::effects::expr_quiet(gx, n)))
+            || matches!(o, Op::Filter(n) if crate::effects::expr_quiet(gx, *n))
+    };
+    if i != j
+        || !matches!(p.source, Source::Range { .. })
+        || !marked
+        || !p.ops[..j].iter().all(quiet)
+    {
         return None;
     }
     let b = gx.life_of(k, *slot).map(|l| l.0 as usize)?;
-    (!lazy.contains(&b) && ps[b].desc.consumes.is_empty() && crate::rerun::epq::marks::held_build(gx, b, k, j)).then_some(b)
+    (!lazy.contains(&b)
+        && ps[b].desc.consumes.is_empty()
+        && crate::rerun::epq::marks::held_build(gx, b, k, j))
+    .then_some(b)
 }
 
 /// D2033: the lazy group (D824, `Px::lazy`) of graph pipeline `k`'s epq probe (rerun/epq/marks.rs `epq_probe`, the topmost
@@ -435,10 +694,21 @@ pub(crate) fn epq_held(px: &crate::frame::px::Px<'_, '_>, k: usize, marks: &[Row
 pub(crate) fn epq_lazy<'g>(px: &crate::frame::px::Px<'g, '_>, k: usize) -> PgVec<'g, usize> {
     let gx = px.gx;
     let mcx = px.mcx();
-    let Some(j) = crate::rerun::epq::marks::epq_probe(gx, k) else { return PgVec::new_in(mcx) };
-    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[k].ops[j] else { return PgVec::new_in(mcx) };
-    let Some(b) = gx.life_of(k, *slot).map(|l| l.0 as usize) else { return PgVec::new_in(mcx) };
-    let lazy: PgVec<'_, usize> = px.lazy.iter().filter(|&&(_, q)| q == k).map(|&(x, _)| x).collect_in(mcx);
+    let Some(j) = crate::rerun::epq::marks::epq_probe(gx, k) else {
+        return PgVec::new_in(mcx);
+    };
+    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[k].ops[j] else {
+        return PgVec::new_in(mcx);
+    };
+    let Some(b) = gx.life_of(k, *slot).map(|l| l.0 as usize) else {
+        return PgVec::new_in(mcx);
+    };
+    let lazy: PgVec<'_, usize> = px
+        .lazy
+        .iter()
+        .filter(|&&(_, q)| q == k)
+        .map(|&(x, _)| x)
+        .collect_in(mcx);
     if !lazy.contains(&b) {
         return PgVec::new_in(mcx);
     }
@@ -447,7 +717,11 @@ pub(crate) fn epq_lazy<'g>(px: &crate::frame::px::Px<'g, '_>, k: usize) -> PgVec
     let mut i = 0;
     while let Some(&m) = group.get(i) {
         for &s in ps[m].desc.consumes.iter() {
-            if let Some(p) = (0..m).rev().find(|&p| ps[p].desc.produces() == Some(s)).filter(|p| lazy.contains(p) && !group.contains(p)) {
+            if let Some(p) = (0..m)
+                .rev()
+                .find(|&p| ps[p].desc.produces() == Some(s))
+                .filter(|p| lazy.contains(p) && !group.contains(p))
+            {
                 group.push_in(p);
             }
         }

@@ -24,13 +24,33 @@ const CORPUS: &str = "D-101c length sweep (4 M rows, 0.25 .. 25 % entries, lengt
 /// an entry's length in its table (the update anchor).
 ///
 /// The lane's cost a row over the per-code form's lookup, divided among the participants (W0 2.751, W8 0.350 ns a row).
-pub const LANE_ROW_SPLIT: Fitted = Fitted { ns: 2.744, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Gather };
+pub const LANE_ROW_SPLIT: Fitted = Fitted {
+    ns: 2.744,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Gather,
+};
 /// The lane's cost a row over the lookup that the participants do not divide.
-pub const LANE_ROW_FLAT: Fitted = Fitted { ns: 0.007, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Gather };
+pub const LANE_ROW_FLAT: Fitted = Fitted {
+    ns: 0.007,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Gather,
+};
 /// The per-code form's cost an entry over the lane's (W0 86.121, W8 11.167 ns an entry), divided among the participants.
-pub const TABLE_ENTRY_SPLIT: Fitted = Fitted { ns: 85.663, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const TABLE_ENTRY_SPLIT: Fitted = Fitted {
+    ns: 85.663,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 /// The per-code form's cost an entry over the lane's that the participants do not divide.
-pub const TABLE_ENTRY_FLAT: Fitted = Fitted { ns: 0.459, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update };
+pub const TABLE_ENTRY_FLAT: Fitted = Fitted {
+    ns: 0.459,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Update,
+};
 
 fn at(r: &Ratios, split: Fitted, flat: Fitted, width: u16) -> f64 {
     split.on(r) / width.max(1) as f64 + flat.on(r)
@@ -39,7 +59,10 @@ fn at(r: &Ratios, split: Fitted, flat: Fitted, width: u16) -> f64 {
 /// The fewest entries a row at which the lane costs no more than the per-code form at `width`: `break_even` of the
 /// table's cost an entry against the lane's cost a row, on a host of ratios `r` (0.032 at W0 and at W8 on the reference).
 pub fn lane_entries_per_row_on(r: &Ratios, width: u16) -> f64 {
-    break_even(at(r, TABLE_ENTRY_SPLIT, TABLE_ENTRY_FLAT, width), at(r, LANE_ROW_SPLIT, LANE_ROW_FLAT, width))
+    break_even(
+        at(r, TABLE_ENTRY_SPLIT, TABLE_ENTRY_FLAT, width),
+        at(r, LANE_ROW_SPLIT, LANE_ROW_FLAT, width),
+    )
 }
 
 /// `lane_entries_per_row_on` on this host (the installed profile).

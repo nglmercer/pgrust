@@ -205,7 +205,11 @@ fn cidr_width_wraps_like_c() {
         ("0x0a/4294967295", true, "10.0.0.0/8"),
         ("224/4294967295", true, "224.0.0.0/4"),
     ] {
-        assert_eq!(out(&parse(input, is_cidr).unwrap(), is_cidr), expected, "{input}");
+        assert_eq!(
+            out(&parse(input, is_cidr).unwrap(), is_cidr),
+            expected,
+            "{input}"
+        );
     }
     for (input, is_cidr) in [
         ("1.2.3.4/33", false),
@@ -218,14 +222,20 @@ fn cidr_width_wraps_like_c() {
         ("0.0.0.0/2147483648", true),
     ] {
         let err = parse(input, is_cidr).unwrap_err();
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION, "{input}");
+        assert_eq!(
+            err.sqlstate(),
+            types_error::ERRCODE_INVALID_TEXT_REPRESENTATION,
+            "{input}"
+        );
     }
 }
 
 #[test]
 fn soft_error_lane() {
     let mut soft = SoftErrorContext::new(true);
-    assert!(network_in("junk", false, Some(&mut soft)).unwrap().is_none());
+    assert!(network_in("junk", false, Some(&mut soft))
+        .unwrap()
+        .is_none());
     assert!(soft.error_occurred());
 
     let mut soft = SoftErrorContext::new(true);
@@ -459,9 +469,15 @@ fn session_quartet_reads_raddr_and_laddr() {
         sockaddr_in4([192, 0, 2, 5], 45678),
         sockaddr_in4([198, 51, 100, 7], 5433),
     );
-    assert_eq!(session_addr_str(fc_inet_client_addr).as_deref(), Some("192.0.2.5"));
+    assert_eq!(
+        session_addr_str(fc_inet_client_addr).as_deref(),
+        Some("192.0.2.5")
+    );
     assert_eq!(session_port_num(fc_inet_client_port), Some(45678));
-    assert_eq!(session_addr_str(fc_inet_server_addr).as_deref(), Some("198.51.100.7"));
+    assert_eq!(
+        session_addr_str(fc_inet_server_addr).as_deref(),
+        Some("198.51.100.7")
+    );
     assert_eq!(session_port_num(fc_inet_server_port), Some(5433));
 }
 
@@ -482,8 +498,14 @@ fn session_addr_strips_the_ipv6_zone() {
     ip6[0] = 0xfe;
     ip6[1] = 0x80;
     ip6[15] = 1;
-    set_proc_port(sockaddr_in6(ip6, 40000, 1), sockaddr_in4([10, 0, 0, 1], 5432));
-    assert_eq!(session_addr_str(fc_inet_client_addr).as_deref(), Some("fe80::1"));
+    set_proc_port(
+        sockaddr_in6(ip6, 40000, 1),
+        sockaddr_in4([10, 0, 0, 1], 5432),
+    );
+    assert_eq!(
+        session_addr_str(fc_inet_client_addr).as_deref(),
+        Some("fe80::1")
+    );
     assert_eq!(session_port_num(fc_inet_client_port), Some(40000));
 }
 
@@ -547,8 +569,9 @@ fn set_masklen_keeps_the_source_header() {
         unsafe { fcinfo.set_result_mcx(ctx.mcx()) };
         fcinfo.set_arg(0, ::datum::Datum::from_usize(src.as_ptr() as usize));
         fcinfo.set_arg(1, ::datum::Datum::from_i32(16));
-        let p = crate::builtins::fc_inet_set_masklen(None, &mut fcinfo).unwrap().as_usize()
-            as *const u8;
+        let p = crate::builtins::fc_inet_set_masklen(None, &mut fcinfo)
+            .unwrap()
+            .as_usize() as *const u8;
         // SAFETY: the result is a live varlena of varsize_any bytes.
         unsafe { core::slice::from_raw_parts(p, ::types_tuple::varatt::varsize_any(p)) }.to_vec()
     };
@@ -576,5 +599,8 @@ fn in_error_quotes_raw_input_bytes() {
         err.message_raw.as_deref(),
         Some(b"invalid input syntax for type cidr: \"1.2.3.\xff\"".as_slice())
     );
-    assert!(network_in("junk", false, None).unwrap_err().message_raw.is_none());
+    assert!(network_in("junk", false, None)
+        .unwrap_err()
+        .message_raw
+        .is_none());
 }

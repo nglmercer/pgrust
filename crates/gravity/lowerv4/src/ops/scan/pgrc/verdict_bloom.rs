@@ -22,7 +22,10 @@ crate::strategies! {
     VERDICT_BLOOM = 10, "verdict.bloom", PgrcFilter;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_BLOOM, &VerdictImpl(&Bloom))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_BLOOM, &VerdictImpl(&Bloom))],
+    ..crate::ops::NONE
+};
 
 struct Bloom;
 
@@ -32,7 +35,9 @@ impl VerdictMech for Bloom {
     fn declare(&self, px: &mut Px<'_, '_>, site: &mut SiteDesc, qual: ExId) -> bool {
         use crate::ops::scan::pgrc::verdict_zone::{hash_of, list_of, of};
         match of(px, site, qual) {
-            Some((z, exact)) if !z.prefix => return exact && z.op == ZoneOp::Eq && site.zone_preds().contains(&z),
+            Some((z, exact)) if !z.prefix => {
+                return exact && z.op == ZoneOp::Eq && site.zone_preds().contains(&z)
+            }
             // P5-11: a text equality (SRC-09's prefix predicate under a bytes-order collation, or none) by its probe word
             _ => {
                 if let Some(z) = hash_of(px, site, qual) {
@@ -45,7 +50,13 @@ impl VerdictMech for Bloom {
         }
         // NEW-72: an IN list's members are the execution's (exec's prepare adds them as the lane's `InMember` predicates)
         // D3009: an OR's disjunction the site holds, one of whose arms is an equality (its bloom proves that arm none)
-        let any = || crate::ops::scan::pgrc::verdict_zone::any_of(px, site, qual).is_some_and(|g| g.iter().any(|z| z.op == ZoneOp::Eq) && site.zone_any_groups().any(|x| x == &g[..]));
-        list_of(px, site, qual).is_some() || crate::ops::scan::pgrc::verdict_zone::hash_list_of(px, site, qual).is_some() || any()
+        let any = || {
+            crate::ops::scan::pgrc::verdict_zone::any_of(px, site, qual).is_some_and(|g| {
+                g.iter().any(|z| z.op == ZoneOp::Eq) && site.zone_any_groups().any(|x| x == &g[..])
+            })
+        };
+        list_of(px, site, qual).is_some()
+            || crate::ops::scan::pgrc::verdict_zone::hash_list_of(px, site, qual).is_some()
+            || any()
     }
 }

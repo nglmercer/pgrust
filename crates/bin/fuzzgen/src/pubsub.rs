@@ -96,9 +96,15 @@ fn fixture(stmts: &mut Vec<String>, n: u32) -> Vec<String> {
 
 /// publish= subsets incl. the single-action and full lists.
 const PUBLISH_SETS: &[&str] = &[
-    "insert", "update", "delete", "truncate", "insert, update",
-    "insert, update, delete", "insert, update, delete, truncate",
-    "update, truncate", "delete",
+    "insert",
+    "update",
+    "delete",
+    "truncate",
+    "insert, update",
+    "insert, update, delete",
+    "insert, update, delete, truncate",
+    "update, truncate",
+    "delete",
 ];
 
 fn pub_with(g: &mut Gen) -> String {
@@ -185,9 +191,8 @@ fn pub_alter(g: &mut Gen) -> Vec<String> {
             "ALTER PUBLICATION fz_pub2 SET (publish = '{}');",
             *g.rng.pick(PUBLISH_SETS)
         )),
-        5 => stmts.push(
-            "ALTER PUBLICATION fz_pub2 SET (publish_via_partition_root = true);".to_string(),
-        ),
+        5 => stmts
+            .push("ALTER PUBLICATION fz_pub2 SET (publish_via_partition_root = true);".to_string()),
         6 => {
             stmts.push("ALTER PUBLICATION fz_pub2 RENAME TO fz_pub2r;".to_string());
             stmts.push("ALTER PUBLICATION fz_pub2r RENAME TO fz_pub2;".to_string());
@@ -343,13 +348,12 @@ fn sub_alter(g: &mut Gen) -> Vec<String> {
         10 => stmts.push("ALTER SUBSCRIPTION fz_sub2 REFRESH PUBLICATION;".to_string()),
         11 => stmts.push(format!(
             "ALTER SUBSCRIPTION fz_sub2 SET ({});",
-            *g.rng.pick(&["two_phase = true", "two_phase = false", "failover = true"])
+            *g.rng
+                .pick(&["two_phase = true", "two_phase = false", "failover = true"])
         )),
         // SET PUBLICATION without refresh=false on a disabled sub (error
         // arm pair with the refresh=false success shape).
-        12 => stmts.push(
-            "ALTER SUBSCRIPTION fz_sub2 SET PUBLICATION fz_nopub2;".to_string(),
-        ),
+        12 => stmts.push("ALTER SUBSCRIPTION fz_sub2 SET PUBLICATION fz_nopub2;".to_string()),
         0 => stmts.push(format!(
             "ALTER SUBSCRIPTION fz_sub2 SET ({});",
             *g.rng.pick(&[
@@ -478,8 +482,10 @@ mod tests {
                 for _ in 0..400 {
                     let mut prods = Vec::new();
                     let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-                    let stmts: Vec<String> =
-                        gen_pubsub_module(&mut g).iter().map(|s| s.to_sql()).collect();
+                    let stmts: Vec<String> = gen_pubsub_module(&mut g)
+                        .iter()
+                        .map(|s| s.to_sql())
+                        .collect();
                     out.push(stmts);
                 }
                 out
@@ -514,23 +520,46 @@ mod tests {
         for _ in 0..600 {
             let mut prods = Vec::new();
             let mut g = Gen::new(&mut rng, &cat, &w, &mut prods, 4);
-            let stmts: Vec<String> =
-                gen_pubsub_module(&mut g).iter().map(|s| s.to_sql()).collect();
+            let stmts: Vec<String> = gen_pubsub_module(&mut g)
+                .iter()
+                .map(|s| s.to_sql())
+                .collect();
             let joined = stmts.join("\n");
             for (create, obj) in [
                 ("CREATE TABLE fz_pubt1", "DROP TABLE IF EXISTS fz_pubt1;"),
                 ("CREATE TABLE fz_pubt2", "DROP TABLE IF EXISTS fz_pubt2;"),
                 ("CREATE TABLE fz_pubt3", "DROP TABLE IF EXISTS fz_pubt3;"),
                 ("CREATE TABLE fz_pubt4", "DROP TABLE IF EXISTS fz_pubt4;"),
-                ("CREATE PUBLICATION fz_pub1", "DROP PUBLICATION IF EXISTS fz_pub1;"),
-                ("CREATE PUBLICATION fz_pub2", "DROP PUBLICATION IF EXISTS fz_pub2;"),
-                ("CREATE PUBLICATION fz_puberr", "DROP PUBLICATION IF EXISTS fz_puberr;"),
-                ("CREATE PUBLICATION fz_pubs1", "DROP PUBLICATION IF EXISTS fz_pubs1;"),
-                ("CREATE SUBSCRIPTION fz_sub1", "DROP SUBSCRIPTION IF EXISTS fz_sub1;"),
-                ("CREATE SUBSCRIPTION fz_sub2", "DROP SUBSCRIPTION IF EXISTS fz_sub2;"),
+                (
+                    "CREATE PUBLICATION fz_pub1",
+                    "DROP PUBLICATION IF EXISTS fz_pub1;",
+                ),
+                (
+                    "CREATE PUBLICATION fz_pub2",
+                    "DROP PUBLICATION IF EXISTS fz_pub2;",
+                ),
+                (
+                    "CREATE PUBLICATION fz_puberr",
+                    "DROP PUBLICATION IF EXISTS fz_puberr;",
+                ),
+                (
+                    "CREATE PUBLICATION fz_pubs1",
+                    "DROP PUBLICATION IF EXISTS fz_pubs1;",
+                ),
+                (
+                    "CREATE SUBSCRIPTION fz_sub1",
+                    "DROP SUBSCRIPTION IF EXISTS fz_sub1;",
+                ),
+                (
+                    "CREATE SUBSCRIPTION fz_sub2",
+                    "DROP SUBSCRIPTION IF EXISTS fz_sub2;",
+                ),
             ] {
                 if joined.contains(create) {
-                    assert!(joined.contains(obj), "created but never dropped: {create}\n{joined}");
+                    assert!(
+                        joined.contains(obj),
+                        "created but never dropped: {create}\n{joined}"
+                    );
                 }
             }
         }
@@ -559,6 +588,9 @@ mod tests {
                 }
             }
         }
-        assert!(saw_probe, "no pg_subscription probe generated in 600 groups");
+        assert!(
+            saw_probe,
+            "no pg_subscription probe generated in 600 groups"
+        );
     }
 }

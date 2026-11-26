@@ -178,7 +178,10 @@ fn utf8_only_connection_gate() {
 fn split_opts_preserves_utf8_bytes() {
     let mut av = Vec::new();
     pg_split_opts(&mut av, "-c b051.name=café -c search_path=naïve\\ ünïcode");
-    assert_eq!(av, ["-c", "b051.name=café", "-c", "search_path=naïve ünïcode"]);
+    assert_eq!(
+        av,
+        ["-c", "b051.name=café", "-c", "search_path=naïve ünïcode"]
+    );
     assert_eq!(av[1].as_bytes(), b"b051.name=caf\xc3\xa9");
 }
 

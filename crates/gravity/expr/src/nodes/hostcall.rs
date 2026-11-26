@@ -21,12 +21,32 @@ pub fn first(p: &Program<'_>) -> Option<HostCall> {
 pub fn of(s: &Call) -> HostCall {
     if let (0, How::Shim { shim, .. }) = (s.funcid, s.how) {
         // a synthetic site (the domain raise): the shim's own name, tier B
-        return HostCall { oid: 0, name: shim.name, tier: Tier::B, reason: "" };
+        return HostCall {
+            oid: 0,
+            name: shim.name,
+            tier: Tier::B,
+            reason: "",
+        };
     }
     if matches!(s.how, How::Island { .. }) {
-        return HostCall { oid: 0, name: "island", tier: Tier::C, reason: "an interpreter island (JsonExpr / XmlExpr: the interpreter serves the subtree)" };
+        return HostCall {
+            oid: 0,
+            name: "island",
+            tier: Tier::C,
+            reason:
+                "an interpreter island (JsonExpr / XmlExpr: the interpreter serves the subtree)",
+        };
     }
     let row = gravity_fn::row_of(s.funcid);
-    let tier = if matches!(s.how, How::Shim { .. }) { Tier::B } else { Tier::C };
-    HostCall { oid: s.funcid, name: row.map_or("", |r| r.name), tier, reason: row.filter(|_| tier == Tier::C).map_or("", |r| r.reason) }
+    let tier = if matches!(s.how, How::Shim { .. }) {
+        Tier::B
+    } else {
+        Tier::C
+    };
+    HostCall {
+        oid: s.funcid,
+        name: row.map_or("", |r| r.name),
+        tier,
+        reason: row.filter(|_| tier == Tier::C).map_or("", |r| r.reason),
+    }
 }

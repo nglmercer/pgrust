@@ -53,17 +53,26 @@ crate::strategies! {
     JOIN_DRAIN_FP = 40, "join.drain.fp", Drain;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(JOIN_PAYLOAD_FP, &()), (JOIN_DRAIN_FP, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(JOIN_PAYLOAD_FP, &()), (JOIN_DRAIN_FP, &())],
+    ..crate::ops::NONE
+};
 
 /// The most columns whose words one build's records carry.
 pub(crate) const FP_COLS: usize = 8;
 
 /// Columns (or lanes) with whether each key is bpchar, at most `FP_COLS`, each once, in place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct FpCols { n: u8, at: [(i16, bool); FP_COLS] }
+pub(crate) struct FpCols {
+    n: u8,
+    at: [(i16, bool); FP_COLS],
+}
 
 impl FpCols {
-    pub(crate) const NONE: FpCols = FpCols { n: 0, at: [(0, false); FP_COLS] };
+    pub(crate) const NONE: FpCols = FpCols {
+        n: 0,
+        at: [(0, false); FP_COLS],
+    };
 
     /// `c` joins the set unless its column is in it or the set is full.
     fn add(&mut self, c: (i16, bool)) {
@@ -95,18 +104,43 @@ pub(crate) enum From {
 pub(crate) fn walk(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16) -> Option<From> {
     let ops = &gx.pipelines()[k].ops;
     loop {
-        let Some(i) = ops[..pos].iter().rposition(|op| !matches!(op, Op::Filter(_))) else { return Some(From::Scan(a)) };
+        let Some(i) = ops[..pos]
+            .iter()
+            .rposition(|op| !matches!(op, Op::Filter(_)))
+        else {
+            return Some(From::Scan(a));
+        };
         match &ops[i] {
             Op::Project(l) => {
-                let te = l.iter().filter_map(|n| n.as_target_entry()).find(|te| te.resno == a)?;
-                let v = crate::table::emit_group::bare(te.expr).as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
+                let te = l
+                    .iter()
+                    .filter_map(|n| n.as_target_entry())
+                    .find(|te| te.resno == a)?;
+                let v = crate::table::emit_group::bare(te.expr)
+                    .as_var()
+                    .filter(|v| v.varlevelsup == 0 && v.varattno > 0)?;
                 match v.varno {
                     INNER_VAR => {
-                        let j = ops[..i].iter().rposition(|op| !matches!(op, Op::Filter(_)))?;
-                        return matches!(ops[j], Op::Join(JoinDesc::Probe { .. } | JoinDesc::Drain { .. })).then_some(From::Inner { j, attno: v.varattno });
+                        let j = ops[..i]
+                            .iter()
+                            .rposition(|op| !matches!(op, Op::Filter(_)))?;
+                        return matches!(
+                            ops[j],
+                            Op::Join(JoinDesc::Probe { .. } | JoinDesc::Drain { .. })
+                        )
+                        .then_some(From::Inner {
+                            j,
+                            attno: v.varattno,
+                        });
                     }
                     OUTER_VAR => (pos, a) = (i, v.varattno),
-                    r => return gx.pipelines()[k].source.relation().filter(|s| r == s.0 as i32).map(|_| From::Scan(v.varattno)),
+                    r => {
+                        return gx.pipelines()[k]
+                            .source
+                            .relation()
+                            .filter(|s| r == s.0 as i32)
+                            .map(|_| From::Scan(v.varattno))
+                    }
                 }
             }
             Op::Join(JoinDesc::Probe { .. }) => pos = i,
@@ -124,19 +158,39 @@ pub(crate) fn end_pos(gx: &Gx<'_, '_>, k: usize) -> usize {
 /// The probe of build `b` (its breaker's `slot`): the later pipeline `q` and op `j` that read `b`'s records (build_side.rs
 /// `compute`'s rule).
 fn probe_of(gx: &Gx<'_, '_>, b: usize, slot: u8) -> Option<(usize, usize)> {
-    gx.pipelines().iter().enumerate().skip(b + 1).find_map(|(q, p)| {
-        let j = p.ops.iter().position(|op| matches!(op, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == slot))?;
-        (gx.life_of(q, slot) == Some(LifeId(b as u16))).then_some((q, j))
-    })
+    gx.pipelines()
+        .iter()
+        .enumerate()
+        .skip(b + 1)
+        .find_map(|(q, p)| {
+            let j = p.ops.iter().position(
+                |op| matches!(op, Op::Join(JoinDesc::Probe { slot: s, .. }) if *s == slot),
+            )?;
+            (gx.life_of(q, slot) == Some(LifeId(b as u16))).then_some((q, j))
+        })
 }
 
 /// join.buildside may swap the pair (build_side.rs `swaps`, asked only where it files no relation guard: a heap probe side
 /// decides on its pages, so such a pair is kept out). Only an INNER pair of a plan's own join swaps (build_side.rs `Side`):
 /// any other keeps its build whatever its sides.
 fn may_swap(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool {
-    let inner = matches!(gx.pipelines()[q].ops[j], Op::Join(JoinDesc::Probe { jointype: JoinType::JOIN_INNER, catalog: false, .. }));
-    let (Source::Range { relid: rb, .. }, Source::Range { relid: rp, .. }) = (&gx.pipelines()[b].source, &gx.pipelines()[q].source) else { return false };
-    inner && gx.facts.rel_rows(*rb).is_some() && (gx.facts.rel_rows(*rp).is_none() || crate::ops::hashjoin::build_side::swaps(gx, b, q, j))
+    let inner = matches!(
+        gx.pipelines()[q].ops[j],
+        Op::Join(JoinDesc::Probe {
+            jointype: JoinType::JOIN_INNER,
+            catalog: false,
+            ..
+        })
+    );
+    let (Source::Range { relid: rb, .. }, Source::Range { relid: rp, .. }) =
+        (&gx.pipelines()[b].source, &gx.pipelines()[q].source)
+    else {
+        return false;
+    };
+    inner
+        && gx.facts.rel_rows(*rb).is_some()
+        && (gx.facts.rel_rows(*rp).is_none()
+            || crate::ops::hashjoin::build_side::swaps(gx, b, q, j))
 }
 
 /// The columns of pipeline `q`'s end row that key by a text value's Fp128 (each with whether its key is bpchar), and the
@@ -144,13 +198,29 @@ fn may_swap(gx: &Gx<'_, '_>, b: usize, q: usize, j: usize) -> bool {
 /// end too (runs.unique); a run op (a streamed group, DISTINCT ON's first of a run) keeps the render.
 fn wants(gx: &Gx<'_, '_>, q: usize) -> (FpCols, u64) {
     let p = &gx.pipelines()[q];
-    let Some(g) = gx.group_at(q).filter(|g| matches!(g.form, GroupForm::Hashed | GroupForm::Sorted | GroupForm::Distinct | GroupForm::Unique)) else { return (FpCols::NONE, 0) };
-    if p.ops.iter().any(|op| matches!(op, Op::GroupRun(_) | Op::FirstOfRun(_))) {
+    let Some(g) = gx.group_at(q).filter(|g| {
+        matches!(
+            g.form,
+            GroupForm::Hashed | GroupForm::Sorted | GroupForm::Distinct | GroupForm::Unique
+        )
+    }) else {
+        return (FpCols::NONE, 0);
+    };
+    if p.ops
+        .iter()
+        .any(|op| matches!(op, Op::GroupRun(_) | Op::FirstOfRun(_)))
+    {
         return (FpCols::NONE, 0);
     }
-    let keys = g.keys.iter().filter(|k| k.kind == KeyKind::Fp128 && gx.facts.coll(k.coll).bytes_eq);
+    let keys = g
+        .keys
+        .iter()
+        .filter(|k| k.kind == KeyKind::Fp128 && gx.facts.coll(k.coll).bytes_eq);
     let mut out = FpCols::NONE;
-    for c in keys.filter_map(|k| crate::table::emit_group::key_col(gx, q, k).map(|c| (c, crate::dict::coderep::sk_bpchar(gx, k.tf) != 0))) {
+    for c in keys.filter_map(|k| {
+        crate::table::emit_group::key_col(gx, q, k)
+            .map(|c| (c, crate::dict::coderep::sk_bpchar(gx, k.tf) != 0))
+    }) {
         out.add(c);
     }
     (out, p.desc.end_rows)
@@ -160,7 +230,8 @@ fn wants(gx: &Gx<'_, '_>, q: usize) -> (FpCols, u64) {
 /// build's rows times a row's store in permille of a group row's saving (`a[1]`, cost::forms::payload_fp_permille); an
 /// absent estimate (0) takes the words.
 fn pays(build_rows: u64, a: &[u64; 4]) -> u64 {
-    (a[0] == 0 || build_rows == 0 || a[0].saturating_mul(1000) >= build_rows.saturating_mul(a[1])) as u64
+    (a[0] == 0 || build_rows == 0 || a[0].saturating_mul(1000) >= build_rows.saturating_mul(a[1]))
+        as u64
 }
 
 /// The store's permille of the saving (`pays`' `a[1]`), the class table's for the server's widest width; 1000 (the rows at
@@ -172,7 +243,11 @@ fn pays(build_rows: u64, a: &[u64; 4]) -> u64 {
 fn permille(gx: &Gx<'_, '_>, plain: bool) -> u64 {
     let w = gx.facts.width().unwrap_or(0);
     let code = gravity_program::cost::forms::payload_fp_permille(w).unwrap_or(1000);
-    if plain { code.max(gravity_program::cost::payload_plain::permille(w)) } else { code }
+    if plain {
+        code.max(gravity_program::cost::payload_plain::permille(w))
+    } else {
+        code
+    }
 }
 
 /// Build `b`'s payload columns (INNER_VAR attnos) whose records carry the Fp128 words, each with whether its key is
@@ -183,7 +258,8 @@ pub(crate) fn cols(gx: &Gx<'_, '_>, b: usize) -> FpCols {
 
 /// Build `b`'s probe: the later pipeline `q` and op `j` that read its records, when the pair cannot swap.
 fn pair(gx: &Gx<'_, '_>, b: usize) -> Option<(usize, usize)> {
-    let br = crate::frame::iface::breaker_of(&gx.pipelines()[b].desc).filter(|br| br.kind == BreakerKind::HashBuild)?;
+    let br = crate::frame::iface::breaker_of(&gx.pipelines()[b].desc)
+        .filter(|br| br.kind == BreakerKind::HashBuild)?;
     let (q, j) = probe_of(gx, b, br.slot)?;
     (!may_swap(gx, b, q, j)).then_some((q, j))
 }
@@ -194,17 +270,37 @@ fn pair(gx: &Gx<'_, '_>, b: usize) -> Option<(usize, usize)> {
 fn reads(gx: &Gx<'_, '_>, b: usize, (q, j): (usize, usize), attno: i16) -> bool {
     match crate::ops::hashjoin::build_side::read_after(gx, &gx.pipelines()[q], j, INNER_VAR) {
         Some(p) => p.contains(&attno),
-        None => drain_of(gx, q).is_some() && gx.pipelines()[b].ops.iter().rev().find_map(|op| if let Op::Project(l) = op { Some(l.len()) } else { None }).is_some_and(|n| attno > 0 && attno as usize <= n),
+        None => {
+            drain_of(gx, q).is_some()
+                && gx.pipelines()[b]
+                    .ops
+                    .iter()
+                    .rev()
+                    .find_map(|op| {
+                        if let Op::Project(l) = op {
+                            Some(l.len())
+                        } else {
+                            None
+                        }
+                    })
+                    .is_some_and(|n| attno > 0 && attno as usize <= n)
+        }
     }
 }
 
 /// The drain pipeline whose ops probe pipeline `q`'s rows run (a RIGHT / FULL / RIGHT SEMI / RIGHT ANTI join: `q` closes
 /// into the spool `m` the drain's op names, drain/lower.rs's tail): the later pipeline that opens with a Drain of `q`'s `m`.
 fn drain_of(gx: &Gx<'_, '_>, q: usize) -> Option<usize> {
-    gx.pipelines().iter().enumerate().skip(q + 1).find_map(|(d, p)| match p.ops.first() {
-        Some(Op::Join(JoinDesc::Drain { matches, .. })) => (gx.life_of(d, *matches) == Some(LifeId(q as u16))).then_some(d),
-        _ => None,
-    })
+    gx.pipelines()
+        .iter()
+        .enumerate()
+        .skip(q + 1)
+        .find_map(|(d, p)| match p.ops.first() {
+            Some(Op::Join(JoinDesc::Drain { matches, .. })) => {
+                (gx.life_of(d, *matches) == Some(LifeId(q as u16))).then_some(d)
+            }
+            _ => None,
+        })
 }
 
 /// The build whose records op `j` of pipeline `k` hands on, with its pair (`pair`): a probe's, the build it pairs with; a
@@ -216,7 +312,9 @@ pub(crate) fn records_of(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(usize, 
             (pair(gx, b) == Some((k, j))).then_some((b, (k, j)))
         }
         Op::Join(JoinDesc::Drain { .. }) if j == 0 => {
-            let Source::Breaker { slot } = gx.pipelines()[k].source else { return None };
+            let Source::Breaker { slot } = gx.pipelines()[k].source else {
+                return None;
+            };
             let b = gx.life_of(k, slot)?.0 as usize;
             let pr = pair(gx, b)?;
             (drain_of(gx, pr.0) == Some(k)).then_some((b, pr))
@@ -233,24 +331,41 @@ fn carried(gx: &Gx<'_, '_>, b: usize) -> (FpCols, u64) {
     if !JoinRoad::PayloadFp.on() {
         return (FpCols::NONE, 0);
     }
-    let Some((q, j)) = pair(gx, b) else { return (FpCols::NONE, 0) };
+    let Some((q, j)) = pair(gx, b) else {
+        return (FpCols::NONE, 0);
+    };
     let e = drain_of(gx, q).unwrap_or(q);
     if e != q && !JoinRoad::DrainFp.on() {
         return (FpCols::NONE, 0); // join.drain.fp off: a draining join's build keeps the render on both of its paths
     }
-    let next = crate::frame::iface::breaker_of(&gx.pipelines()[e].desc).is_some_and(|br| br.kind == BreakerKind::HashBuild);
+    let next = crate::frame::iface::breaker_of(&gx.pipelines()[e].desc)
+        .is_some_and(|br| br.kind == BreakerKind::HashBuild);
     if next && e != q {
         return (FpCols::NONE, 0); // a drain's build is the seeded drain's Arms run (its probe's copy and the drain): build.rs `live`
     }
     let (want, rows) = if next { carried(gx, e) } else { wants(gx, e) };
     let (mut out, mut hashed) = (FpCols::NONE, false);
     for &(col, bp) in want.cols() {
-        let Some(From::Inner { j: at, attno }) = walk(gx, e, end_pos(gx, e), col) else { continue };
-        let Some(how) = sourced(gx, b, attno, bp).filter(|_| records_of(gx, e, at).is_some_and(|r| r.0 == b) && reads(gx, b, (q, j), attno)) else { continue };
+        let Some(From::Inner { j: at, attno }) = walk(gx, e, end_pos(gx, e), col) else {
+            continue;
+        };
+        let Some(how) = sourced(gx, b, attno, bp).filter(|_| {
+            records_of(gx, e, at).is_some_and(|r| r.0 == b) && reads(gx, b, (q, j), attno)
+        }) else {
+            continue;
+        };
         out.add((attno, bp));
         hashed |= how == Held::Plain;
     }
-    if out.n == 0 || gravity_lower::inputs::key::decide(b, true, gx.pipelines()[b].desc.build_rows, pays, [rows, permille(gx, hashed), 0, 0]) == 0 {
+    if out.n == 0
+        || gravity_lower::inputs::key::decide(
+            b,
+            true,
+            gx.pipelines()[b].desc.build_rows,
+            pays,
+            [rows, permille(gx, hashed), 0, 0],
+        ) == 0
+    {
         return (FpCols::NONE, rows);
     }
     (out, rows)
@@ -275,7 +390,9 @@ fn sourced(gx: &Gx<'_, '_>, b: usize, attno: i16, bp: bool) -> Option<Held> {
     match walk(gx, b, end_pos(gx, b), attno) {
         Some(From::Scan(_)) if lane(gx, b, attno, bp).is_some() => Some(Held::Code),
         Some(From::Scan(_)) => plain(gx, b, attno, bp).then_some(Held::Plain),
-        Some(From::Inner { j, attno: a0 }) => records_of(gx, b, j).filter(|&(b0, pr)| reads(gx, b0, pr, a0) && sourced(gx, b0, a0, bp).is_some()).map(|_| Held::Carried),
+        Some(From::Inner { j, attno: a0 }) => records_of(gx, b, j)
+            .filter(|&(b0, pr)| reads(gx, b0, pr, a0) && sourced(gx, b0, a0, bp).is_some())
+            .map(|_| Held::Carried),
         None => None,
     }
 }
@@ -285,9 +402,16 @@ fn sourced(gx: &Gx<'_, '_>, b: usize, attno: i16, bp: bool) -> Option<Held> {
 /// column. The build stores its bytes' Fp128 (rep.varlena.hash's image, build.rs `fp`), the words a code of the same bytes
 /// keys by (rule A), where the statement's text keys image as that Fp128 (`plain_image`).
 fn plain(gx: &Gx<'_, '_>, b: usize, attno: i16, bp: bool) -> bool {
-    let Some(From::Scan(a)) = walk(gx, b, end_pos(gx, b), attno) else { return false };
-    let Some((_, relid, _)) = gx.pipelines()[b].source.relation() else { return false };
-    !bp && gx.facts.att(relid, a).is_some_and(|att| gravity_fn::typesem::text_payload(att.typid))
+    let Some(From::Scan(a)) = walk(gx, b, end_pos(gx, b), attno) else {
+        return false;
+    };
+    let Some((_, relid, _)) = gx.pipelines()[b].source.relation() else {
+        return false;
+    };
+    !bp && gx
+        .facts
+        .att(relid, a)
+        .is_some_and(|att| gravity_fn::typesem::text_payload(att.typid))
 }
 
 /// Whether a statement with strategies `s` images a plain text key as its bytes' exact Fp128 (rep.varlena.hash's last
@@ -302,14 +426,19 @@ pub(crate) fn plain_image(s: crate::face::strategy::StrategySet) -> bool {
 /// The lane of build pipeline `b`'s scan that payload column `attno` of its row is, when it is a code lane of the right
 /// bpchar kind (`bp`: the key is bpchar; then the column is a bpchar of declared length).
 pub(crate) fn lane(gx: &Gx<'_, '_>, b: usize, attno: i16, bp: bool) -> Option<u8> {
-    let Some(From::Scan(a)) = walk(gx, b, end_pos(gx, b), attno) else { return None };
+    let Some(From::Scan(a)) = walk(gx, b, end_pos(gx, b), attno) else {
+        return None;
+    };
     let (_, relid, site) = gx.pipelines()[b].source.relation()?;
     let att = gx.facts.att(relid, a)?;
     let col_bp = crate::dict::coderep::sk_bpchar(gx, att.typid) != 0;
     if col_bp != bp || (bp && att.typmod < 0) {
         return None;
     }
-    let i = site.lanes.iter().position(|l| l.id == LaneId::Attr(a) && matches!(l.rep, Rep::Code { .. }))?;
+    let i = site
+        .lanes
+        .iter()
+        .position(|l| l.id == LaneId::Attr(a) && matches!(l.rep, Rep::Code { .. }))?;
     u8::try_from(i).ok()
 }
 
@@ -318,8 +447,12 @@ pub(crate) fn lane(gx: &Gx<'_, '_>, b: usize, attno: i16, bp: bool) -> Option<u8
 /// pipeline's ops made as its probe's tail; D4603: or a union arm's copy of the pair's probe, `arm_copy`).
 pub(crate) fn forwards(gx: &Gx<'_, '_>, k: usize, j: usize) -> FpCols {
     let ops = &gx.pipelines()[k].ops;
-    let Some(i) = ops[..j].iter().rposition(|op| !matches!(op, Op::Filter(_))) else { return FpCols::NONE };
-    records_of(gx, k, i).or_else(|| arm_copy(gx, k, i)).map_or(FpCols::NONE, |(b, _)| cols(gx, b))
+    let Some(i) = ops[..j].iter().rposition(|op| !matches!(op, Op::Filter(_))) else {
+        return FpCols::NONE;
+    };
+    records_of(gx, k, i)
+        .or_else(|| arm_copy(gx, k, i))
+        .map_or(FpCols::NONE, |(b, _)| cols(gx, b))
 }
 
 /// D4603: probe op `j` of pipeline `k` as another arm of one union run copied the pair's probe `(q, i)` (decompose
@@ -327,12 +460,23 @@ pub(crate) fn forwards(gx: &Gx<'_, '_>, k: usize, j: usize) -> FpCols {
 /// with the words linked (walk.rs `joined`), so every arm forwards the same payload cells and the arms' rows keep one form
 /// (a build past them that spills keeps one kept-row layout, spill/pair.rs D2084: an arm that rendered broke it, D4603).
 fn arm_copy(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(usize, (usize, usize))> {
-    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[k].ops[j] else { return None };
+    let Op::Join(JoinDesc::Probe { slot, .. }) = &gx.pipelines()[k].ops[j] else {
+        return None;
+    };
     let b = gx.life_of(k, *slot)?.0 as usize;
     let (q, i) = pair(gx, b)?;
-    let past = |p: usize, at: usize| gx.pipelines()[p].ops[..at].iter().rposition(|o| crate::graph::arm_at(o).is_some()).map(|m| at - m);
+    let past = |p: usize, at: usize| {
+        gx.pipelines()[p].ops[..at]
+            .iter()
+            .rposition(|o| crate::graph::arm_at(o).is_some())
+            .map(|m| at - m)
+    };
     let run = |p: usize| crate::ops::hashjoin::spill::build::arm_run(gx, p);
-    let copy = q != k && past(q, i).is_some() && past(q, i) == past(k, j) && run(q).is_some() && run(q) == run(k);
+    let copy = q != k
+        && past(q, i).is_some()
+        && past(q, i) == past(k, j)
+        && run(q).is_some()
+        && run(q) == run(k);
     (copy && !may_swap(gx, b, k, j)).then_some((b, (q, i)))
 }
 
@@ -340,7 +484,11 @@ fn arm_copy(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<(usize, (usize, usize
 /// (each a column of the set).
 pub(crate) fn lanes(gx: &Gx<'_, '_>, k: usize) -> FpCols {
     let mut out = FpCols::NONE;
-    for l in cols(gx, k).cols().iter().filter_map(|&(a, bp)| lane(gx, k, a, bp)) {
+    for l in cols(gx, k)
+        .cols()
+        .iter()
+        .filter_map(|&(a, bp)| lane(gx, k, a, bp))
+    {
         out.add((l as i16, false));
     }
     out

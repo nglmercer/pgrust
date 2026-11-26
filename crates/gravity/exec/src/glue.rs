@@ -6,18 +6,33 @@ use std::rc::Rc;
 use gravity_driver::{BindingParts, CommandId, Error, Identity, PerTuple, Pins, Snapshot};
 use gravity_program::{Generation, Handle, PlanKey};
 #[allow(unused_imports)]
-use types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR, ERRCODE_OUT_OF_MEMORY, ERRCODE_QUERY_CANCELED};
+use types_error::{
+    PgError, PgResult, ERRCODE_INTERNAL_ERROR, ERRCODE_OUT_OF_MEMORY, ERRCODE_QUERY_CANCELED,
+};
 use types_portal::CachedPlanHandle;
 use types_snapshot::SnapshotData;
 
 mod raw;
 pub use raw::{abort_u8, poll_kernel};
 
-const _: () = assert!(gravity_abi::ctx::ABORT_BIT == init_small::globals::ABORT_BIT && gravity_abi::ctx::SERVICE_BIT == init_small::globals::SERVICE_BIT);
+const _: () = assert!(
+    gravity_abi::ctx::ABORT_BIT == init_small::globals::ABORT_BIT
+        && gravity_abi::ctx::SERVICE_BIT == init_small::globals::SERVICE_BIT
+);
 // D3887: the host loops' poll reads the same abort bit; the probe's bit is neither
-const _: () = assert!(cancelpoll::ABORT_BIT == gravity_abi::ctx::ABORT_BIT && cancelpoll::PROBE_BIT & (gravity_abi::ctx::ABORT_BIT | gravity_abi::ctx::SERVICE_BIT) == 0);
+const _: () = assert!(
+    cancelpoll::ABORT_BIT == gravity_abi::ctx::ABORT_BIT
+        && cancelpoll::PROBE_BIT & (gravity_abi::ctx::ABORT_BIT | gravity_abi::ctx::SERVICE_BIT)
+            == 0
+);
 // C5: one revoke bit across its setter (mcx), the byte's owner (init_small) and the kernels' poll, apart from the others
-const _: () = assert!(gravity_abi::ctx::REVOKE_BIT == init_small::globals::REVOKE_BIT && gravity_abi::ctx::REVOKE_BIT == mcx::revoke::REVOKE_BIT && gravity_abi::ctx::REVOKE_BIT & (gravity_abi::ctx::ABORT_BIT | gravity_abi::ctx::SERVICE_BIT | cancelpoll::PROBE_BIT) == 0);
+const _: () = assert!(
+    gravity_abi::ctx::REVOKE_BIT == init_small::globals::REVOKE_BIT
+        && gravity_abi::ctx::REVOKE_BIT == mcx::revoke::REVOKE_BIT
+        && gravity_abi::ctx::REVOKE_BIT
+            & (gravity_abi::ctx::ABORT_BIT | gravity_abi::ctx::SERVICE_BIT | cancelpoll::PROBE_BIT)
+            == 0
+);
 
 /// D3406: the service bit of this thread's own byte, on a kernel's poll: cleared first (a delivery after it raises it
 /// again), then C's CHECK_FOR_INTERRUPTS when an interrupt is pending (the bit may be stale: the drain that cleared
@@ -41,15 +56,30 @@ pub fn plan_key(cplan: CachedPlanHandle, stmt_index: u16) -> Option<PlanKey> {
         return None;
     }
     // the generation's low 23 bits; bit 23 is an identity key's (D3865 L5, `PlanKey::IDENTITY`), the high byte the index
-    Some(PlanKey { handle: Handle(handle & !PlanKey::CONTENT), generation: Generation(((generation as u32) & (PlanKey::IDENTITY - 1)) | ((stmt_index as u32) << 24)) })
+    Some(PlanKey {
+        handle: Handle(handle & !PlanKey::CONTENT),
+        generation: Generation(
+            ((generation as u32) & (PlanKey::IDENTITY - 1)) | ((stmt_index as u32) << 24),
+        ),
+    })
 }
 
 pub fn identity() -> Identity {
-    Identity { proc_number: init_small::globals::MyProcNumber(), resource_owner: 0, latch: 0 }
+    Identity {
+        proc_number: init_small::globals::MyProcNumber(),
+        resource_owner: 0,
+        latch: 0,
+    }
 }
 
 /// The statement's binding parts; `resolved` is the runner's `Resolved` (the granule relations as this statement sees them) for a program over granule sources, `None` otherwise.
-pub fn binding_parts<'a>(snapshot: &'a Rc<SnapshotData<'static>>, command_id: u32, params: &'a [u64], nulls: &'a [u8], resolved: Option<&'a (dyn Any + Send + Sync)>) -> BindingParts<'a> {
+pub fn binding_parts<'a>(
+    snapshot: &'a Rc<SnapshotData<'static>>,
+    command_id: u32,
+    params: &'a [u64],
+    nulls: &'a [u8],
+    resolved: Option<&'a (dyn Any + Send + Sync)>,
+) -> BindingParts<'a> {
     poll_gap_probe();
     BindingParts {
         snapshot: Snapshot(snapshot as *const Rc<SnapshotData<'static>> as u64),
@@ -78,7 +108,10 @@ fn poll_gap_probe() {
         cancelpoll::set_host_polls(crate::inputs::knobs::diag::host_polls());
         gravity_kernels::host_abi::set_small_sort(crate::inputs::knobs::diag::small_sort());
         gravity_driver::park::set_shed_once(crate::inputs::knobs::diag::shed_once());
-        gravity_driver::park::set_park_index(crate::inputs::knobs::diag::park_index(), crate::inputs::knobs::diag::park_index_check());
+        gravity_driver::park::set_park_index(
+            crate::inputs::knobs::diag::park_index(),
+            crate::inputs::knobs::diag::park_index_check(),
+        );
         mcx::heap::set_pooled_memo(crate::inputs::knobs::diag::pooled_memo());
         let pooled_bit = crate::inputs::knobs::diag::pooled_bit();
         mcx::heap::set_pooled_bit(pooled_bit);
@@ -111,7 +144,9 @@ fn poll_gap_probe() {
 /// (`pg_error_of`'s Cancelled arm: 57014 with the cancel's or the statement_timeout's message, 57P01 for a terminate).
 /// Otherwise `e` stands as raised.
 fn stopped(byte: *const u8, e: &Error) -> bool {
-    if core::ptr::eq(byte, abort_u8().as_ptr() as *const u8) && !cancelpoll::interrupts::pending_abort() {
+    if core::ptr::eq(byte, abort_u8().as_ptr() as *const u8)
+        && !cancelpoll::interrupts::pending_abort()
+    {
         return false;
     }
     if let Error::Raised(mask) = *e {
@@ -132,14 +167,18 @@ fn stopped(byte: *const u8, e: &Error) -> bool {
 /// `PGRUST_GRAVITY_CANCEL_AT_STEP` is set (`cancel_at_target` then runs at every statement's binding).
 static CANCEL_AT_ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 /// The backend the lever cancels: the latest statement's owner (its abort byte, its pid).
-static CANCEL_AT_BYTE: core::sync::atomic::AtomicPtr<u8> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CANCEL_AT_BYTE: core::sync::atomic::AtomicPtr<u8> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 static CANCEL_AT_PID: core::sync::atomic::AtomicI32 = core::sync::atomic::AtomicI32::new(0);
 
 /// The lever's target: this statement's owner.
 #[cold]
 fn cancel_at_target() {
     CANCEL_AT_BYTE.store(abort_u8().as_ptr(), core::sync::atomic::Ordering::Release);
-    CANCEL_AT_PID.store(init_small::globals::MyProcPid(), core::sync::atomic::Ordering::Release);
+    CANCEL_AT_PID.store(
+        init_small::globals::MyProcPid(),
+        core::sync::atomic::Ordering::Release,
+    );
 }
 
 /// The lever's delivery (`cancelpoll::set_cancel_at`): a step under the target statement's byte sends its backend a
@@ -153,7 +192,8 @@ fn cancel_at_fire(byte: *const core::sync::atomic::AtomicU8) {
     }
     let pid = CANCEL_AT_PID.load(core::sync::atomic::Ordering::Acquire);
     let rc = procsignal_seams::send_thread_signal::call(pid, SIGINT);
-    eprintln!("gravity: PGRUST_GRAVITY_CANCEL_AT_STEP sent backend {pid} a SIGINT (rc {rc})"); // alloc: Cold
+    eprintln!("gravity: PGRUST_GRAVITY_CANCEL_AT_STEP sent backend {pid} a SIGINT (rc {rc})");
+    // alloc: Cold
 }
 
 /// The error of a raise mask (abi `status::raised`): the incumbent's sqlstate and message for the
@@ -162,8 +202,12 @@ fn raised(mask: u64) -> Box<PgError> {
     use gravity_abi::status::raise;
     let code = raise::first(mask);
     match raise::describe(code) {
-        Some((state, msg)) => Box::new(PgError::error(msg.to_string()).with_sqlstate(types_error::make_sqlstate(*state))), // alloc: Cold
-        None => internal(&format!("gravity: program reported an error without a message (raise code {code})")), // alloc: Cold
+        Some((state, msg)) => Box::new(
+            PgError::error(msg.to_string()).with_sqlstate(types_error::make_sqlstate(*state)),
+        ), // alloc: Cold
+        None => internal(&format!(
+            "gravity: program reported an error without a message (raise code {code})"
+        )), // alloc: Cold
     }
 }
 
@@ -175,7 +219,9 @@ fn raised_or_stashed(mask: u64) -> Box<PgError> {
         drop((gravity_hosts::take_error(), gravity_fn::take_error()));
         return raised(mask);
     }
-    gravity_hosts::take_error().or_else(gravity_fn::take_error).unwrap_or_else(|| raised(mask)) // alloc: Cold
+    gravity_hosts::take_error()
+        .or_else(gravity_fn::take_error)
+        .unwrap_or_else(|| raised(mask)) // alloc: Cold
 }
 
 pub fn pg_error(e: Error) -> Box<PgError> {
@@ -208,7 +254,12 @@ pub(crate) const TAG_REFUSAL: &str = "a part run ahead of the plan raised";
 /// log-only detail, without the run-ahead tag (the harness's ahead judge reads no refusal as a tagged error).
 fn tag_refusal(err: &PgError, t: gravity_program::AheadTag) -> Box<PgError> {
     let code = types_error::unpack_sqlstate(err.sqlstate());
-    let why = format!("{TAG_REFUSAL} {} at node {} {}, outside the data classes a run ahead may raise", String::from_utf8_lossy(&code), t.node, t.node_type); // alloc: Cold
+    let why = format!(
+        "{TAG_REFUSAL} {} at node {} {}, outside the data classes a run ahead may raise",
+        String::from_utf8_lossy(&code),
+        t.node,
+        t.node_type
+    ); // alloc: Cold
     let mut r = crate::runner::refused(&why);
     r.detail_log = Some(format!("the run-ahead error: {}", err.message())); // alloc: Cold
     r
@@ -219,11 +270,23 @@ fn tag_refusal(err: &PgError, t: gravity_program::AheadTag) -> Box<PgError> {
 /// client reads the error as PostgreSQL raises it. The tag goes first; a detail the error carries follows it there.
 fn tag_ahead(err: &mut PgError, t: gravity_program::AheadTag) {
     let code = types_error::unpack_sqlstate(err.sqlstate());
-    let tag = format!("{AHEAD_TAG}{} node {} {} (DECISIONS 4 (D) b)", String::from_utf8_lossy(&code), t.node, t.node_type); // alloc: Cold
-    err.detail_log = Some(match err.detail_log.take().or_else(|| err.detail.as_deref().map(String::from)) { // alloc: Cold
-        Some(d) => format!("{tag}\n{d}"), // alloc: Cold
-        None => tag,
-    });
+    let tag = format!(
+        "{AHEAD_TAG}{} node {} {} (DECISIONS 4 (D) b)",
+        String::from_utf8_lossy(&code),
+        t.node,
+        t.node_type
+    ); // alloc: Cold
+    err.detail_log = Some(
+        match err
+            .detail_log
+            .take()
+            .or_else(|| err.detail.as_deref().map(String::from))
+        {
+            // alloc: Cold
+            Some(d) => format!("{tag}\n{d}"), // alloc: Cold
+            None => tag,
+        },
+    );
 }
 
 fn pg_error_of(e: Error) -> Box<PgError> {
@@ -269,8 +332,14 @@ fn named_raise(err: &mut PgError, w: gravity_program::spill::NoSpill) {
     if err.sqlstate() != ERRCODE_OUT_OF_MEMORY {
         return;
     }
-    let Some(detail) = err.detail.as_deref() else { return };
-    err.detail_log = Some(format!("{}\n{}", err.detail_log.as_deref().unwrap_or(detail), debt_line(w))); // alloc: Cold
+    let Some(detail) = err.detail.as_deref() else {
+        return;
+    };
+    err.detail_log = Some(format!(
+        "{}\n{}",
+        err.detail_log.as_deref().unwrap_or(detail),
+        debt_line(w)
+    )); // alloc: Cold
 }
 
 /// D4914: `err` with the refusal's log-only detail `logged`, when the statement kept one; else as it is.
@@ -287,7 +356,8 @@ fn logged_or_not(err: PgError, logged: Option<String>) -> PgError {
 fn refusal_line() -> Option<String> {
     let (why, bytes, waited_ns) = mcx::governor::stmt_refusal()?;
     let name = mcx::ladder_stats::Why::from_u8(why).map_or("unknown", mcx::ladder_stats::Why::name);
-    Some(format!("gravity: memory: refused by {name} (the statement's last refused draw {bytes} bytes; its draw waits {} ms)", waited_ns / 1_000_000)) // alloc: Cold
+    Some(format!("gravity: memory: refused by {name} (the statement's last refused draw {bytes} bytes; its draw waits {} ms)", waited_ns / 1_000_000))
+    // alloc: Cold
 }
 
 /// The first words of the server-only line an out of memory names its SPILL-DEBT row by (`note_debt_refused`).
@@ -305,7 +375,9 @@ fn debt_line(w: gravity_program::spill::NoSpill) -> String {
 /// or was seen: the cancel is the statement's (57014). The line written, if any.
 pub fn note_debt_refused(err: &mut PgError) -> Option<String> {
     let d = err.detail_log.as_deref()?;
-    let at = d.rfind('\n').filter(|&i| d[i + 1..].starts_with(DEBT_LINE))?;
+    let at = d
+        .rfind('\n')
+        .filter(|&i| d[i + 1..].starts_with(DEBT_LINE))?;
     let mut kept = err.detail_log.take()?;
     let line = kept.split_off(at + 1); // alloc: Cold
     kept.pop(); // the newline before the line
@@ -313,23 +385,28 @@ pub fn note_debt_refused(err: &mut PgError) -> Option<String> {
     if cancelpoll::seen() || cancelpoll::interrupts::pending_abort() {
         return None;
     }
-    let _ = elog::ereport(types_error::LOG_SERVER_ONLY).errmsg(line.to_string()).finish(types_error::ErrorLocation::new("gravity", 0, "memory")); // alloc: Cold
+    let _ = elog::ereport(types_error::LOG_SERVER_ONLY)
+        .errmsg(line.to_string())
+        .finish(types_error::ErrorLocation::new("gravity", 0, "memory")); // alloc: Cold
     Some(line)
 }
 
 /// The text of an `Error::Unsupported` (the runner names the lowered join's spilled build by it).
 pub fn unsupported_message(k: u8) -> String {
     if k == gravity_abi::status::UNSUPPORTED_OUT_REGION {
-        return "gravity: unsupported execution (kind 5: a by-reference output row wider than the out region)".to_string(); // alloc: Cold
+        return "gravity: unsupported execution (kind 5: a by-reference output row wider than the out region)".to_string();
+        // alloc: Cold
     }
     if k == gravity_abi::status::UNSUPPORTED_SPILL {
-        return "gravity: unsupported execution (kind 7: a spill past its files' limits)".to_string(); // alloc: Cold
+        return "gravity: unsupported execution (kind 7: a spill past its files' limits)"
+            .to_string(); // alloc: Cold
     }
     format!("gravity: unsupported execution (kind {k})") // alloc: Cold
 }
 
 pub fn internal(msg: &str) -> Box<PgError> {
-    Box::new(PgError::error(msg.to_string()).with_sqlstate(ERRCODE_INTERNAL_ERROR)) // alloc: Cold
+    Box::new(PgError::error(msg.to_string()).with_sqlstate(ERRCODE_INTERNAL_ERROR))
+    // alloc: Cold
 }
 
 #[cfg(test)]
@@ -350,13 +427,28 @@ mod tests {
     fn a_stash_never_beats_the_first_in_ir_code() {
         stash("a stale shim error");
         let _ = gravity_hosts::stash(Box::new(PgError::error("a stale host error".to_string()))); // alloc: Cold
-        assert_eq!(pg_error(Error::Raised(raise::bit(raise::DIV_ZERO))).message(), "division by zero");
-        assert!(gravity_fn::take_error().is_none() && gravity_hosts::take_error().is_none(), "both stashes dropped");
+        assert_eq!(
+            pg_error(Error::Raised(raise::bit(raise::DIV_ZERO))).message(),
+            "division by zero"
+        );
+        assert!(
+            gravity_fn::take_error().is_none() && gravity_hosts::take_error().is_none(),
+            "both stashes dropped"
+        );
         stash("the shim's error");
-        assert_eq!(pg_error(Error::Raised(raise::bit(raise::HOST))).message(), "the shim's error");
+        assert_eq!(
+            pg_error(Error::Raised(raise::bit(raise::HOST))).message(),
+            "the shim's error"
+        );
         let _ = gravity_hosts::stash(Box::new(PgError::error("the host's error".to_string()))); // alloc: Cold
-        assert_eq!(pg_error(Error::Raised(raise::bit(raise::HOST))).message(), "the host's error");
-        assert_eq!(pg_error(Error::Raised(raise::bit(raise::INT2_RANGE))).message(), "smallint out of range");
+        assert_eq!(
+            pg_error(Error::Raised(raise::bit(raise::HOST))).message(),
+            "the host's error"
+        );
+        assert_eq!(
+            pg_error(Error::Raised(raise::bit(raise::INT2_RANGE))).message(),
+            "smallint out of range"
+        );
     }
 
     /// An out of memory a SPILL-DEBT row names reads to the client as any out of memory does, byte for byte (every
@@ -366,22 +458,71 @@ mod tests {
     #[test]
     fn a_named_out_of_memory_reads_the_same_and_writes_its_row_once() {
         use gravity_program::spill::NoSpill;
-        let oom = |why| Error::OutOfMemory { bytes: 64 << 20, held: 3 << 20, capacity: 4 << 20, why };
-        let client = |e: &PgError| (e.level, e.sqlstate, e.message.clone(), e.message_raw.clone(), e.detail.clone(), e.detail_raw.clone(), e.hint.clone(), e.context.clone(), e.location.clone(), e.cursor_position, e.internal_position, e.internal_query.clone()); // alloc: Cold
+        let oom = |why| Error::OutOfMemory {
+            bytes: 64 << 20,
+            held: 3 << 20,
+            capacity: 4 << 20,
+            why,
+        };
+        let client = |e: &PgError| {
+            (
+                e.level,
+                e.sqlstate,
+                e.message.clone(),
+                e.message_raw.clone(),
+                e.detail.clone(),
+                e.detail_raw.clone(),
+                e.hint.clone(),
+                e.context.clone(),
+                e.location.clone(),
+                e.cursor_position,
+                e.internal_position,
+                e.internal_query.clone(),
+            )
+        }; // alloc: Cold
         let plain = pg_error(oom(None));
         let mut named = pg_error(oom(Some(NoSpill::BuildNestInner)));
-        assert_eq!(client(&named), client(&plain), "the client reads the same 53200");
+        assert_eq!(
+            client(&named),
+            client(&plain),
+            "the client reads the same 53200"
+        );
         assert_eq!(plain.detail_log(), None);
-        let line = format!("gravity: memory: SPILL-DEBT BuildNestInner: {}", NoSpill::BuildNestInner.limitation()); // alloc: Cold
-        assert_eq!(named.detail_log(), Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()), "the line rides last in the log-only detail"); // alloc: Cold
-        assert_eq!(super::note_debt_refused(&mut named).as_deref(), Some(line.as_str()), "written where the error is the statement's");
-        assert_eq!(*named, *plain, "then the error is an unnamed one's, its server log entry too");
+        let line = format!(
+            "gravity: memory: SPILL-DEBT BuildNestInner: {}",
+            NoSpill::BuildNestInner.limitation()
+        ); // alloc: Cold
+        assert_eq!(
+            named.detail_log(),
+            Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()),
+            "the line rides last in the log-only detail"
+        ); // alloc: Cold
+        assert_eq!(
+            super::note_debt_refused(&mut named).as_deref(),
+            Some(line.as_str()),
+            "written where the error is the statement's"
+        );
+        assert_eq!(
+            *named, *plain,
+            "then the error is an unnamed one's, its server log entry too"
+        );
         assert_eq!(super::note_debt_refused(&mut named), None, "once");
-        assert_eq!(super::note_debt_refused(&mut pg_error(oom(None))), None, "an unnamed out of memory writes none");
+        assert_eq!(
+            super::note_debt_refused(&mut pg_error(oom(None))),
+            None,
+            "an unnamed out of memory writes none"
+        );
         // the statement's cancel seen (a host loop of its call stopped for the abort bit): no line, the error unnamed
         let byte = core::sync::atomic::AtomicU8::new(gravity_abi::ctx::ABORT_BIT);
         let mut canceled = pg_error(oom(Some(NoSpill::BuildNestInner)));
-        assert_eq!(cancelpoll::scoped(&byte, || (cancelpoll::canceled(), super::note_debt_refused(&mut canceled))), (true, None), "no line under a cancel");
+        assert_eq!(
+            cancelpoll::scoped(&byte, || (
+                cancelpoll::canceled(),
+                super::note_debt_refused(&mut canceled)
+            )),
+            (true, None),
+            "no line under a cancel"
+        );
         assert_eq!(*canceled, *plain);
     }
 
@@ -391,9 +532,26 @@ mod tests {
     #[test]
     fn a_raised_pin_out_of_memory_names_its_debt_row_server_side() {
         use gravity_program::spill::NoSpill;
-        let oom = || Box::new(PgError::error("out of memory".to_string()).with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail("Failed on request of size 4096 in a Gravity pinned region (the statement's pinned pool is full).".to_string())); // alloc: Cold
+        let oom = || {
+            Box::new(PgError::error("out of memory".to_string()).with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail("Failed on request of size 4096 in a Gravity pinned region (the statement's pinned pool is full).".to_string()))
+        }; // alloc: Cold
         let host = || Error::Raised(raise::bit(raise::HOST));
-        let client = |e: &PgError| (e.level, e.sqlstate, e.message.clone(), e.message_raw.clone(), e.detail.clone(), e.detail_raw.clone(), e.hint.clone(), e.context.clone(), e.location.clone(), e.cursor_position, e.internal_position, e.internal_query.clone()); // alloc: Cold
+        let client = |e: &PgError| {
+            (
+                e.level,
+                e.sqlstate,
+                e.message.clone(),
+                e.message_raw.clone(),
+                e.detail.clone(),
+                e.detail_raw.clone(),
+                e.hint.clone(),
+                e.context.clone(),
+                e.location.clone(),
+                e.cursor_position,
+                e.internal_position,
+                e.internal_query.clone(),
+            )
+        }; // alloc: Cold
         assert_eq!(gravity_driver::take_pin_debt(), None);
         gravity_fn::stash_error(oom());
         let plain = pg_error(host());
@@ -401,16 +559,34 @@ mod tests {
         gravity_fn::stash_error(oom());
         let mut named = pg_error(host());
         assert_eq!(gravity_driver::take_pin_debt(), None, "taken by the error");
-        assert_eq!(client(&named), client(&plain), "the client reads the same 53200");
+        assert_eq!(
+            client(&named),
+            client(&plain),
+            "the client reads the same 53200"
+        );
         assert_eq!(plain.detail_log(), None);
-        let line = format!("gravity: memory: SPILL-DEBT KeyCopies: {}", NoSpill::KeyCopies.limitation()); // alloc: Cold
-        assert_eq!(named.detail_log(), Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()), "the line rides last in the log-only detail"); // alloc: Cold
-        assert_eq!(super::note_debt_refused(&mut named).as_deref(), Some(line.as_str()), "written where the error is the statement's");
+        let line = format!(
+            "gravity: memory: SPILL-DEBT KeyCopies: {}",
+            NoSpill::KeyCopies.limitation()
+        ); // alloc: Cold
+        assert_eq!(
+            named.detail_log(),
+            Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()),
+            "the line rides last in the log-only detail"
+        ); // alloc: Cold
+        assert_eq!(
+            super::note_debt_refused(&mut named).as_deref(),
+            Some(line.as_str()),
+            "written where the error is the statement's"
+        );
         assert_eq!(*named, *plain, "then the error is an unnamed one's");
         // another raise (an in-IR code): the row is taken and the error is as it is
         gravity_driver::note_pin_debt(Some(NoSpill::KeyCopies));
         let other = pg_error(Error::Raised(raise::bit(raise::DIV_ZERO)));
-        assert_eq!((other.message(), other.detail_log()), ("division by zero", None));
+        assert_eq!(
+            (other.message(), other.detail_log()),
+            ("division by zero", None)
+        );
         assert_eq!(gravity_driver::take_pin_debt(), None);
     }
 
@@ -432,20 +608,40 @@ mod tests {
         // a worker's call under its leader's byte
         let leader = AtomicU8::new(gravity_abi::ctx::ABORT_BIT);
         stash("a worker's stop placeholder");
-        let _ = gravity_hosts::stash(Box::new(PgError::error("a worker host's placeholder".to_string()))); // alloc: Cold
-        assert!(stopped(leader.as_ptr(), &host), "a worker's stop is its leader's to raise");
-        assert!(gravity_fn::take_error().is_none() && gravity_hosts::take_error().is_none(), "both stashes dropped");
+        let _ = gravity_hosts::stash(Box::new(PgError::error(
+            "a worker host's placeholder".to_string(),
+        ))); // alloc: Cold
+        assert!(
+            stopped(leader.as_ptr(), &host),
+            "a worker's stop is its leader's to raise"
+        );
+        assert!(
+            gravity_fn::take_error().is_none() && gravity_hosts::take_error().is_none(),
+            "both stashes dropped"
+        );
         // the owner's own call, its stop not taken yet
         let own = super::abort_u8();
         ABORT_PENDING.set(true);
         stash("the owner's stop placeholder");
-        assert!(stopped(own.as_ptr(), &Error::host("pg")), "the owner raises its pending stop");
-        assert!(gravity_fn::take_error().is_none(), "the placeholder dropped");
+        assert!(
+            stopped(own.as_ptr(), &Error::host("pg")),
+            "the owner raises its pending stop"
+        );
+        assert!(
+            gravity_fn::take_error().is_none(),
+            "the placeholder dropped"
+        );
         // the owner took the stop: the error it raised for it stands
         ABORT_PENDING.set(false);
         stash("the stop's own error");
-        assert!(!stopped(own.as_ptr(), &host), "a stop the owner already raised leaves the error as raised");
-        assert_eq!(gravity_fn::take_error().as_deref().map(|e| e.message()), Some("the stop's own error"));
+        assert!(
+            !stopped(own.as_ptr(), &host),
+            "a stop the owner already raised leaves the error as raised"
+        );
+        assert_eq!(
+            gravity_fn::take_error().as_deref().map(|e| e.message()),
+            Some("the stop's own error")
+        );
     }
 
     /// D1493: every unsupported kind has its own number and its own text (the driver's spill kind shared 5 with the out
@@ -453,12 +649,28 @@ mod tests {
     #[test]
     fn every_unsupported_kind_has_its_own_text() {
         let kinds = gravity_abi::status::UNSUPPORTED_KINDS;
-        let texts: std::collections::BTreeSet<String> = kinds.iter().map(|&(k, _)| unsupported_message(k)).collect();
-        assert_eq!(texts.len(), kinds.len(), "two kinds share a text: {texts:?}");
+        let texts: std::collections::BTreeSet<String> =
+            kinds.iter().map(|&(k, _)| unsupported_message(k)).collect();
+        assert_eq!(
+            texts.len(),
+            kinds.len(),
+            "two kinds share a text: {texts:?}"
+        );
         let nums: std::collections::BTreeSet<u8> = kinds.iter().map(|&(k, _)| k).collect();
-        assert_eq!(nums.len(), kinds.len(), "two kinds share a number: {kinds:?}");
-        assert_eq!(gravity_driver::UNSUPPORTED_SPILL, gravity_abi::status::UNSUPPORTED_SPILL, "the driver's spill kind is abi's");
-        assert!(unsupported_message(gravity_driver::UNSUPPORTED_SPILL).contains("a spill past"), "the spill kind names the spill");
+        assert_eq!(
+            nums.len(),
+            kinds.len(),
+            "two kinds share a number: {kinds:?}"
+        );
+        assert_eq!(
+            gravity_driver::UNSUPPORTED_SPILL,
+            gravity_abi::status::UNSUPPORTED_SPILL,
+            "the driver's spill kind is abi's"
+        );
+        assert!(
+            unsupported_message(gravity_driver::UNSUPPORTED_SPILL).contains("a spill past"),
+            "the spill kind names the spill"
+        );
     }
 
     /// `DECISIONS.md` 4 (D) b: a run-ahead pipeline's expression error carries its tag in the log-only detail, SQLSTATE
@@ -466,25 +678,60 @@ mod tests {
     /// one noted), a cancel, and a run with no note carry none; each statement's error takes the note.
     #[test]
     fn a_run_ahead_error_carries_its_tag_in_the_log_detail_only() {
-        let t = gravity_program::AheadTag { node: 3, node_type: "Materialize" };
+        let t = gravity_program::AheadTag {
+            node: 3,
+            node_type: "Materialize",
+        };
         let div = Error::Raised(raise::bit(raise::DIV_ZERO));
         gravity_driver::take_ahead(None);
         gravity_driver::note_ahead_tag(Some(t), &div);
         let e = pg_error(div.clone());
-        assert_eq!((e.message(), e.detail(), e.detail_log()), ("division by zero", None, Some("gravity ahead: 22012 node 3 Materialize (DECISIONS 4 (D) b)")));
-        assert!(pg_error(div.clone()).detail_log().is_none(), "the note is taken by one error");
+        assert_eq!(
+            (e.message(), e.detail(), e.detail_log()),
+            (
+                "division by zero",
+                None,
+                Some("gravity ahead: 22012 node 3 Materialize (DECISIONS 4 (D) b)")
+            )
+        );
+        assert!(
+            pg_error(div.clone()).detail_log().is_none(),
+            "the note is taken by one error"
+        );
         gravity_driver::note_ahead_tag(Some(t), &div);
-        assert!(pg_error(Error::Raised(raise::bit(raise::HOST))).detail_log().is_none(), "another error is not tagged");
+        assert!(
+            pg_error(Error::Raised(raise::bit(raise::HOST)))
+                .detail_log()
+                .is_none(),
+            "another error is not tagged"
+        );
         gravity_driver::note_ahead_tag(Some(t), &Error::Cancelled);
         gravity_driver::note_ahead_tag(None, &div);
-        assert!(pg_error(div.clone()).detail_log().is_none(), "a cancel or an untagged pipeline notes nothing");
-        let _ = gravity_hosts::stash(Box::new(PgError::error("value out of range".to_string()).with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE).with_detail("the host's detail".to_string()))); // alloc: Cold
+        assert!(
+            pg_error(div.clone()).detail_log().is_none(),
+            "a cancel or an untagged pipeline notes nothing"
+        );
+        let _ = gravity_hosts::stash(Box::new(
+            PgError::error("value out of range".to_string())
+                .with_sqlstate(types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
+                .with_detail("the host's detail".to_string()),
+        )); // alloc: Cold
         let host = Error::host("host");
         gravity_driver::note_ahead_tag(Some(t), &host);
-        gravity_driver::note_ahead_tag(Some(gravity_program::AheadTag { node: 9, node_type: "Sort" }), &div);
+        gravity_driver::note_ahead_tag(
+            Some(gravity_program::AheadTag {
+                node: 9,
+                node_type: "Sort",
+            }),
+            &div,
+        );
         let e = pg_error(host);
         assert_eq!(e.detail(), Some("the host's detail"));
-        assert_eq!(e.detail_log(), Some("gravity ahead: 22003 node 3 Materialize (DECISIONS 4 (D) b)\nthe host's detail"), "the first note stands");
+        assert_eq!(
+            e.detail_log(),
+            Some("gravity ahead: 22003 node 3 Materialize (DECISIONS 4 (D) b)\nthe host's detail"),
+            "the first note stands"
+        );
     }
 
     /// D4206: a run-ahead error outside the data classes ruling (b) covers (here PostgreSQL's 0A000 of array_remove over
@@ -493,34 +740,99 @@ mod tests {
     /// error and tag, as a data error does; an untagged 0A000 is the statement's as it is.
     #[test]
     fn a_run_ahead_error_outside_the_data_classes_is_a_refusal() {
-        let t = gravity_program::AheadTag { node: 4, node_type: "Index Scan" };
+        let t = gravity_program::AheadTag {
+            node: 4,
+            node_type: "Index Scan",
+        };
         let stash = |code, msg: &str| {
-            let _ = gravity_hosts::stash(Box::new(PgError::error(msg.to_string()).with_sqlstate(code))); // alloc: Cold
+            let _ = gravity_hosts::stash(Box::new(
+                PgError::error(msg.to_string()).with_sqlstate(code),
+            )); // alloc: Cold
             Error::host("host")
         };
         gravity_driver::take_ahead(None);
-        let host = stash(types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "removing elements from multidimensional arrays is not supported");
+        let host = stash(
+            types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "removing elements from multidimensional arrays is not supported",
+        );
         gravity_driver::note_ahead_tag(Some(t), &host);
         let e = pg_error(host);
         assert_eq!(crate::runner::refusal_of(&e), Some("a part run ahead of the plan raised 0A000 at node 4 Index Scan, outside the data classes a run ahead may raise"));
         assert_eq!(e.detail_log(), Some("the run-ahead error: removing elements from multidimensional arrays is not supported"));
-        assert!(crate::runner::tag_refused(&e) && crate::runner::reruns(&e) && !crate::runner::ahead_tagged(&e), "a refusal the plan-order run re-runs, not a tagged error");
-        assert_eq!(crate::runner::tag_refusal_of(&e), crate::runner::refusal_of(&e), "the reason its named line logs");
-        assert!(!crate::runner::reruns(&crate::runner::refused("another refusal")), "a lowering's refusal is no re-run");
-        let host = stash(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED, "array size exceeds the maximum allowed");
+        assert!(
+            crate::runner::tag_refused(&e)
+                && crate::runner::reruns(&e)
+                && !crate::runner::ahead_tagged(&e),
+            "a refusal the plan-order run re-runs, not a tagged error"
+        );
+        assert_eq!(
+            crate::runner::tag_refusal_of(&e),
+            crate::runner::refusal_of(&e),
+            "the reason its named line logs"
+        );
+        assert!(
+            !crate::runner::reruns(&crate::runner::refused("another refusal")),
+            "a lowering's refusal is no re-run"
+        );
+        let host = stash(
+            types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+            "array size exceeds the maximum allowed",
+        );
         gravity_driver::note_ahead_tag(Some(t), &host);
         let e = pg_error(host);
-        assert_eq!((e.message(), crate::runner::ahead_tagged(&e)), ("array size exceeds the maximum allowed", true), "a resource limit keeps its error");
+        assert_eq!(
+            (e.message(), crate::runner::ahead_tagged(&e)),
+            ("array size exceeds the maximum allowed", true),
+            "a resource limit keeps its error"
+        );
         let host = stash(types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "not supported");
         let e = pg_error(host);
-        assert_eq!((e.message(), e.detail_log()), ("not supported", None), "an untagged error is the statement's");
-        let host = stash(types_error::ERRCODE_QUERY_CANCELED, "canceling statement due to statement timeout");
+        assert_eq!(
+            (e.message(), e.detail_log()),
+            ("not supported", None),
+            "an untagged error is the statement's"
+        );
+        let host = stash(
+            types_error::ERRCODE_QUERY_CANCELED,
+            "canceling statement due to statement timeout",
+        );
         gravity_driver::note_ahead_tag(Some(t), &host);
         let e = pg_error(host);
-        assert_eq!((e.sqlstate(), crate::runner::refusal_of(&e), crate::runner::reruns(&e)), (types_error::ERRCODE_QUERY_CANCELED, None, false), "a cancel during a run ahead is 57014, never refused or re-run");
-        for (code, stands) in [(*b"22012", true), (*b"21000", true), (*b"23505", true), (*b"2202E", true), (*b"53200", true), (*b"54000", true), (*b"57014", true), (*b"40001", true), (*b"40P01", true), (*b"25P02", true), (*b"55P03", true), (*b"08006", true), (*b"58030", true), (*b"0A000", false), (*b"42804", false), (*b"XX000", false), (*b"55000", false)] {
+        assert_eq!(
+            (
+                e.sqlstate(),
+                crate::runner::refusal_of(&e),
+                crate::runner::reruns(&e)
+            ),
+            (types_error::ERRCODE_QUERY_CANCELED, None, false),
+            "a cancel during a run ahead is 57014, never refused or re-run"
+        );
+        for (code, stands) in [
+            (*b"22012", true),
+            (*b"21000", true),
+            (*b"23505", true),
+            (*b"2202E", true),
+            (*b"53200", true),
+            (*b"54000", true),
+            (*b"57014", true),
+            (*b"40001", true),
+            (*b"40P01", true),
+            (*b"25P02", true),
+            (*b"55P03", true),
+            (*b"08006", true),
+            (*b"58030", true),
+            (*b"0A000", false),
+            (*b"42804", false),
+            (*b"XX000", false),
+            (*b"55000", false),
+        ] {
             let e = PgError::error("e".to_string()).with_sqlstate(types_error::make_sqlstate(code)); // alloc: Cold
-            assert_eq!(crate::runner::tag_stands(&e), stands, "{}", core::str::from_utf8(&code).unwrap());
+            assert_eq!(
+                crate::runner::tag_stands(&e),
+                stands,
+                "{}",
+                core::str::from_utf8(&code).unwrap()
+            );
         }
     }
 }

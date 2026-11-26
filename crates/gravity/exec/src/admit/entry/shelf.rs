@@ -69,9 +69,21 @@ pub(crate) struct Taken {
 }
 
 /// `ident` (D3865 L5): the identity serve, shelved under the plan's identity key (`pstmt`: the desc's own plan).
-pub(crate) fn take(b: &mut Backend, depth: usize, cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, params: types_portal::ParamListHandle, ident: bool) -> PgResult<Taken> {
-    let none = Taken { hit: None, stale: None };
-    let Some(key) = crate::runner::entry_key_as(cplan, pstmt, ident) else { return Ok(none) };
+pub(crate) fn take(
+    b: &mut Backend,
+    depth: usize,
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    params: types_portal::ParamListHandle,
+    ident: bool,
+) -> PgResult<Taken> {
+    let none = Taken {
+        hit: None,
+        stale: None,
+    };
+    let Some(key) = crate::runner::entry_key_as(cplan, pstmt, ident) else {
+        return Ok(none);
+    };
     let got = SHELF.with(|s| {
         let mut s = s.borrow_mut();
         let i = s.iter().position(|x| x.key == key && x.home == depth)?;
@@ -80,16 +92,29 @@ pub(crate) fn take(b: &mut Backend, depth: usize, cplan: CachedPlanHandle, pstmt
     let Some(x) = got else { return Ok(none) };
     // D2663: a support change since the admission drops the level's verdicts, and a re-admission may fill and lend the
     // same slot again: the serve's own admission decides, not the slot
-    if !lent(b, key, x.slot) || x.serve.key != Some(key) || Backend::serve_stale(&x.serve.a) || !crate::admit::folded_hold(&x.serve.a, params) {
-        return Ok(Taken { hit: None, stale: Some(stale(b, key, x.serve)) });
+    if !lent(b, key, x.slot)
+        || x.serve.key != Some(key)
+        || Backend::serve_stale(&x.serve.a)
+        || !crate::admit::folded_hold(&x.serve.a, params)
+    {
+        return Ok(Taken {
+            hit: None,
+            stale: Some(stale(b, key, x.serve)),
+        });
     }
     if x.trims != crate::admit::entry::pool_trims() {
         // the grant pool trimmed since the shelving (memory pressure): the shell goes, as a parked portal's (its
         // admission with it: the key's next execution admits afresh and is shelved or given back at its free)
-        return Ok(Taken { hit: None, stale: Some(stale(b, key, x.serve)) });
+        return Ok(Taken {
+            hit: None,
+            stale: Some(stale(b, key, x.serve)),
+        });
     }
     b.note_kept_serve();
-    Ok(Taken { hit: Some(x.serve), stale: None })
+    Ok(Taken {
+        hit: Some(x.serve),
+        stale: None,
+    })
 }
 
 /// D3346: a stale shelved serve leaves its level (`depth` == its home): the Nodes parked under its key here (and under the
@@ -120,18 +145,28 @@ fn retire_all(all: Vec<Shelved>) {
 /// caller, which releases its admission to the memo as before (not at its level, the memo re-filed or displaced the key,
 /// or the shelf already holds the key: a recursion's second serve). An evicted serve is dropped outside the borrow.
 /// D3865 L5: an identity serve under the plan's identity key (`pstmt`: the desc's own plan).
-pub(crate) fn put(cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, serve: Box<Serve>) -> Option<Box<Serve>> {
+pub(crate) fn put(
+    cplan: CachedPlanHandle,
+    pstmt: &PlannedStmt<'_>,
+    serve: Box<Serve>,
+) -> Option<Box<Serve>> {
     let home = serve.home;
     let ident = serve.key.is_some_and(|k| k.is_identity());
     let mut back = Some(serve);
     let mut evicted = None;
     let _ = crate::admit::reentry::enter(None, None, false, |b, depth| {
-        let Some(key) = crate::runner::entry_key_as(cplan, pstmt, ident) else { return };
+        let Some(key) = crate::runner::entry_key_as(cplan, pstmt, ident) else {
+            return;
+        };
         if depth != home || back.as_ref().is_none_or(|s| s.key != Some(key)) {
             return;
         }
-        let Some(Verdict::Served(slot)) = b.lookup(key) else { return };
-        if !lent(b, key, slot) || SHELF.with(|s| s.borrow().iter().any(|x| x.key == key && x.home == home)) {
+        let Some(Verdict::Served(slot)) = b.lookup(key) else {
+            return;
+        };
+        if !lent(b, key, slot)
+            || SHELF.with(|s| s.borrow().iter().any(|x| x.key == key && x.home == home))
+        {
             return;
         }
         let serve = back.take().expect("checked");
@@ -140,11 +175,18 @@ pub(crate) fn put(cplan: CachedPlanHandle, pstmt: &PlannedStmt<'_>, serve: Box<S
             if s.len() >= SHELF_MAX {
                 evicted = Some(s.remove(0));
             }
-            s.push(Shelved { key, slot, home, trims: crate::admit::entry::pool_trims(), serve }); // alloc: Exec (at most SHELF_MAX)
+            s.push(Shelved {
+                key,
+                slot,
+                home,
+                trims: crate::admit::entry::pool_trims(),
+                serve,
+            }); // alloc: Exec (at most SHELF_MAX)
         });
     });
     if back.is_none() && !DRAIN.replace(true) {
-        mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::Portals, Box::new(drain)); // alloc: Cold
+        mcx::register_session_cleanup_phase(mcx::SessionCleanupPhase::Portals, Box::new(drain));
+        // alloc: Cold
     }
     if back.is_none() && !XACT.replace(true) {
         xact::RegisterXactCallback(AT_XACT_END, Default::default());
@@ -191,7 +233,9 @@ pub(crate) fn retire_from(depth: usize) {
         if !s.iter().any(|x| x.home >= depth) {
             return Vec::new(); // alloc: Exec
         }
-        let (gone, kept): (Vec<Shelved>, Vec<Shelved>) = core::mem::take(&mut **s).into_iter().partition(|x| x.home >= depth); // alloc: Exec
+        let (gone, kept): (Vec<Shelved>, Vec<Shelved>) = core::mem::take(&mut **s)
+            .into_iter()
+            .partition(|x| x.home >= depth); // alloc: Exec
         **s = kept;
         gone
     });
@@ -215,7 +259,14 @@ pub(crate) fn retire_from(depth: usize) {
 /// The transaction's end (COMMIT / ABORT / PREPARE, in their callbacks while every context lives): `end_of_statement`.
 const AT_XACT_END: xact::XactCallback = |event, _| {
     use types_core::xact::XactEvent::*;
-    if matches!(event, XACT_EVENT_COMMIT | XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_ABORT | XACT_EVENT_PARALLEL_ABORT | XACT_EVENT_PREPARE) {
+    if matches!(
+        event,
+        XACT_EVENT_COMMIT
+            | XACT_EVENT_PARALLEL_COMMIT
+            | XACT_EVENT_ABORT
+            | XACT_EVENT_PARALLEL_ABORT
+            | XACT_EVENT_PREPARE
+    ) {
         end_of_statement();
     }
     Ok(())

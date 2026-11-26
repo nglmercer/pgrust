@@ -24,12 +24,21 @@ pub(crate) fn granted_memory(width: u16) -> Grant {
     // hash_mem) per participant, past which it spills (`gravity_driver::ceiling_of`)
     let knobs = super::grant::grant_knobs();
     if let Some(mb) = knobs.grant_mb {
-        return Grant::of(mb << 20).with_ceilings(work_mem << 10, per.bytes).with_spill_every(knobs.spill_every).with_revoke_every(knobs.revoke_every).with_refuse_debt(knobs.refuse_debt);
+        return Grant::of(mb << 20)
+            .with_ceilings(work_mem << 10, per.bytes)
+            .with_spill_every(knobs.spill_every)
+            .with_revoke_every(knobs.revoke_every)
+            .with_refuse_debt(knobs.refuse_debt);
     }
     let w = width.max(1) as u64;
     // D2587: each participant's share at least PostgreSQL's own budget for its node (a Sort work_mem, a hash node hash_mem):
     // one node's, not the width's (`Grant::split_at_least` floors the leader's share and each worker's own share at it)
-    Grant::of(per.bytes.saturating_mul(w)).with_floors(work_mem << 10, per.bytes).with_ceilings(work_mem << 10, per.bytes).with_spill_every(knobs.spill_every).with_revoke_every(knobs.revoke_every).with_refuse_debt(knobs.refuse_debt)
+    Grant::of(per.bytes.saturating_mul(w))
+        .with_floors(work_mem << 10, per.bytes)
+        .with_ceilings(work_mem << 10, per.bytes)
+        .with_spill_every(knobs.spill_every)
+        .with_revoke_every(knobs.revoke_every)
+        .with_refuse_debt(knobs.refuse_debt)
 }
 
 /// Grow mode (`pgrust.gravity_grow`): whether work_mem was set, its source past the boot default (a SET, postgresql.conf,
@@ -37,7 +46,12 @@ pub(crate) fn granted_memory(width: u16) -> Grant {
 /// unset, grow mode's breakers have no work_mem ceiling. A thread with no GUC store reads it set (today's ceilings).
 pub(crate) fn work_mem_set() -> bool {
     const DYNAMIC_DEFAULT: i32 = 1; // types_guc::GucSource::PGC_S_DYNAMIC_DEFAULT: a default the server chose, still unset
-    guc::store::with_store(|reg| reg.find_index("work_mem").map(|i| reg[i].gen().source as i32 > DYNAMIC_DEFAULT)).flatten().unwrap_or(true)
+    guc::store::with_store(|reg| {
+        reg.find_index("work_mem")
+            .map(|i| reg[i].gen().source as i32 > DYNAMIC_DEFAULT)
+    })
+    .flatten()
+    .unwrap_or(true)
 }
 
 /// The width a parallel program may run at: `max_parallel_workers_per_gather` bounded by `max_parallel_workers` and the driver's `MAX_WIDTH` (noted once); 0 without a pool or under SERIALIZABLE.
@@ -46,7 +60,9 @@ pub(crate) fn granted_width() -> u16 {
     if installed_pool().is_none() || xact::IsolationIsSerializable() {
         return 0;
     }
-    let per_gather = guc_tables::vars::max_parallel_workers_per_gather.read().max(0);
+    let per_gather = guc_tables::vars::max_parallel_workers_per_gather
+        .read()
+        .max(0);
     let pool = guc_tables::vars::max_parallel_workers.read().max(0);
     clamp_width(per_gather.min(pool).min(u16::MAX as i32) as u16)
 }
@@ -58,13 +74,22 @@ pub(crate) fn clamp_width(width: u16) -> u16 {
     let (bounded, why) = bound_width(width, threads, gravity_driver::MAX_WIDTH);
     if let Some(why) = why {
         if !NOTED.swap(true, std::sync::atomic::Ordering::AcqRel) {
-            let _ = elog::ereport(types_error::LOG).errmsg(format!("gravity: width clamped from {width} to {bounded} ({why})")).finish(types_error::ErrorLocation::new("gravity", 0, "width")); // alloc: Cold
+            let _ = elog::ereport(types_error::LOG)
+                .errmsg(format!(
+                    "gravity: width clamped from {width} to {bounded} ({why})"
+                ))
+                .finish(types_error::ErrorLocation::new("gravity", 0, "width"));
+            // alloc: Cold
         }
     }
     bounded
 }
 
-pub(crate) fn bound_width(asked: u16, pool_threads: u16, capacity: u16) -> (u16, Option<&'static str>) {
+pub(crate) fn bound_width(
+    asked: u16,
+    pool_threads: u16,
+    capacity: u16,
+) -> (u16, Option<&'static str>) {
     if pool_threads != 0 && asked > pool_threads && pool_threads <= capacity {
         return (pool_threads, Some("the pool's worker threads"));
     }
@@ -80,10 +105,22 @@ mod width_tests {
     #[test]
     fn the_width_is_bounded_by_the_pool_then_the_slots() {
         assert_eq!(bound_width(16, 16, 255), (16, None));
-        assert_eq!(bound_width(16, 8, 255), (8, Some("the pool's worker threads")));
-        assert_eq!(bound_width(191, 96, 255), (96, Some("the pool's worker threads")));
-        assert_eq!(bound_width(300, 0, 255), (255, Some("the driver's partial slots")));
-        assert_eq!(bound_width(300, 400, 255), (255, Some("the driver's partial slots")));
+        assert_eq!(
+            bound_width(16, 8, 255),
+            (8, Some("the pool's worker threads"))
+        );
+        assert_eq!(
+            bound_width(191, 96, 255),
+            (96, Some("the pool's worker threads"))
+        );
+        assert_eq!(
+            bound_width(300, 0, 255),
+            (255, Some("the driver's partial slots"))
+        );
+        assert_eq!(
+            bound_width(300, 400, 255),
+            (255, Some("the driver's partial slots"))
+        );
         assert_eq!(bound_width(8, 16, 255), (8, None));
         assert_eq!(bound_width(0, 16, 255), (0, None));
     }

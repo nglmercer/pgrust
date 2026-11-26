@@ -13,7 +13,9 @@ impl LaneBits {
 
     /// A set over `nlanes` lanes, none in it.
     pub fn new(nlanes: usize) -> LaneBits {
-        LaneBits { words: vec![0; laneset::words_for(nlanes)] } // alloc: Node
+        LaneBits {
+            words: vec![0; laneset::words_for(nlanes)],
+        } // alloc: Node
     }
 
     pub fn from_words(nlanes: usize, words: &[u64]) -> LaneBits {

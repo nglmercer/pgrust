@@ -79,15 +79,16 @@ pub fn shm_mq_create(size: usize) -> Arc<ShmMq> {
         mq_bytes_written: AtomicU64::new(0),
         mq_detached: AtomicBool::new(false),
         mq_ring_size: ring_size,
-        mq_ring: (0..ring_size / MAXIMUM_ALIGNOF).map(|_| UnsafeCell::new(0)).collect(),
+        mq_ring: (0..ring_size / MAXIMUM_ALIGNOF)
+            .map(|_| UnsafeCell::new(0))
+            .collect(),
     })
 }
 
 impl ShmMq {
     fn spin_acquire(&self) {
         if self.mq_mutex.tas() != 0 {
-            let mut delay =
-                s_lock_seams::SpinDelayStatus::new(file!(), line!() as i32, "shm_mq");
+            let mut delay = s_lock_seams::SpinDelayStatus::new(file!(), line!() as i32, "shm_mq");
             while self.mq_mutex.tas_spin() != 0 {
                 s_lock_seams::perform_spin_delay::call(&mut delay);
             }
@@ -175,9 +176,7 @@ impl ShmMq {
         fence(Ordering::Release);
         let cur = self.bytes_read();
         self.mq_bytes_read.store(cur + n as u64, Ordering::Relaxed);
-        let sender = self
-            .sender()
-            .expect("bytes to read imply mq_sender is set");
+        let sender = self.sender().expect("bytes to read imply mq_sender is set");
         SetLatch(LatchHandle::proc(sender));
     }
 
@@ -185,7 +184,8 @@ impl ShmMq {
         // Prior mq_ring writes visible before the bump; pairs with receive_bytes.
         fence(Ordering::Release);
         let cur = self.bytes_written();
-        self.mq_bytes_written.store(cur + n as u64, Ordering::Relaxed);
+        self.mq_bytes_written
+            .store(cur + n as u64, Ordering::Relaxed);
     }
 
     /// Receive-side fault-injection seam (tests only): append raw ring bytes
@@ -198,7 +198,10 @@ impl ShmMq {
         let ringsize = self.mq_ring_size;
         let written = self.bytes_written();
         let used = (written - self.bytes_read()) as usize;
-        assert!(used + bytes.len() <= ringsize, "fault injection would overflow the ring");
+        assert!(
+            used + bytes.len() <= ringsize,
+            "fault injection would overflow the ring"
+        );
         for (i, b) in bytes.iter().enumerate() {
             let offset = (written as usize + i) % ringsize;
             // SAFETY: an in-bounds, not-yet-written ring byte; the receiver
@@ -333,12 +336,7 @@ impl ShmMqHandle {
 
     // Once a message is partially written it cannot be aborted except by
     // detach: a nowait WouldBlock return must be retried with the same data.
-    pub fn send(
-        &mut self,
-        data: &[u8],
-        nowait: bool,
-        force_flush: bool,
-    ) -> PgResult<ShmMqResult> {
+    pub fn send(&mut self, data: &[u8], nowait: bool, force_flush: bool) -> PgResult<ShmMqResult> {
         debug_assert!(self.mqh_queue.sender() == Some(MyProcNumber()));
         let nbytes = data.len();
 
@@ -487,7 +485,9 @@ impl ShmMqHandle {
         if nbytes > MAX_ALLOC_SIZE {
             ereport(ERROR)
                 .errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-                .errmsg(format!("invalid message size {nbytes} in shared memory queue"))
+                .errmsg(format!(
+                    "invalid message size {nbytes} in shared memory queue"
+                ))
                 .finish(loc("shm_mq_receive"))?;
         }
 
@@ -528,7 +528,10 @@ impl ShmMqHandle {
                 unsafe {
                     ptr::copy_nonoverlapping(
                         rawdata,
-                        self.mqh_buffer.as_mut_ptr().cast::<u8>().add(self.mqh_partial_bytes),
+                        self.mqh_buffer
+                            .as_mut_ptr()
+                            .cast::<u8>()
+                            .add(self.mqh_partial_bytes),
                         rb,
                     );
                 }
@@ -732,7 +735,12 @@ impl Drop for ShmMqHandle {
 // (tqueue's chunk-slot wait uses the MQ_SEND wait event).
 pub fn wait_on_my_latch(my_latch: Option<LatchHandle>, wait_event_info: u32) -> PgResult<()> {
     let latch = my_latch.expect("shm_mq blocking operation requires MyLatch");
-    WaitLatch(Some(latch), WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0, wait_event_info)?;
+    WaitLatch(
+        Some(latch),
+        WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
+        0,
+        wait_event_info,
+    )?;
     ResetLatch(latch);
     postgres_seams::check_for_interrupts::call()?;
     Ok(())

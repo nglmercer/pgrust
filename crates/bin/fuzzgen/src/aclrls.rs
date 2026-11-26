@@ -212,7 +212,11 @@ fn rls_cleanup(fx: &RlsFixture) -> Vec<String> {
 
 fn gen_rls_apply(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("aclrls:rls:apply");
-    let fx = RlsFixture { tab: "fz_acl_rls_a", u1: "fz_acl_ua1", u2: "fz_acl_ua2" };
+    let fx = RlsFixture {
+        tab: "fz_acl_rls_a",
+        u1: "fz_acl_ua1",
+        u2: "fz_acl_ua2",
+    };
     let mut out = rls_prelude(&fx);
     out.push(format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY;", fx.tab));
     // A mixed policy set: a per-role permissive SELECT, a broad permissive
@@ -248,8 +252,14 @@ fn gen_rls_apply(g: &mut Gen) -> Vec<StmtKind> {
     ));
     // Drive the surface as u1 (its rows are ids 1,3,5).
     out.push(format!("SET ROLE {};", fx.u1));
-    out.push(format!("SELECT id, owner_name, val, tag FROM {} ORDER BY id;", fx.tab));
-    out.push(format!("SELECT count(*), coalesce(sum(val), 0) FROM {};", fx.tab));
+    out.push(format!(
+        "SELECT id, owner_name, val, tag FROM {} ORDER BY id;",
+        fx.tab
+    ));
+    out.push(format!(
+        "SELECT count(*), coalesce(sum(val), 0) FROM {};",
+        fx.tab
+    ));
     // FOR UPDATE row lock exercises the SELECT policy on a locking scan.
     out.push(format!(
         "SELECT id FROM {} WHERE val < 100 ORDER BY id FOR UPDATE;",
@@ -286,14 +296,21 @@ fn gen_rls_apply(g: &mut Gen) -> Vec<StmtKind> {
         "INSERT INTO {} VALUES (1, current_user, 7, 'cf') ON CONFLICT (id) DO UPDATE SET val = excluded.val;",
         fx.tab
     ));
-    out.push(format!("SELECT id, owner_name, val FROM {} ORDER BY id;", fx.tab));
+    out.push(format!(
+        "SELECT id, owner_name, val FROM {} ORDER BY id;",
+        fx.tab
+    ));
     out.extend(rls_cleanup(&fx));
     raw(out)
 }
 
 fn gen_rls_force(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("aclrls:rls:force");
-    let fx = RlsFixture { tab: "fz_acl_rls_f", u1: "fz_acl_uf1", u2: "fz_acl_uf2" };
+    let fx = RlsFixture {
+        tab: "fz_acl_rls_f",
+        u1: "fz_acl_uf1",
+        u2: "fz_acl_uf2",
+    };
     let mut out = rls_prelude(&fx);
     // The table owner is postgres (creator); FORCE makes the owner subject
     // to the policies too, and check_role_for_policy / the owner-bypass arm
@@ -319,11 +336,17 @@ fn gen_rls_force(g: &mut Gen) -> Vec<StmtKind> {
         out.push(format!("UPDATE {} SET val = 999 WHERE id = 1;", fx.tab));
     }
     // NO FORCE restores the owner bypass; the owner now sees all rows.
-    out.push(format!("ALTER TABLE {} NO FORCE ROW LEVEL SECURITY;", fx.tab));
+    out.push(format!(
+        "ALTER TABLE {} NO FORCE ROW LEVEL SECURITY;",
+        fx.tab
+    ));
     out.push(format!("SELECT count(*) FROM {};", fx.tab));
     out.push("RESET ROLE;".to_string());
     out.push(format!("DROP TABLE {};", fx.tab));
-    out.push(format!("REVOKE USAGE ON SCHEMA public FROM {}, {};", fx.u1, fx.u2));
+    out.push(format!(
+        "REVOKE USAGE ON SCHEMA public FROM {}, {};",
+        fx.u1, fx.u2
+    ));
     out.push(format!("DROP ROLE {};", fx.u1));
     out.push(format!("DROP ROLE {};", fx.u2));
     raw(out)
@@ -336,10 +359,18 @@ fn gen_rls_force(g: &mut Gen) -> Vec<StmtKind> {
 
 fn gen_rls_ddl(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("aclrls:rls:ddl");
-    let fx = RlsFixture { tab: "fz_acl_rls_d", u1: "fz_acl_ud1", u2: "fz_acl_ud2" };
+    let fx = RlsFixture {
+        tab: "fz_acl_rls_d",
+        u1: "fz_acl_ud1",
+        u2: "fz_acl_ud2",
+    };
     let mut out = rls_prelude(&fx);
     out.push(format!("ALTER TABLE {} ENABLE ROW LEVEL SECURITY;", fx.tab));
-    let permissive = if g.rng.chance(1, 2) { "PERMISSIVE" } else { "RESTRICTIVE" };
+    let permissive = if g.rng.chance(1, 2) {
+        "PERMISSIVE"
+    } else {
+        "RESTRICTIVE"
+    };
     let cmd = pick_str(g, &["ALL", "SELECT", "INSERT", "UPDATE", "DELETE"]);
     // CreatePolicy: FOR <cmd> with USING/WITH CHECK as the command allows.
     let mut create = format!(
@@ -399,9 +430,15 @@ fn gen_rls_ddl(g: &mut Gen) -> Vec<StmtKind> {
     // RemovePolicyById / RemoveRoleFromObjectPolicy via explicit drops.
     out.push(format!("DROP POLICY fz_pd1r ON {};", fx.tab));
     out.push(format!("DROP POLICY IF EXISTS fz_pd2 ON {};", fx.tab));
-    out.push(format!("ALTER TABLE {} DISABLE ROW LEVEL SECURITY;", fx.tab));
+    out.push(format!(
+        "ALTER TABLE {} DISABLE ROW LEVEL SECURITY;",
+        fx.tab
+    ));
     out.push(format!("DROP TABLE {};", fx.tab));
-    out.push(format!("REVOKE USAGE ON SCHEMA public FROM {}, {};", fx.u1, fx.u2));
+    out.push(format!(
+        "REVOKE USAGE ON SCHEMA public FROM {}, {};",
+        fx.u1, fx.u2
+    ));
     out.push(format!("DROP ROLE {};", fx.u1));
     out.push(format!("DROP ROLE {};", fx.u2));
     raw(out)
@@ -424,7 +461,10 @@ fn gen_grant_rel(g: &mut Gen) -> Vec<StmtKind> {
         format!("CREATE ROLE {} NOLOGIN;", g1),
         format!("CREATE ROLE {} NOLOGIN;", g2),
         format!("CREATE ROLE {} NOLOGIN;", g3),
-        format!("CREATE TABLE {} (c1 int PRIMARY KEY, c2 text, c3 int);", tab),
+        format!(
+            "CREATE TABLE {} (c1 int PRIMARY KEY, c2 text, c3 int);",
+            tab
+        ),
         format!("INSERT INTO {} VALUES (1, 'x', 10), (2, 'y', 20);", tab),
         format!("GRANT USAGE ON SCHEMA public TO {}, {}, {};", g1, g2, g3),
     ];
@@ -459,18 +499,30 @@ fn gen_grant_rel(g: &mut Gen) -> Vec<StmtKind> {
     if err_arm(g) {
         // Dependent-privilege guard: plain REVOKE with grants outstanding
         // downstream (matched 2BP01 "dependent privileges exist").
-        out.push(format!("REVOKE GRANT OPTION FOR SELECT (c1) ON {} FROM {} RESTRICT;", tab, g1));
+        out.push(format!(
+            "REVOKE GRANT OPTION FOR SELECT (c1) ON {} FROM {} RESTRICT;",
+            tab, g1
+        ));
     }
     // Cascade revoke recurses through the whole delegation chain
     // (recursive_revoke, aclupdate).
-    out.push(format!("REVOKE SELECT (c1) ON {} FROM {} CASCADE;", tab, g1));
-    out.push(format!("REVOKE ALL PRIVILEGES ON {} FROM {} CASCADE;", tab, g1));
+    out.push(format!(
+        "REVOKE SELECT (c1) ON {} FROM {} CASCADE;",
+        tab, g1
+    ));
+    out.push(format!(
+        "REVOKE ALL PRIVILEGES ON {} FROM {} CASCADE;",
+        tab, g1
+    ));
     out.push(format!(
         "SELECT grantor::regrole::text, grantee::regrole::text, privilege_type FROM aclexplode((SELECT relacl FROM pg_class WHERE oid = '{}'::regclass)) ORDER BY 1, 2, 3;",
         tab
     ));
     out.push(format!("DROP TABLE {};", tab));
-    out.push(format!("REVOKE USAGE ON SCHEMA public FROM {}, {}, {};", g1, g2, g3));
+    out.push(format!(
+        "REVOKE USAGE ON SCHEMA public FROM {}, {}, {};",
+        g1, g2, g3
+    ));
     out.push(format!("DROP ROLE {};", g1));
     out.push(format!("DROP ROLE {};", g2));
     out.push(format!("DROP ROLE {};", g3));
@@ -507,7 +559,10 @@ fn gen_grant_defacl(g: &mut Gen) -> Vec<StmtKind> {
         sc, d1
     ));
     out.push("SELECT count(*) FROM pg_default_acl;".to_string());
-    out.push(format!("CREATE TABLE {} (a int PRIMARY KEY, b text);", dtab));
+    out.push(format!(
+        "CREATE TABLE {} (a int PRIMARY KEY, b text);",
+        dtab
+    ));
     out.push(format!("CREATE SEQUENCE {};", dseq));
     // Probe: the default grant is present on the new objects.
     out.push(format!(
@@ -737,7 +792,7 @@ fn gen_aclitem(g: &mut Gen) -> Vec<StmtKind> {
         3 => {
             // aclmembers via the aclitemin/array path: build a 2-item acl and
             // check containment + equality (aclcontains, aclitem_eq).
-                "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));".to_string(
+            "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));".to_string(
             )
         }
         4 => {

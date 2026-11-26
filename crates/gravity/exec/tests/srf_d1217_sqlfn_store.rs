@@ -19,7 +19,13 @@ fn install() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
         syscache_seams::lookup_pg_type_shape::set(|typid| {
-            Ok((typid == 23).then_some(types_tuple::PgTypeShape { typlen: 4, typbyval: true, typalign: b'i' as i8, typstorage: b'p' as i8, typcollation: 0 }))
+            Ok((typid == 23).then_some(types_tuple::PgTypeShape {
+                typlen: 4,
+                typbyval: true,
+                typalign: b'i' as i8,
+                typstorage: b'p' as i8,
+                typcollation: 0,
+            }))
         });
         // the receiver's own path (sql_functions registers it in the server): counted, stores nothing
         sql_functions_seams::sqlfunction_receive::set(|_, _| {
@@ -42,11 +48,12 @@ fn run(map: &'static [i16], only_first: bool) -> (usize, i64, Option<Vec<(u64, b
     let h = tuplestore::hold::register(tuplestore::Tuplestore::begin_heap(false, false, 1024));
     // D3628: a function keeping only its first row keeps it in its junkfilter's slot, not a tuplestore
     let row_slot = only_first.then(|| {
-        let slot: &'static mut types_slot::SlotData<'static> = Box::leak(Box::new(exectuples::make_tuple_table_slot(
-            mcx,
-            types_slot::TupleSlotKind::Virtual,
-            Some(desc.clone()),
-        )));
+        let slot: &'static mut types_slot::SlotData<'static> =
+            Box::leak(Box::new(exectuples::make_tuple_table_slot(
+                mcx,
+                types_slot::TupleSlotKind::Virtual,
+                Some(desc.clone()),
+            )));
         (std::ptr::NonNull::from(slot), mcx)
     });
     let kept_slot = row_slot.map(|(p, _)| p);
@@ -67,15 +74,37 @@ fn run(map: &'static [i16], only_first: bool) -> (usize, i64, Option<Vec<(u64, b
     // SAFETY: the leaked slot above, read after the sink's last row
     let kept = kept_slot.map(|p| {
         let b = unsafe { p.as_ref() }.base();
-        (0..2).map(|i| (b.tts_values[i].as_u64(), b.tts_isnull[i])).collect()
+        (0..2)
+            .map(|i| (b.tts_values[i].as_u64(), b.tts_isnull[i]))
+            .collect()
     });
-    (received, tuplestore::hold::with_store(h, |s| s.tuple_count()), kept)
+    (
+        received,
+        tuplestore::hold::with_store(h, |s| s.tuple_count()),
+        kept,
+    )
 }
 
 #[test]
 fn d1217_identity_map_stores_directly() {
-    assert_eq!(run(&[1, 2], false), (0, 3, None), "an identity map: every row stored directly, none through the receiver");
-    assert_eq!(run(&[2, 1], false), (3, 0, None), "a reordering map goes through the receiver");
-    assert_eq!(run(&[1, 2], true), (0, 0, Some(vec![(1, false), (10, false)])), "a function keeping only its first row keeps it in its slot directly");
-    assert_eq!(run(&[2, 0], true), (0, 0, Some(vec![(10, false), (0, true)])), "through its map: a reordered column, a dropped one's NULL");
+    assert_eq!(
+        run(&[1, 2], false),
+        (0, 3, None),
+        "an identity map: every row stored directly, none through the receiver"
+    );
+    assert_eq!(
+        run(&[2, 1], false),
+        (3, 0, None),
+        "a reordering map goes through the receiver"
+    );
+    assert_eq!(
+        run(&[1, 2], true),
+        (0, 0, Some(vec![(1, false), (10, false)])),
+        "a function keeping only its first row keeps it in its slot directly"
+    );
+    assert_eq!(
+        run(&[2, 0], true),
+        (0, 0, Some(vec![(10, false), (0, true)])),
+        "through its map: a reordered column, a dropped one's NULL"
+    );
 }

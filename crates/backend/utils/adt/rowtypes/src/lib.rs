@@ -16,11 +16,9 @@ use ::types_core::{InvalidOid, Oid};
 use ::types_error::PgResult;
 use ::types_fmgr::{
     cstring_result, function_call1_coll_in, function_call1_coll_in_nullok,
-    function_call2_coll_in_nullok, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, };
-use ::types_tuple::{
-    HeapTupleData, HeapTupleHeaderData, ItemPointerData, SizeofHeapTupleHeader,
+    function_call2_coll_in_nullok, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
+use ::types_tuple::{HeapTupleData, HeapTupleHeaderData, ItemPointerData, SizeofHeapTupleHeader};
 
 #[cfg(test)]
 #[path = "tests_c_cases.rs"] // tests_* name = SLOC-v2 test-file rule (cfg(test) file-modules)
@@ -132,8 +130,10 @@ pub fn fc_record_out(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
             let proc = ::fmgr_seams::fmgr_info::call(typiofunc)?;
             my_extra.columns[i] = Some(ColumnIOData { column_type, proc });
         }
-        let proc =
-            &mut flinfo.fn_extra_mut::<RecordIOData>().unwrap().columns[i].as_mut().unwrap().proc;
+        let proc = &mut flinfo.fn_extra_mut::<RecordIOData>().unwrap().columns[i]
+            .as_mut()
+            .unwrap()
+            .proc;
         let d = function_call1_coll_in(proc, InvalidOid, mcx, values[i])?;
         let value = cstring_bytes(d);
         let (nq, extra) = record_out_quoting(value);
@@ -310,7 +310,11 @@ fn hash_record_common(
                 tc.hash_proc_finfo().clone()
             };
             if proc.fn_oid == InvalidOid {
-                let kind = if extended { "an extended hash" } else { "a hash" };
+                let kind = if extended {
+                    "an extended hash"
+                } else {
+                    "a hash"
+                };
                 let name = ::format_type::format_type_be(column_type)?;
                 return Err(alloc::boxed::Box::new(
                     ::types_error::PgError::error(alloc::format!(
@@ -335,13 +339,13 @@ fn hash_record_common(
                     function_call2_coll_in_nullok(proc, att.attcollation, mcx, values[i], s)?
                         .as_u64()
                 }
-                None => {
-                    function_call1_coll_in_nullok(proc, att.attcollation, mcx, values[i])?
-                        .as_u32() as u64
-                }
+                None => function_call1_coll_in_nullok(proc, att.attcollation, mcx, values[i])?
+                    .as_u32() as u64,
             }
         };
-        result = (result << 5).wrapping_sub(result).wrapping_add(element_hash);
+        result = (result << 5)
+            .wrapping_sub(result)
+            .wrapping_add(element_hash);
     }
     Ok(result)
 }
@@ -432,7 +436,14 @@ fn deform_record<'mcx>(
     let mut values: PgVec<'mcx, Datum> = vec_from_elem_in(mcx, Datum::null(), ncolumns);
     let mut nulls: PgVec<'mcx, bool> = vec_from_elem_in(mcx, true, ncolumns);
     ::types_tuple::heap_deform_tuple(&tuple, &tupdesc, &mut values, &mut nulls);
-    Ok(DeformedRec { tup_type, tup_typmod, tupdesc, values, nulls, _rec: rec })
+    Ok(DeformedRec {
+        tup_type,
+        tup_typmod,
+        tupdesc,
+        values,
+        nulls,
+        _rec: rec,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -471,26 +482,15 @@ pub enum RecordCoreError<E> {
 pub trait RecordColumnCmp {
     type Err;
     fn resolve(&mut self, j: usize, typid: Oid) -> Result<(), Self::Err>;
-    fn compare(
-        &mut self,
-        j: usize,
-        collation: Oid,
-        d1: Datum,
-        d2: Datum,
-    ) -> Result<i32, Self::Err>;
+    fn compare(&mut self, j: usize, collation: Oid, d1: Datum, d2: Datum)
+        -> Result<i32, Self::Err>;
 }
 
 /// Per-column equality hooks for [`record_eq_core`]; same resolve placement.
 pub trait RecordColumnEq {
     type Err;
     fn resolve(&mut self, j: usize, typid: Oid) -> Result<(), Self::Err>;
-    fn equal(
-        &mut self,
-        j: usize,
-        collation: Oid,
-        d1: Datum,
-        d2: Datum,
-    ) -> Result<bool, Self::Err>;
+    fn equal(&mut self, j: usize, collation: Oid, d1: Datum, d2: Datum) -> Result<bool, Self::Err>;
 }
 
 /// record_cmp's column loop (rowtypes.c), exactly: skip dropped physical
@@ -535,10 +535,14 @@ pub fn record_cmp_core<E>(
                 col: j,
             });
         }
-        let collation =
-            if att1.attcollation == att2.attcollation { att1.attcollation } else { InvalidOid };
+        let collation = if att1.attcollation == att2.attcollation {
+            att1.attcollation
+        } else {
+            InvalidOid
+        };
 
-        ops.resolve(j, att1.atttypid).map_err(RecordCoreError::Column)?;
+        ops.resolve(j, att1.atttypid)
+            .map_err(RecordCoreError::Column)?;
 
         if !nulls1[i1] || !nulls2[i2] {
             if nulls1[i1] {
@@ -610,10 +614,14 @@ pub fn record_eq_core<E>(
                 col: j,
             });
         }
-        let collation =
-            if att1.attcollation == att2.attcollation { att1.attcollation } else { InvalidOid };
+        let collation = if att1.attcollation == att2.attcollation {
+            att1.attcollation
+        } else {
+            InvalidOid
+        };
 
-        ops.resolve(j, att1.atttypid).map_err(RecordCoreError::Column)?;
+        ops.resolve(j, att1.atttypid)
+            .map_err(RecordCoreError::Column)?;
 
         if !nulls1[i1] || !nulls2[i2] {
             if nulls1[i1] || nulls2[i2] {
@@ -715,10 +723,8 @@ fn column_count_mismatch() -> alloc::boxed::Box<::types_error::PgError> {
 fn no_support_fn(kind: &str, typ: Oid) -> alloc::boxed::Box<::types_error::PgError> {
     let n = ::format_type::format_type_be(typ).unwrap_or_default();
     alloc::boxed::Box::new(
-        ::types_error::PgError::error(alloc::format!(
-            "could not identify {kind} for type {n}"
-        ))
-        .with_sqlstate(::types_error::ERRCODE_UNDEFINED_FUNCTION),
+        ::types_error::PgError::error(alloc::format!("could not identify {kind} for type {n}"))
+            .with_sqlstate(::types_error::ERRCODE_UNDEFINED_FUNCTION),
     )
 }
 
@@ -760,14 +766,28 @@ impl RecordColumnCmp for FmgrRecordOps<'_, '_> {
             if e.cmp_proc_finfo().fn_oid == InvalidOid {
                 return Err(no_support_fn("a comparison function", e.type_id));
             }
-            self.flinfo.fn_extra_mut::<RecordCompareData>().unwrap().columns[j] = Some(e);
+            self.flinfo
+                .fn_extra_mut::<RecordCompareData>()
+                .unwrap()
+                .columns[j] = Some(e);
         }
         Ok(())
     }
 
-    fn compare(&mut self, j: usize, collation: Oid, d1: Datum, d2: Datum) -> Result<i32, Self::Err> {
-        let e =
-            self.flinfo.fn_extra_ref::<RecordCompareData>().unwrap().columns[j].clone().unwrap();
+    fn compare(
+        &mut self,
+        j: usize,
+        collation: Oid,
+        d1: Datum,
+        d2: Datum,
+    ) -> Result<i32, Self::Err> {
+        let e = self
+            .flinfo
+            .fn_extra_ref::<RecordCompareData>()
+            .unwrap()
+            .columns[j]
+            .clone()
+            .unwrap();
         let mut finfo = e.cmp_proc_finfo().clone();
         let d = function_call2_coll_in_nullok(&mut finfo, collation, self.mcx, d1, d2)?;
         Ok(d.as_i32())
@@ -788,14 +808,22 @@ impl RecordColumnEq for FmgrRecordOps<'_, '_> {
             if e.eq_opr_finfo().fn_oid == InvalidOid {
                 return Err(no_support_fn("an equality operator", e.type_id));
             }
-            self.flinfo.fn_extra_mut::<RecordCompareData>().unwrap().columns[j] = Some(e);
+            self.flinfo
+                .fn_extra_mut::<RecordCompareData>()
+                .unwrap()
+                .columns[j] = Some(e);
         }
         Ok(())
     }
 
     fn equal(&mut self, j: usize, collation: Oid, d1: Datum, d2: Datum) -> Result<bool, Self::Err> {
-        let e =
-            self.flinfo.fn_extra_ref::<RecordCompareData>().unwrap().columns[j].clone().unwrap();
+        let e = self
+            .flinfo
+            .fn_extra_ref::<RecordCompareData>()
+            .unwrap()
+            .columns[j]
+            .clone()
+            .unwrap();
         let mut finfo = e.eq_opr_finfo().clone();
         let d = function_call2_coll_in_nullok(&mut finfo, collation, self.mcx, d1, d2)?;
         Ok(d.as_bool())
@@ -824,8 +852,10 @@ fn record_cmp(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<i3
     let meta1 = column_meta(mcx, &r1)?;
     let meta2 = column_meta(mcx, &r2)?;
     let mut ops = FmgrRecordOps { flinfo, mcx };
-    record_cmp_core(&meta1, &r1.values, &r1.nulls, &meta2, &r2.values, &r2.nulls, &mut ops)
-        .map_err(map_core_err)
+    record_cmp_core(
+        &meta1, &r1.values, &r1.nulls, &meta2, &r2.values, &r2.nulls, &mut ops,
+    )
+    .map_err(map_core_err)
 }
 
 pub fn fc_record_eq(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -838,9 +868,10 @@ pub fn fc_record_eq(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     let meta1 = column_meta(mcx, &r1)?;
     let meta2 = column_meta(mcx, &r2)?;
     let mut ops = FmgrRecordOps { flinfo, mcx };
-    let result =
-        record_eq_core(&meta1, &r1.values, &r1.nulls, &meta2, &r2.values, &r2.nulls, &mut ops)
-            .map_err(map_core_err)?;
+    let result = record_eq_core(
+        &meta1, &r1.values, &r1.nulls, &meta2, &r2.values, &r2.nulls, &mut ops,
+    )
+    .map_err(map_core_err)?;
     Ok(Datum::from_bool(result))
 }
 
@@ -883,10 +914,7 @@ pub fn fc_record_smaller(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
 // exact image order. C memoizes RecordCompareData in fn_extra; the image
 // comparison reads only tupdesc attbyval/attlen, so there is nothing to
 // memoize here.
-pub fn fc_btrecordimagecmp(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_btrecordimagecmp(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     ::stack_depth::check_stack_depth()?;
     let mcx = fcinfo.result_mcx();
     let r1 = deform_record(mcx, fcinfo, 0)?;
@@ -921,8 +949,13 @@ pub fn fc_btrecordimagecmp(
                 result = -1;
                 break;
             }
-            let cmp =
-                datum_image_cmp(mcx, r1.values[i1], r2.values[i2], att1.attbyval, att1.attlen)?;
+            let cmp = datum_image_cmp(
+                mcx,
+                r1.values[i1],
+                r2.values[i2],
+                att1.attbyval,
+                att1.attlen,
+            )?;
             if cmp != 0 {
                 result = cmp;
                 break;
@@ -1009,10 +1042,7 @@ fn datum_image_cmp<'mcx>(
 }
 
 // record_image_eq (rowtypes.c:1595) with C's datum_image_eq semantics.
-pub fn fc_record_image_eq(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_record_image_eq(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     ::stack_depth::check_stack_depth()?;
     let mcx = fcinfo.result_mcx();
     let r1 = deform_record(mcx, fcinfo, 0)?;
@@ -1043,8 +1073,13 @@ pub fn fc_record_image_eq(
                 result = false;
                 break;
             }
-            result =
-                datum_image_eq(mcx, r1.values[i1], r2.values[i2], att1.attbyval, att1.attlen)?;
+            result = datum_image_eq(
+                mcx,
+                r1.values[i1],
+                r2.values[i2],
+                att1.attbyval,
+                att1.attlen,
+            )?;
             if !result {
                 break;
             }
@@ -1104,39 +1139,34 @@ fn datum_image_eq<'mcx>(
     Ok(cstring_bytes(a) == cstring_bytes(b))
 }
 
-pub fn fc_record_image_ne(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    Ok(Datum::from_bool(!fc_record_image_eq(flinfo, fcinfo)?.as_bool()))
+pub fn fc_record_image_ne(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    Ok(Datum::from_bool(
+        !fc_record_image_eq(flinfo, fcinfo)?.as_bool(),
+    ))
 }
 
-pub fn fc_record_image_lt(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    Ok(Datum::from_bool(fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() < 0))
+pub fn fc_record_image_lt(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    Ok(Datum::from_bool(
+        fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() < 0,
+    ))
 }
 
-pub fn fc_record_image_gt(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    Ok(Datum::from_bool(fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() > 0))
+pub fn fc_record_image_gt(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    Ok(Datum::from_bool(
+        fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() > 0,
+    ))
 }
 
-pub fn fc_record_image_le(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    Ok(Datum::from_bool(fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() <= 0))
+pub fn fc_record_image_le(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    Ok(Datum::from_bool(
+        fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() <= 0,
+    ))
 }
 
-pub fn fc_record_image_ge(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
-    Ok(Datum::from_bool(fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() >= 0))
+pub fn fc_record_image_ge(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    Ok(Datum::from_bool(
+        fc_btrecordimagecmp(flinfo, fcinfo)?.as_i32() >= 0,
+    ))
 }
 
 fn varlena_payload(rec: &[u8]) -> &[u8] {
@@ -1205,10 +1235,9 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     let mut escontext = unsafe { fcinfo.error_save_node() };
 
     if tup_type == types_core::catalog::RECORDOID && tup_typmod < 0 {
-        let err = ::types_error::PgError::error(
-            "input of anonymous composite types is not implemented",
-        )
-        .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
+        let err =
+            ::types_error::PgError::error("input of anonymous composite types is not implemented")
+                .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
         return match escontext {
             Some(node) => {
                 if node.ctx.details_wanted() {
@@ -1254,8 +1283,10 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
         pos += 1;
     }
     if pos >= bytes.len() || bytes[pos] != b'(' {
-        return Ok(malformed_record(escontext, bytes, "Missing left parenthesis.")?
-            .unwrap_or(Datum::null()));
+        return Ok(
+            malformed_record(escontext, bytes, "Missing left parenthesis.")?
+                .unwrap_or(Datum::null()),
+        );
     }
     pos += 1;
 
@@ -1288,12 +1319,10 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
             buf.clear();
             loop {
                 if pos >= bytes.len() {
-                    return Ok(malformed_record(
-                        escontext,
-                        bytes,
-                        "Unexpected end of input.",
-                    )?
-                    .unwrap_or(Datum::null()));
+                    return Ok(
+                        malformed_record(escontext, bytes, "Unexpected end of input.")?
+                            .unwrap_or(Datum::null()),
+                    );
                 }
                 let ch = bytes[pos];
                 if !inquote && (ch == b',' || ch == b')') {
@@ -1302,12 +1331,10 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
                 pos += 1;
                 if ch == b'\\' {
                     if pos >= bytes.len() {
-                        return Ok(malformed_record(
-                            escontext,
-                            bytes,
-                            "Unexpected end of input.",
-                        )?
-                        .unwrap_or(Datum::null()));
+                        return Ok(
+                            malformed_record(escontext, bytes, "Unexpected end of input.")?
+                                .unwrap_or(Datum::null()),
+                        );
                     }
                     buf.push(bytes[pos]);
                     pos += 1;
@@ -1337,9 +1364,15 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
         if stale {
             let (typiofunc, typioparam) = ::lsyscache::getTypeInputInfo(column_type)?;
             let proc = ::fmgr_seams::fmgr_info::call(typiofunc)?;
-            my.columns[i] = Some(ColumnInData { column_type, typioparam, proc });
+            my.columns[i] = Some(ColumnInData {
+                column_type,
+                typioparam,
+                proc,
+            });
         }
-        let col = flinfo.fn_extra_mut::<RecordInData>().unwrap().columns[i].as_mut().unwrap();
+        let col = flinfo.fn_extra_mut::<RecordInData>().unwrap().columns[i]
+            .as_mut()
+            .unwrap();
         // The de-quoted bytes need a NUL for the cstring-taking in proc.
         let cstr_storage;
         let cstr: Option<&core::ffi::CStr> = match column_data {
@@ -1373,8 +1406,9 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     }
 
     if pos >= bytes.len() || bytes[pos] != b')' {
-        return Ok(malformed_record(escontext, bytes, "Too many columns.")?
-            .unwrap_or(Datum::null()));
+        return Ok(
+            malformed_record(escontext, bytes, "Too many columns.")?.unwrap_or(Datum::null())
+        );
     }
     pos += 1;
     // rowtypes.c:290 "Allow trailing whitespace"
@@ -1382,8 +1416,10 @@ pub fn fc_record_in(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
         pos += 1;
     }
     if pos < bytes.len() {
-        return Ok(malformed_record(escontext, bytes, "Junk after right parenthesis.")?
-            .unwrap_or(Datum::null()));
+        return Ok(
+            malformed_record(escontext, bytes, "Junk after right parenthesis.")?
+                .unwrap_or(Datum::null()),
+        );
     }
 
     let tuple = ::heaptuple::heap_form_tuple(mcx, &tupdesc, &values, &nulls)?;
@@ -1423,10 +1459,8 @@ pub fn fc_record_recv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
 
     if tup_type == types_core::catalog::RECORDOID && tup_typmod < 0 {
         return Err(alloc::boxed::Box::new(
-            ::types_error::PgError::error(
-                "input of anonymous composite types is not implemented",
-            )
-            .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+            ::types_error::PgError::error("input of anonymous composite types is not implemented")
+                .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
         ));
     }
     let tupdesc = ::typcache::lookup_rowtype_tupdesc_copy(mcx, tup_type, tup_typmod)?;
@@ -1458,8 +1492,9 @@ pub fn fc_record_recv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     let mut nulls: PgVec<'_, bool> = vec_from_elem_in(mcx, true, ncolumns);
 
     let usercols = ::pqformat::pq_getmsgint(buf, 4)? as i32;
-    let validcols =
-        (0..ncolumns).filter(|&i| !tupdesc.attrs[i].attisdropped).count() as i32;
+    let validcols = (0..ncolumns)
+        .filter(|&i| !tupdesc.attrs[i].attisdropped)
+        .count() as i32;
     if usercols != validcols {
         return Err(alloc::boxed::Box::new(
             ::types_error::PgError::error(alloc::format!(
@@ -1510,13 +1545,24 @@ pub fn fc_record_recv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
         if stale {
             let (typiofunc, typioparam) = ::lsyscache::getTypeBinaryInputInfo(column_type)?;
             let proc = ::fmgr_seams::fmgr_info::call(typiofunc)?;
-            my.columns[i] = Some(ColumnRecvData { column_type, typioparam, proc });
+            my.columns[i] = Some(ColumnRecvData {
+                column_type,
+                typioparam,
+                proc,
+            });
         }
-        let col = flinfo.fn_extra_mut::<RecordRecvData>().unwrap().columns[i].as_mut().unwrap();
+        let col = flinfo.fn_extra_mut::<RecordRecvData>().unwrap().columns[i]
+            .as_mut()
+            .unwrap();
 
         if itemlen == -1 {
-            values[i] =
-                ::types_fmgr::receive_function_call(&mut col.proc, None, col.typioparam, att.atttypmod, mcx)?;
+            values[i] = ::types_fmgr::receive_function_call(
+                &mut col.proc,
+                None,
+                col.typioparam,
+                att.atttypmod,
+                mcx,
+            )?;
             nulls[i] = true;
             continue;
         }
@@ -1579,8 +1625,9 @@ pub fn fc_record_send(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     }
 
     let mut buf = ::pqformat::pq_begintypsend(mcx)?;
-    let validcols =
-        (0..ncolumns).filter(|&i| !r.tupdesc.attrs[i].attisdropped).count() as u32;
+    let validcols = (0..ncolumns)
+        .filter(|&i| !r.tupdesc.attrs[i].attisdropped)
+        .count() as u32;
     ::pqformat::pq_sendint32(&mut buf, validcols)?;
 
     for i in 0..ncolumns {
@@ -1602,10 +1649,15 @@ pub fn fc_record_send(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
         if stale {
             let (typiofunc, _typisvarlena) = ::lsyscache::getTypeBinaryOutputInfo(column_type)?;
             let proc = ::fmgr_seams::fmgr_info::call(typiofunc)?;
-            my.columns[i] =
-                Some(ColumnRecvData { column_type, typioparam: InvalidOid, proc });
+            my.columns[i] = Some(ColumnRecvData {
+                column_type,
+                typioparam: InvalidOid,
+                proc,
+            });
         }
-        let col = flinfo.fn_extra_mut::<RecordRecvData>().unwrap().columns[i].as_mut().unwrap();
+        let col = flinfo.fn_extra_mut::<RecordRecvData>().unwrap().columns[i]
+            .as_mut()
+            .unwrap();
         let d = ::types_fmgr::send_function_call(&mut col.proc, r.values[i], mcx)?;
         let p = d.as_usize() as *const u8;
         // SAFETY: send returns a live 4B-header bytea.
@@ -1628,9 +1680,15 @@ mod malformed_record_tests {
     #[test]
     fn message_keeps_non_utf8_bytes() {
         let err = malformed_record(None, b"x\xff", "Missing left parenthesis.").unwrap_err();
-        assert_eq!(err.message_raw.as_deref(), Some(&b"malformed record literal: \"x\xff\""[..]));
+        assert_eq!(
+            err.message_raw.as_deref(),
+            Some(&b"malformed record literal: \"x\xff\""[..])
+        );
         assert_eq!(err.detail(), Some("Missing left parenthesis."));
-        assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+        assert_eq!(
+            err.sqlstate(),
+            ::types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+        );
         let err = malformed_record(None, b"x", "Missing left parenthesis.").unwrap_err();
         assert_eq!(err.message(), "malformed record literal: \"x\"");
         assert!(err.message_raw.is_none());
@@ -1706,7 +1764,10 @@ mod compare_core_tests {
     }
     impl I32Ops {
         fn new() -> Self {
-            I32Ops { resolved: StdVec::new(), fail_resolve: false }
+            I32Ops {
+                resolved: StdVec::new(),
+                fail_resolve: false,
+            }
         }
     }
     impl RecordColumnCmp for I32Ops {
@@ -1718,7 +1779,13 @@ mod compare_core_tests {
             self.resolved.push(j);
             Ok(())
         }
-        fn compare(&mut self, _j: usize, _coll: Oid, d1: Datum, d2: Datum) -> Result<i32, Self::Err> {
+        fn compare(
+            &mut self,
+            _j: usize,
+            _coll: Oid,
+            d1: Datum,
+            d2: Datum,
+        ) -> Result<i32, Self::Err> {
             Ok(d1.as_i32().cmp(&d2.as_i32()) as i32)
         }
     }
@@ -1731,7 +1798,13 @@ mod compare_core_tests {
             self.resolved.push(j);
             Ok(())
         }
-        fn equal(&mut self, _j: usize, _coll: Oid, d1: Datum, d2: Datum) -> Result<bool, Self::Err> {
+        fn equal(
+            &mut self,
+            _j: usize,
+            _coll: Oid,
+            d1: Datum,
+            d2: Datum,
+        ) -> Result<bool, Self::Err> {
             Ok(d1.as_i32() == d2.as_i32())
         }
     }
@@ -1755,18 +1828,42 @@ mod compare_core_tests {
         let no_null = [false, false];
         let mut ops = I32Ops::new();
         assert_eq!(
-            record_cmp_core(&m, &vals(&[1, 2]), &no_null, &m, &vals(&[1, 2]), &no_null, &mut ops)
-                .unwrap(),
+            record_cmp_core(
+                &m,
+                &vals(&[1, 2]),
+                &no_null,
+                &m,
+                &vals(&[1, 2]),
+                &no_null,
+                &mut ops
+            )
+            .unwrap(),
             0
         );
         assert_eq!(
-            record_cmp_core(&m, &vals(&[1, 2]), &no_null, &m, &vals(&[1, 3]), &no_null, &mut ops)
-                .unwrap(),
+            record_cmp_core(
+                &m,
+                &vals(&[1, 2]),
+                &no_null,
+                &m,
+                &vals(&[1, 3]),
+                &no_null,
+                &mut ops
+            )
+            .unwrap(),
             -1
         );
         assert_eq!(
-            record_cmp_core(&m, &vals(&[2, 0]), &no_null, &m, &vals(&[1, 9]), &no_null, &mut ops)
-                .unwrap(),
+            record_cmp_core(
+                &m,
+                &vals(&[2, 0]),
+                &no_null,
+                &m,
+                &vals(&[1, 9]),
+                &no_null,
+                &mut ops
+            )
+            .unwrap(),
             1
         );
     }
@@ -1776,11 +1873,20 @@ mod compare_core_tests {
         let m = meta(1);
         let v = vals(&[1]);
         let mut ops = I32Ops::new();
-        assert_eq!(record_cmp_core(&m, &v, &[true], &m, &v, &[false], &mut ops).unwrap(), 1);
-        assert_eq!(record_cmp_core(&m, &v, &[false], &m, &v, &[true], &mut ops).unwrap(), -1);
+        assert_eq!(
+            record_cmp_core(&m, &v, &[true], &m, &v, &[false], &mut ops).unwrap(),
+            1
+        );
+        assert_eq!(
+            record_cmp_core(&m, &v, &[false], &m, &v, &[true], &mut ops).unwrap(),
+            -1
+        );
         // Both null: equal, but the comparator was still resolved (C parity).
         let mut ops2 = I32Ops::new();
-        assert_eq!(record_cmp_core(&m, &v, &[true], &m, &v, &[true], &mut ops2).unwrap(), 0);
+        assert_eq!(
+            record_cmp_core(&m, &v, &[true], &m, &v, &[true], &mut ops2).unwrap(),
+            0
+        );
         assert_eq!(ops2.resolved, [0]);
         // ...and a resolve failure fires even for all-null columns.
         let mut ops3 = I32Ops::new();
@@ -1849,8 +1955,20 @@ mod compare_core_tests {
         m2[0].atttypid = 25; // text
         let mut ops = I32Ops::new();
         assert!(matches!(
-            record_cmp_core(&m1, &vals(&[1]), &[false], &m2, &vals(&[1]), &[false], &mut ops),
-            Err(RecordCoreError::DissimilarColumns { type1: INT4, type2: 25, col: 0 })
+            record_cmp_core(
+                &m1,
+                &vals(&[1]),
+                &[false],
+                &m2,
+                &vals(&[1]),
+                &[false],
+                &mut ops
+            ),
+            Err(RecordCoreError::DissimilarColumns {
+                type1: INT4,
+                type2: 25,
+                col: 0
+            })
         ));
     }
 

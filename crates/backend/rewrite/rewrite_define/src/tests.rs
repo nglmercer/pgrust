@@ -24,7 +24,8 @@ impl DetailOutcome for PgResult<&'static str> {
 #[test]
 fn unrecognized_relkind_is_elog_error_not_panic() {
     let outcome = std::panic::catch_unwind(|| relkind_not_supported_detail(b'x').into_outcome());
-    let outcome = outcome.expect("relkind_not_supported_detail must not panic on an unknown relkind");
+    let outcome =
+        outcome.expect("relkind_not_supported_detail must not panic on an unknown relkind");
     let err = outcome.expect_err("unknown relkind must be an error");
     assert_eq!(err.message(), "unrecognized relkind: 'x'");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);

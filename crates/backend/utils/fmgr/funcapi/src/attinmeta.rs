@@ -6,8 +6,8 @@
 use core::ffi::CStr;
 
 use datum::Datum;
-use mcx::Mcx;
 use fmgr::FmgrInfo;
+use mcx::Mcx;
 use types_error::{PgError, PgResult, ERRCODE_DATATYPE_MISMATCH};
 use types_tuple::TupleDescData;
 
@@ -28,7 +28,11 @@ impl AttInMetadata {
         let mut atts = ::mcx::std_vec_with_capacity("utils", natts)?;
         for att in &tupdesc.attrs[..natts] {
             if att.attisdropped {
-                atts.push(AttIn { in_func: None, typ_ioparam: types_core::InvalidOid, atttypmod: -1 });
+                atts.push(AttIn {
+                    in_func: None,
+                    typ_ioparam: types_core::InvalidOid,
+                    atttypmod: -1,
+                });
                 continue;
             }
             let (typinput, typioparam) = lsyscache::typ::getTypeInputInfo(att.atttypid)?;
@@ -76,13 +80,7 @@ impl AttInMetadata {
                 }
                 None => None,
             };
-            let d = fmgr::input_function_call(
-                in_func,
-                cstr,
-                att.typ_ioparam,
-                att.atttypmod,
-                mcx,
-            )?;
+            let d = fmgr::input_function_call(in_func, cstr, att.typ_ioparam, att.atttypmod, mcx)?;
             out.push(d);
             isnull.push(values[i].is_none());
         }
@@ -96,10 +94,16 @@ impl AttInMetadata {
 #[cold]
 #[inline(never)]
 fn short_row(formed: usize, natts: usize) -> Box<PgError> {
-    let noun = if formed == 1 { "attribute" } else { "attributes" };
+    let noun = if formed == 1 {
+        "attribute"
+    } else {
+        "attributes"
+    };
     Box::new(
         PgError::error("function return row and query-specified return row do not match")
             .with_sqlstate(ERRCODE_DATATYPE_MISMATCH)
-            .with_detail(format!("Returned row contains {formed} {noun}, but query expects {natts}.")),
+            .with_detail(format!(
+                "Returned row contains {formed} {noun}, but query expects {natts}."
+            )),
     )
 }

@@ -14,16 +14,24 @@ fn a_failed_hosted_table_open_raises_host() {
     pgtz::init_seams();
     xact_seams::get_current_sub_transaction_id::set(|| 1);
     pgtz::set_session_timezone(pgtz::pg_tzset_offset(0).expect("UTC offset zone"));
-    let text = std::fs::read_to_string(common::milestone_dir(6).join("m6x-055.plan")).expect("plan fixture m6x-055");
+    let text = std::fs::read_to_string(common::milestone_dir(6).join("m6x-055.plan"))
+        .expect("plan fixture m6x-055");
     let host = format!("Raised({})", raise::bit(raise::HOST));
     for mode in common::MODES {
         let got = common::run_fixture(&text, mode).expect("decompose takes m6x-055");
         match got {
             Ok(common::multiset::Outcome::Error { message, .. }) => {
-                assert!(!message.contains("without a message"), "{}: a message-less error: {message}", common::mode_name(mode));
+                assert!(
+                    !message.contains("without a message"),
+                    "{}: a message-less error: {message}",
+                    common::mode_name(mode)
+                );
                 assert_eq!(message, host, "{}: the HOST raise", common::mode_name(mode));
             }
-            other => panic!("{}: {other:?} (the rig has no aggregate arena: the table's open must raise HOST)", common::mode_name(mode)),
+            other => panic!(
+                "{}: {other:?} (the rig has no aggregate arena: the table's open must raise HOST)",
+                common::mode_name(mode)
+            ),
         }
     }
 }

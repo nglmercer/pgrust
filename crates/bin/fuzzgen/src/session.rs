@@ -8,33 +8,33 @@
 
 use crate::catalog::Catalog;
 use crate::coll::CollState;
-use crate::seqident::SeqState;
-use crate::inherit::InheritState;
+use crate::cursor::CursorState;
 use crate::ddl::{DdlEventKind, DdlState};
 use crate::dml::DmlState;
-use crate::objddl::ObjState;
+use crate::exr::ExrState;
+use crate::exr2::Exr2State;
 use crate::geo::GeoState;
 use crate::heap::HeapState;
 use crate::idx::IdxState;
+use crate::inherit::InheritState;
+use crate::matview::MatviewState;
+use crate::objddl::ObjState;
 use crate::par::ParState;
+use crate::part::PartState;
 use crate::plancache::PlanCacheState;
 use crate::plansel::PlanState;
-use crate::exr::ExrState;
-use crate::exr2::Exr2State;
-use crate::spill::SpillState;
-use crate::cursor::CursorState;
-use crate::part::PartState;
 use crate::plpg::PlpgState;
-use crate::ritrig::RiState;
 use crate::rangeops::RangeopsState;
-use crate::tsdl::TsState;
-use crate::udt::UdtState;
 use crate::render::soft_float_cols;
+use crate::ritrig::RiState;
 use crate::rng::Rng;
+use crate::seqident::SeqState;
+use crate::spill::SpillState;
 use crate::stmt::{gen_statements, Gen};
 use crate::tablesample::TablesampleState;
 use crate::toggles::ToggleVector;
-use crate::matview::MatviewState;
+use crate::tsdl::TsState;
+use crate::udt::UdtState;
 use crate::views::ViewsState;
 use crate::weights::WeightTable;
 
@@ -252,7 +252,10 @@ pub fn run_session_probed(cfg: &SessionConfig, catalog: &Catalog) -> SessionOutp
             dml_state.sync(&eff_catalog);
         }
     }
-    SessionOutput { stmts: out, ddl_windows: windows }
+    SessionOutput {
+        stmts: out,
+        ddl_windows: windows,
+    }
 }
 
 /// Minimal JSON string escaping for JSONL output.
@@ -439,8 +442,15 @@ mod tests {
                     ));
                     continue;
                 }
-                let head = body.split_whitespace().next().unwrap_or("").to_ascii_uppercase();
-                if matches!(head.as_str(), "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "COPY") {
+                let head = body
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_ascii_uppercase();
+                if matches!(
+                    head.as_str(),
+                    "INSERT" | "UPDATE" | "DELETE" | "MERGE" | "COPY"
+                ) {
                     for (name, _) in &created {
                         if refs_word(body, name) {
                             mutated.push(name.clone());
@@ -502,7 +512,11 @@ mod tests {
         // the largest groups in the registry at up to ~131 statements; the
         // W4-wave registry growth shifted this seed's module stream onto
         // one of them).
-        assert!(stmts.len() >= 240 && stmts.len() < 240 + 140, "len {}", stmts.len());
+        assert!(
+            stmts.len() >= 240 && stmts.len() < 240 + 140,
+            "len {}",
+            stmts.len()
+        );
         for (i, s) in stmts.iter().enumerate() {
             assert_eq!(s.stmt_index as usize, i);
             assert!(s.productions.iter().any(|p| p.starts_with("module:")));
@@ -551,7 +565,13 @@ mod tests {
         // Consolidated coverage-union (waves 1-4, 95-module registry):
         // the ~2x larger registry dilutes per-module draws, so the sparse
         // `types` module needs budget ~3600 to fire at this seed; 4400 for margin.
-        let long = run_session(&SessionConfig { budget: 4400, ..cfg(12) }, &cat);
+        let long = run_session(
+            &SessionConfig {
+                budget: 4400,
+                ..cfg(12)
+            },
+            &cat,
+        );
         let all: Vec<String> = long.iter().flat_map(|s| s.productions.clone()).collect();
         for prefix in [
             "colref",
@@ -620,11 +640,15 @@ mod tests {
         let mut pks_by_table: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for s in &stmts {
-            let Some(rest) = s.sql.strip_prefix("INSERT INTO ") else { continue };
+            let Some(rest) = s.sql.strip_prefix("INSERT INTO ") else {
+                continue;
+            };
             // Only single-row VALUES inserts carry a directly-parseable pk;
             // bulk INSERT ... SELECT into other modules' disjoint fixtures
             // is noise for this dml-allocator check, so skip it.
-            let Some((_, vals)) = s.sql.split_once(" VALUES (") else { continue };
+            let Some((_, vals)) = s.sql.split_once(" VALUES (") else {
+                continue;
+            };
             let table = rest.split(' ').next().unwrap().to_string();
             let pk = vals.split(',').next().unwrap().to_string();
             pks_by_table.entry(table).or_default().push(pk);
@@ -634,7 +658,11 @@ mod tests {
             let mut sorted = pks.clone();
             sorted.sort();
             sorted.dedup();
-            assert_eq!(sorted.len(), pks.len(), "{table}: repeated fresh pk {pks:?}");
+            assert_eq!(
+                sorted.len(),
+                pks.len(),
+                "{table}: repeated fresh pk {pks:?}"
+            );
         }
     }
 
@@ -657,7 +685,10 @@ mod tests {
         // registry to 50 modules); the cross-module-reuse property needs the
         // longer window under the new module mix.
         let outp = run_session_probed(&c, &cat);
-        assert!(!outp.ddl_windows.is_empty(), "no ddl table created in 600 stmts");
+        assert!(
+            !outp.ddl_windows.is_empty(),
+            "no ddl table created in 600 stmts"
+        );
         for w in &outp.ddl_windows {
             assert_eq!(w.pk, "pk");
             let create = &outp.stmts[w.from as usize].sql;
@@ -696,14 +727,19 @@ mod tests {
         dedup.dedup();
         assert_eq!(dedup.len(), names.len(), "table name reused across windows");
         // Cross-module reuse: a non-ddl group references a ddl table.
-        let reused = outp.stmts.iter().any(|s| {
-            !s.productions.iter().any(|p| p == "module:ddl")
-                && s.sql.contains("fz_ddl_")
-        });
-        assert!(reused, "no non-ddl statement ever targeted a ddl-created table");
+        let reused = outp
+            .stmts
+            .iter()
+            .any(|s| !s.productions.iter().any(|p| p == "module:ddl") && s.sql.contains("fz_ddl_"));
+        assert!(
+            reused,
+            "no non-ddl statement ever targeted a ddl-created table"
+        );
         // Specifically DML: fresh-pk discipline must extend to ddl tables.
         let dml_on_ddl = outp.stmts.iter().any(|s| {
-            s.productions.iter().any(|p| p == "module:dml" || p == "module:txn")
+            s.productions
+                .iter()
+                .any(|p| p == "module:dml" || p == "module:txn")
                 && (s.sql.starts_with("INSERT INTO fz_ddl_")
                     || s.sql.starts_with("UPDATE fz_ddl_")
                     || s.sql.starts_with("DELETE FROM fz_ddl_"))
@@ -777,7 +813,9 @@ mod tests {
             .ddl_windows
             .iter()
             .filter(|w| {
-                ["fz_iam_", "fz_btd_", "fz_adv_"].iter().any(|p| w.table.starts_with(p))
+                ["fz_iam_", "fz_btd_", "fz_adv_"]
+                    .iter()
+                    .any(|p| w.table.starts_with(p))
             })
             .collect();
         assert!(!idx_windows.is_empty(), "no index-AM table in the leg");
@@ -835,9 +873,11 @@ mod tests {
             .stmts
             .iter()
             .filter(|s| {
-                ["fz_iam_", "fz_btd_", "fz_adv_", "fz_gst_", "fz_gbuf_", "fz_gex_"]
-                    .iter()
-                    .any(|p| s.sql.contains(p))
+                [
+                    "fz_iam_", "fz_btd_", "fz_adv_", "fz_gst_", "fz_gbuf_", "fz_gex_",
+                ]
+                .iter()
+                .any(|p| s.sql.contains(p))
             })
             .count();
         assert!(n_idx >= 50, "only {n_idx} index-AM statements in the leg");
@@ -863,7 +903,10 @@ mod tests {
             .iter()
             .filter(|w| w.table.starts_with("fz_part_"))
             .collect();
-        assert!(!part_windows.is_empty(), "no partitioned parent in 2200 stmts");
+        assert!(
+            !part_windows.is_empty(),
+            "no partitioned parent in 2200 stmts"
+        );
         for w in &part_windows {
             assert_eq!(w.pk, "pk");
             let create = &outp.stmts[w.from as usize].sql;
@@ -882,13 +925,15 @@ mod tests {
         }
         // Cross-module reuse: non-part groups read from and write to
         // partitioned parents.
-        let is_part_group =
-            |s: &Statement| s.productions.iter().any(|p| p == "module:part");
+        let is_part_group = |s: &Statement| s.productions.iter().any(|p| p == "module:part");
         let read = outp
             .stmts
             .iter()
             .any(|s| !is_part_group(s) && s.sql.contains("fz_part_"));
-        assert!(read, "no non-part statement ever targeted a partitioned parent");
+        assert!(
+            read,
+            "no non-part statement ever targeted a partitioned parent"
+        );
         let routed = outp.stmts.iter().any(|s| {
             !is_part_group(s)
                 && (s.sql.starts_with("INSERT INTO fz_part_")
@@ -938,5 +983,3 @@ mod tests {
         assert!(rec.starts_with("{\"seed\":9,"));
     }
 }
-
-

@@ -45,7 +45,10 @@ fn a_parked_slot_lets_another_session_in_and_comes_back_forced() {
         drop(b);
     });
     let (slot, waited) = took.1.recv().unwrap();
-    assert!(slot && waited < Duration::from_millis(500), "slot {slot}, waited {waited:?}");
+    assert!(
+        slot && waited < Duration::from_millis(500),
+        "slot {slot}, waited {waited:?}"
+    );
     assert_eq!(POOL.inflight(), 1);
     // the next fetch re-takes the slot past the full gate, without waiting
     a.unpark_slot();

@@ -39,9 +39,25 @@ fn a_dead_predecessor_does_not_hide_the_loop() {
     let f = &p.funcs[0];
     let ctx = mcx::MemoryContext::new("d414-view");
     let view = FnView::build(ctx.mcx(), f, &gravity_tpde::frontend::A64_IMM);
-    let body = view.loops.iter().find(|(h, _)| *h == 1).map(|(_, b)| b).expect("header b1 has a loop entry");
-    assert!(body[2] && body[3], "b2 and the latch b3 are in b1's loop: {body:?}");
+    let body = view
+        .loops
+        .iter()
+        .find(|(h, _)| *h == 1)
+        .map(|(_, b)| b)
+        .expect("header b1 has a loop entry");
+    assert!(
+        body[2] && body[3],
+        "b2 and the latch b3 are in b1's loop: {body:?}"
+    );
     assert!(!body[4], "the dead block is not part of the loop");
-    assert!(view.block_freq[3] > 1.0, "the latch runs per iteration, not once: {}", view.block_freq[3]);
-    assert!(view.block_freq[2] > 1.0, "the body runs per iteration, not once: {}", view.block_freq[2]);
+    assert!(
+        view.block_freq[3] > 1.0,
+        "the latch runs per iteration, not once: {}",
+        view.block_freq[3]
+    );
+    assert!(
+        view.block_freq[2] > 1.0,
+        "the body runs per iteration, not once: {}",
+        view.block_freq[2]
+    );
 }

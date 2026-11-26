@@ -13,10 +13,10 @@ use crate::frame::env::Env;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey};
 
-use crate::ops::hashjoin::spill::build::raise_neg;
-use crate::ops::hashjoin::drain::source::{min, span};
 use crate::ops::hashjoin::drain::raw::drain_part;
+use crate::ops::hashjoin::drain::source::{min, span};
 use crate::ops::hashjoin::drain::spill::stream_of;
+use crate::ops::hashjoin::spill::build::raise_neg;
 
 /// The drain's phases (its first frame word): the resident records, then spilled partition `p` as `p + 1`, then none.
 pub(crate) const PH_RES: i64 = 0;
@@ -57,13 +57,24 @@ pub(crate) fn resume(ph: u64) -> (u32, usize) {
 pub(crate) type Spill = ([i32; 3], u64);
 
 pub(crate) fn words(px: &mut Px<'_, '_>, k: usize, consumed: usize) -> Spill {
-    let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Join, k, j: u64::MAX, i }) as i32 * 8;
+    let mut w = |i: u8| {
+        px.frame_word(WordKey::Open {
+            face: Face::Join,
+            k,
+            j: u64::MAX,
+            i,
+        }) as i32
+            * 8
+    };
     ([w(0), w(1), w(2)], stream_of(consumed))
 }
 
 /// The words, zero (the resident phase, no region) at a fresh open.
 pub(crate) fn open_words((ws, _): Spill, w: &mut OpenWords) {
-    for (i, what) in ["drain phase", "drain region", "drain records"].into_iter().enumerate() {
+    for (i, what) in ["drain phase", "drain region", "drain records"]
+        .into_iter()
+        .enumerate()
+    {
         w.declare(OpenWord::open(what, Base::Words, ws[i], Type::I64, 0));
     }
 }
@@ -71,7 +82,16 @@ pub(crate) fn open_words((ws, _): Spill, w: &mut OpenWords) {
 /// The window's entry: the resident phase goes on to `l_res`; past the end, `l_eof`; in partition `p`, its window
 /// `[pos, min(pos + span(), n))` over the partition's region to `l_win` (cursor, end, region, records, marks: none, every
 /// record wanted), or `l_next` past its last record.
-pub(crate) fn entry(b: &mut FunctionBuilder<'_>, env: &mut Env, (w, _): Spill, base: usize, l_res: Block, l_eof: Block, l_next: Block, l_win: Block) {
+pub(crate) fn entry(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (w, _): Spill,
+    base: usize,
+    l_res: Block,
+    l_eof: Block,
+    l_next: Block,
+    l_win: Block,
+) {
     let ph = env.load_word(b, w[0]);
     let res = b.iconst(Type::I64, PH_RES);
     let at_res = b.icmp(IntCond::Eq, ph, res);
@@ -102,21 +122,58 @@ pub(crate) fn entry(b: &mut FunctionBuilder<'_>, env: &mut Env, (w, _): Spill, b
 /// `l_win`: the frame's window loop comes back to `entry` at its first record, join/spill_pair.rs's pattern), or `l_eof`.
 /// `r` is the resident region, `marked` RIGHT SEMI's, `claim` a wide drain's slices (clamped to S: `claim_parts`).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn next(b: &mut FunctionBuilder<'_>, env: &mut Env, (w, stream): Spill, base: usize, r: Value, marked: bool, claim: Option<(Value, Value)>, l_next: Block, l_eof: Block, l_win: Block) {
+pub(crate) fn next(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (w, stream): Spill,
+    base: usize,
+    r: Value,
+    marked: bool,
+    claim: Option<(Value, Value)>,
+    l_next: Block,
+    l_eof: Block,
+    l_win: Block,
+) {
     b.switch_to(l_next);
-    let f = b.declare_host_once("m7_drain_part", &[Type::Ptr, Type::I64, Type::Ptr, Type::I64, Type::I64, Type::I64, Type::Ptr], Some(Type::I64), drain_part as *const () as usize, HostFlags { may_error: true, touches_memory: true, ..HostFlags::default() });
+    let f = b.declare_host_once(
+        "m7_drain_part",
+        &[
+            Type::Ptr,
+            Type::I64,
+            Type::Ptr,
+            Type::I64,
+            Type::I64,
+            Type::I64,
+            Type::Ptr,
+        ],
+        Some(Type::I64),
+        drain_part as *const () as usize,
+        HostFlags {
+            may_error: true,
+            touches_memory: true,
+            ..HostFlags::default()
+        },
+    );
     let out = b.declare_stack_slot(16, 8);
     let out = b.stack_addr(out);
     let (ph, reg) = (env.load_word(b, w[0]), env.load_word(b, w[1]));
     let st = b.iconst(Type::I64, stream as i64);
-    let mut how = b.iconst(Type::I64, marked as i64 | if claim.is_some() { CLAIMED as i64 } else { 0 });
+    let mut how = b.iconst(
+        Type::I64,
+        marked as i64 | if claim.is_some() { CLAIMED as i64 } else { 0 },
+    );
     if let Some((lo, hi)) = claim {
         let (s16, s32) = (b.iconst(Type::I64, 16), b.iconst(Type::I64, 32));
-        let (lo, hi) = (b.int_bin(IntBinOp::Shl, lo, s16), b.int_bin(IntBinOp::Shl, hi, s32));
+        let (lo, hi) = (
+            b.int_bin(IntBinOp::Shl, lo, s16),
+            b.int_bin(IntBinOp::Shl, hi, s32),
+        );
         let both = b.int_bin(IntBinOp::Or, lo, hi);
         how = b.int_bin(IntBinOp::Or, how, both);
     }
-    let got = b.call_host(f, &[env.ctx, st, r, ph, reg, how, out], Some(Type::I64)).expect("m7_drain_part returns its phase");
+    let got = b
+        .call_host(f, &[env.ctx, st, r, ph, reg, how, out], Some(Type::I64))
+        .expect("m7_drain_part returns its phase");
     raise_neg(b, env, got);
     env.store_word(b, w[0], got);
     let (nr, nn) = (b.load(Type::I64, out, 0), b.load(Type::I64, out, 8));
@@ -147,10 +204,16 @@ mod tests {
         for p in [0u32, 1, 31, 63] {
             for next in [0usize, 8, 4096, 1 << 32, far] {
                 let ph = phase(p, next);
-                assert!(ph != PH_RES && ph != PH_END && ph > 0 && ph < PH_END, "p {p} next {next}");
+                assert!(
+                    ph != PH_RES && ph != PH_END && ph > 0 && ph < PH_END,
+                    "p {p} next {next}"
+                );
                 assert_eq!(ph & ((1 << PH_PART) - 1), p as i64 + 1);
                 // a later chunk resumes the same partition at its byte; the last chunk (0) goes on to the next partition
-                assert_eq!(resume(ph as u64), if next == 0 { (p + 1, 0) } else { (p, next) });
+                assert_eq!(
+                    resume(ph as u64),
+                    if next == 0 { (p + 1, 0) } else { (p, next) }
+                );
             }
         }
         // the last partition's last chunk resumes past every partition (the drain then ends)
@@ -165,7 +228,11 @@ mod tests {
         use gravity_abi::breaker::{Owned, OWNER_RUN_SLICES as S};
         let sets: Vec<Vec<(u64, u64)>> = [1u64, 2, 3, 5, 8, 11, 32, S]
             .iter()
-            .map(|&per| (0..S.div_ceil(per)).map(|i| (i * per, ((i + 1) * per).min(S))).collect())
+            .map(|&per| {
+                (0..S.div_ceil(per))
+                    .map(|i| (i * per, ((i + 1) * per).min(S)))
+                    .collect()
+            })
             .chain([vec![(0, u64::MAX)]])
             .collect();
         for set in &sets {
@@ -173,7 +240,10 @@ mod tests {
                 let mut at = 0;
                 for &(lo, hi) in set {
                     let (a, z) = Owned::slice_runs(lo, hi, t);
-                    assert_eq!(a, at, "set {set:?} T {t}: claim [{lo}, {hi}) starts where the last ended");
+                    assert_eq!(
+                        a, at,
+                        "set {set:?} T {t}: claim [{lo}, {hi}) starts where the last ended"
+                    );
                     at = z;
                 }
                 assert_eq!(at, t, "set {set:?} T {t}: the claims end at T");
@@ -184,10 +254,16 @@ mod tests {
                     let (a, z) = claim_parts(lo, hi, bits);
                     for p in a..z {
                         seen[p as usize] += 1;
-                        assert!((lo..hi.min(S)).contains(&((p as u64 * S) >> bits)), "set {set:?} bits {bits}: partition {p} outside its slice");
+                        assert!(
+                            (lo..hi.min(S)).contains(&((p as u64 * S) >> bits)),
+                            "set {set:?} bits {bits}: partition {p} outside its slice"
+                        );
                     }
                 }
-                assert!(seen.iter().all(|&n| n == 1), "set {set:?} bits {bits}: {seen:?}");
+                assert!(
+                    seen.iter().all(|&n| n == 1),
+                    "set {set:?} bits {bits}: {seen:?}"
+                );
             }
         }
         for bits in 0..=6u32 {

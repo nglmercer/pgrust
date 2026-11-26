@@ -27,9 +27,12 @@ pub fn no_rows(n: Node<'_>) -> bool {
         return r.resconstantqual.is_some_and(never) || r.plan.lefttree.is_some_and(no_rows);
     }
     match n.node_tag() {
-        NodeTag::T_Sort | NodeTag::T_IncrementalSort | NodeTag::T_Material | NodeTag::T_Unique | NodeTag::T_Limit | NodeTag::T_WindowAgg => {
-            n.as_plan().and_then(|p| p.lefttree).is_some_and(no_rows)
-        }
+        NodeTag::T_Sort
+        | NodeTag::T_IncrementalSort
+        | NodeTag::T_Material
+        | NodeTag::T_Unique
+        | NodeTag::T_Limit
+        | NodeTag::T_WindowAgg => n.as_plan().and_then(|p| p.lefttree).is_some_and(no_rows),
         _ => false,
     }
 }

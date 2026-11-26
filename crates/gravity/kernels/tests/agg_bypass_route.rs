@@ -1,12 +1,14 @@
 //! D154: T1's bypass routes a pair-collapse record by its group words — no `hand-kernels` feature, so the gate's crate tests run it.
 
-use gravity_abi::breaker::{Candidates, HashAgg, KeyKind, Rec, RecordLayout, SlotKind, SubSplit, HASHAGG_HDR, T1, T1_BYPASS};
-use gravity_abi::hash::{Depth, KeyHash};
+use gravity_abi::breaker::{
+    Candidates, HashAgg, KeyKind, Rec, RecordLayout, SlotKind, SubSplit, HASHAGG_HDR, T1, T1_BYPASS,
+};
 use gravity_abi::ctx::ctx_size;
+use gravity_abi::hash::{Depth, KeyHash};
 use gravity_abi::program::partial;
 use gravity_abi::{Ctx, Partials, ProgramBlock};
-use gravity_kernels::table::owner_fold::owner_fold;
 use gravity_kernels::host_abi::{agg_finish, agg_miss, agg_open, AGG_STATE_BYTES};
+use gravity_kernels::table::owner_fold::owner_fold;
 
 const SHARE: u32 = 1 << 20;
 
@@ -22,12 +24,20 @@ impl Bound {
     fn new() -> Bound {
         let mut own = vec![0u64; SHARE as usize / 8];
         unsafe { HashAgg::arm(own.as_mut_ptr() as *mut u8, SHARE) };
-        let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2]));
+        let mut partials = Box::new(Partials::two(
+            own.as_mut_ptr() as *mut u8,
+            [core::ptr::null_mut(); 2],
+        ));
         let mut program = Box::new(ProgramBlock::NONE);
         program.partial = &mut *partials;
         let mut ctx = vec![0u64; ctx_size(0) / 8];
         unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
-        Bound { ctx, _program: program, _partials: partials, _own: own }
+        Bound {
+            ctx,
+            _program: program,
+            _partials: partials,
+            _own: own,
+        }
     }
 
     fn ctx(&mut self) -> *mut Ctx {
@@ -42,16 +52,28 @@ impl Bound {
 /// switch needs 64 Ki inserts past this pool and shares the fix in `locate`.
 #[test]
 fn the_bypass_routes_a_pair_collapse_record_by_its_group_words() {
-    const PAIR: RecordLayout = RecordLayout::new_nn(&[KeyKind::Fp128, KeyKind::Fp128, KeyKind::I64, KeyKind::I64], &[SlotKind::Count, SlotKind::Count]).partitioned_by(2);
+    const PAIR: RecordLayout = RecordLayout::new_nn(
+        &[KeyKind::Fp128, KeyKind::Fp128, KeyKind::I64, KeyKind::I64],
+        &[SlotKind::Count, SlotKind::Count],
+    )
+    .partitioned_by(2);
     const ROWS: u64 = 6_000;
-    let group = |g: u64| [g.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x8c50_ecfa_aaf9_41a5, g.rotate_left(17) ^ 0xdb23_4c44_ac7e_c41f];
+    let group = |g: u64| {
+        [
+            g.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x8c50_ecfa_aaf9_41a5,
+            g.rotate_left(17) ^ 0xdb23_4c44_ac7e_c41f,
+        ]
+    };
     for groups in [5_998_605, 0] {
         let mut b = Bound::new();
         let ctx = b.ctx();
         let mut st = [0u64; AGG_STATE_BYTES as usize / 8];
         let mut img = [0u8; 256];
         unsafe {
-            assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, &PAIR, 0, groups), 0);
+            assert_eq!(
+                agg_open(ctx, st.as_mut_ptr() as *mut u8, &PAIR, 0, groups),
+                0
+            );
             let t = T1::view(partial(ctx));
             for x in 0..ROWS {
                 img.fill(0);
@@ -59,9 +81,17 @@ fn the_bypass_routes_a_pair_collapse_record_by_its_group_words() {
                 let [lo, hi] = group(x % 97);
                 src.open(&[lo, hi, x, 0]);
                 src.add_count(0, 1);
-                assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0, "groups {groups}: row {x}");
+                assert_eq!(
+                    agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()),
+                    0,
+                    "groups {groups}: row {x}"
+                );
             }
-            assert_ne!(t.flags & T1_BYPASS, 0, "groups {groups}: the table reached the bypass");
+            assert_ne!(
+                t.flags & T1_BYPASS,
+                0,
+                "groups {groups}: the table reached the bypass"
+            );
             assert_eq!(agg_finish(ctx, st.as_mut_ptr() as *mut u8), 0);
             let mut seen = 0u64;
             for p in 0..t.parts() as u32 {
@@ -69,12 +99,20 @@ fn the_bypass_routes_a_pair_collapse_record_by_its_group_words() {
                     for i in 0..c.recs {
                         let r = Rec::at((c.ptr as *mut u8).add(i * PAIR.size() as usize), &PAIR);
                         let k = r.keys();
-                        assert_eq!(KeyHash::of(&k[..2]).part(t.pbits as u32), p, "groups {groups}: pair x={} in its group's partition", k[2]);
+                        assert_eq!(
+                            KeyHash::of(&k[..2]).part(t.pbits as u32),
+                            p,
+                            "groups {groups}: pair x={} in its group's partition",
+                            k[2]
+                        );
                         seen += r.count(0) as u64;
                     }
                 }
             }
-            assert_eq!(seen, ROWS, "groups {groups}: every row's pair reached a partition");
+            assert_eq!(
+                seen, ROWS,
+                "groups {groups}: every row's pair reached a partition"
+            );
         }
     }
 }
@@ -99,7 +137,11 @@ fn the_phase1_and_owner_tables_home_a_key_where_keyhash_does() {
             let src = Rec::at(img.as_mut_ptr(), &layout);
             src.open(&key(x));
             src.add_count(0, 1);
-            assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0, "row {x}");
+            assert_eq!(
+                agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()),
+                0,
+                "row {x}"
+            );
         }
         assert_eq!(t.flags & T1_BYPASS, 0, "200 keys stay in the table");
         let mut held = 0;
@@ -107,7 +149,11 @@ fn the_phase1_and_owner_tables_home_a_key_where_keyhash_does() {
             let r = t.record(i);
             if r.used() {
                 let home = KeyHash::of(r.keys()).home(bits, Depth::TOP);
-                assert!(i == home || i == (home + 1) & mask, "T1 slot {i}: keys {:?} home at {home}", r.keys());
+                assert!(
+                    i == home || i == (home + 1) & mask,
+                    "T1 slot {i}: keys {:?} home at {home}",
+                    r.keys()
+                );
                 held += 1;
             }
         }
@@ -124,9 +170,22 @@ fn the_phase1_and_owner_tables_home_a_key_where_keyhash_does() {
     }
     let mut region = vec![0u64; (HASHAGG_HDR + cap as usize * rec) / 8 + 1];
     let bytes = (region.len() * 8) as u32;
-    let t = unsafe { HashAgg::at(region.as_mut_ptr() as *mut u8, &layout, cap, bytes) as *mut HashAgg };
+    let t =
+        unsafe { HashAgg::at(region.as_mut_ptr() as *mut u8, &layout, cap, bytes) as *mut HashAgg };
     let mut cand = Candidates::none();
-    assert_eq!(unsafe { owner_fold(core::ptr::null(), t, recs.as_ptr(), n, SubSplit::NONE, &mut cand) }, n as i64);
+    assert_eq!(
+        unsafe {
+            owner_fold(
+                core::ptr::null(),
+                t,
+                recs.as_ptr(),
+                n,
+                SubSplit::NONE,
+                &mut cand,
+            )
+        },
+        n as i64
+    );
     let t = unsafe { &*t };
     let bits = t.cap.trailing_zeros();
     for j in 0..t.cap as usize {
@@ -136,7 +195,10 @@ fn the_phase1_and_owner_tables_home_a_key_where_keyhash_does() {
         let home = KeyHash::of(t.record(j).keys()).home(bits, Depth::TOP);
         let mut i = home;
         while i != j {
-            assert!(t.record(i).used(), "owner slot {j}: a hole at {i} after its KeyHash home {home}");
+            assert!(
+                t.record(i).used(),
+                "owner slot {j}: a hole at {i} after its KeyHash home {home}"
+            );
             i = (i + 1) & (t.cap as usize - 1);
         }
     }
@@ -150,22 +212,47 @@ fn the_phase1_and_owner_tables_home_a_key_where_keyhash_does() {
 fn a_hosted_table_stays_keyed_where_a_plain_one_takes_the_bypass() {
     use gravity_abi::breaker::{adapt_win, T1_EST};
     // the implicit count as the sentinel, as a keyed record's (an opened record reads as used before its first fold)
-    const HOSTED: RecordLayout = RecordLayout::with_sentinel(&[KeyKind::I64], &[SlotKind::AggState, SlotKind::MaxI64], true, None);
-    const PLAIN: RecordLayout = RecordLayout::with_sentinel(&[KeyKind::I64], &[SlotKind::MaxI64], true, None);
+    const HOSTED: RecordLayout = RecordLayout::with_sentinel(
+        &[KeyKind::I64],
+        &[SlotKind::AggState, SlotKind::MaxI64],
+        true,
+        None,
+    );
+    const PLAIN: RecordLayout =
+        RecordLayout::with_sentinel(&[KeyKind::I64], &[SlotKind::MaxI64], true, None);
     for (layout, hosted) in [(&HOSTED, true), (&PLAIN, false)] {
-        for (groups, what) in [(0u64, "the open's rule"), (5_000_000, "the estimate"), (64, "the observation")] {
+        for (groups, what) in [
+            (0u64, "the open's rule"),
+            (5_000_000, "the estimate"),
+            (64, "the observation"),
+        ] {
             let mut b = Bound::new();
             let ctx = b.ctx();
             let mut st = [0u64; AGG_STATE_BYTES as usize / 8];
             let mut img = [0u8; 256];
             unsafe {
-                assert_eq!(agg_open(ctx, st.as_mut_ptr() as *mut u8, layout, 0, groups), 0);
+                assert_eq!(
+                    agg_open(ctx, st.as_mut_ptr() as *mut u8, layout, 0, groups),
+                    0
+                );
                 let t = partial(ctx) as *mut T1;
                 match what {
-                    "the open's rule" => assert_eq!((*t).flags & T1_BYPASS != 0, !hosted, "hosted {hosted}: {what}"),
-                    "the estimate" => assert_eq!((*t).flags & (T1_BYPASS | T1_EST) != 0, !hosted, "hosted {hosted}: {what}"),
+                    "the open's rule" => assert_eq!(
+                        (*t).flags & T1_BYPASS != 0,
+                        !hosted,
+                        "hosted {hosted}: {what}"
+                    ),
+                    "the estimate" => assert_eq!(
+                        (*t).flags & (T1_BYPASS | T1_EST) != 0,
+                        !hosted,
+                        "hosted {hosted}: {what}"
+                    ),
                     _ => {
-                        assert_eq!((*t).flags & (T1_BYPASS | T1_EST), 0, "hosted {hosted}: keyed at the open");
+                        assert_eq!(
+                            (*t).flags & (T1_BYPASS | T1_EST),
+                            0,
+                            "hosted {hosted}: keyed at the open"
+                        );
                         (*t).inserts = (*t).win_at + adapt_win((*t).cap as u64);
                         (*t).evictions = (*t).win_ev + adapt_win((*t).cap as u64);
                         let before = (*t).evictions;
@@ -173,13 +260,24 @@ fn a_hosted_table_stays_keyed_where_a_plain_one_takes_the_bypass() {
                             img.fill(0);
                             let src = Rec::at(img.as_mut_ptr(), layout);
                             src.open(&[(x + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1]); // never 0 (a zero word reads as an empty slot)
-                            assert_eq!(agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()), 0, "hosted {hosted}: row {x}");
+                            assert_eq!(
+                                agg_miss(ctx, st.as_mut_ptr() as *mut u8, img.as_ptr()),
+                                0,
+                                "hosted {hosted}: row {x}"
+                            );
                             if (*t).flags & T1_BYPASS != 0 {
                                 break;
                             }
                         }
-                        assert!((*t).evictions > before || !hosted, "hosted {hosted}: the rows forced evictions");
-                        assert_eq!((*t).flags & T1_BYPASS != 0, !hosted, "hosted {hosted}: {what}");
+                        assert!(
+                            (*t).evictions > before || !hosted,
+                            "hosted {hosted}: the rows forced evictions"
+                        );
+                        assert_eq!(
+                            (*t).flags & T1_BYPASS != 0,
+                            !hosted,
+                            "hosted {hosted}: {what}"
+                        );
                     }
                 }
             }

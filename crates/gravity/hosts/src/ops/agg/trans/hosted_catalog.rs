@@ -27,12 +27,13 @@ pub(crate) struct CatalogArm {
 /// extremes (the input collation, V4R-452). record_larger / smaller are listed but a record or row type runs serial.
 /// Any other function (a user aggregate over another builtin, a PL or C function) runs its arena serial.
 pub(crate) const AUDITED: &[Oid] = &[
-    6292, 6296, 4051, 6293, 2333, 515, 516, 1673, 1674, 1675, 2515, 2516, 1063, 1064, 6393, 6394, 3543, 894, 898,
-    899, 1138, 1139, 3525, 3524, 208, 209, 204, 211, 222, 276, 2806, 3342, 223, 218, 224, 1834, 1962, 1840, 1892,
-    770, 1893, 771, 1894, 1835, 1963, 3324, 1841, 1898, 768, 1899, 769, 1900, 1836, 2746, 2785, 1904, 1219, 2804,
-    2805, 1236, 1905, 463, 1237, 1906, 1843, 3325, 1198, 1197, 4388, 3562, 3563, 1833, 2858, 3337, 3341, 1767,
-    3338, 1766, 1965, 1966, 4187, 4188, 4401, 6375, 6376, 6299, 3535, 458, 459, 2795, 2796, 1377, 1378, 2036, 2035,
-    1196, 1195, 1379, 1380, 5097, 5098,
+    6292, 6296, 4051, 6293, 2333, 515, 516, 1673, 1674, 1675, 2515, 2516, 1063, 1064, 6393, 6394,
+    3543, 894, 898, 899, 1138, 1139, 3525, 3524, 208, 209, 204, 211, 222, 276, 2806, 3342, 223,
+    218, 224, 1834, 1962, 1840, 1892, 770, 1893, 771, 1894, 1835, 1963, 3324, 1841, 1898, 768,
+    1899, 769, 1900, 1836, 2746, 2785, 1904, 1219, 2804, 2805, 1236, 1905, 463, 1237, 1906, 1843,
+    3325, 1198, 1197, 4388, 3562, 3563, 1833, 2858, 3337, 3341, 1767, 3338, 1766, 1965, 1966, 4187,
+    4188, 4401, 6375, 6376, 6299, 3535, 458, 459, 2795, 2796, 1377, 1378, 2036, 2035, 1196, 1195,
+    1379, 1380, 5097, 5098,
 ];
 
 const RECORDOID: Oid = 2249;
@@ -51,7 +52,7 @@ const TYPTYPE_PSEUDO: i8 = b'p' as i8;
 pub(crate) fn catalog(specs: &[Spec]) -> PgResult<Option<CatalogArm>> {
     let builtin = |f: Oid| f == 0 || fmgr_core::fmgr_isbuiltin(f).is_some();
     let (mut rows, mut images) = (Vec::new(), Vec::new()); // alloc: Exec
-    // bounded("other: the Agg node's aggregate calls, one catalog capture each at bind: the query text bounds them, as PG's ExecInitAgg walks the same aggregates with no poll")
+                                                           // bounded("other: the Agg node's aggregate calls, one catalog capture each at bind: the query text bounds them, as PG's ExecInitAgg walks the same aggregates with no poll")
     for s in specs {
         if !AUDITED.contains(&s.shape.aggtransfn) || !AUDITED.contains(&s.shape.aggcombinefn) {
             return Ok(None);
@@ -61,7 +62,9 @@ pub(crate) fn catalog(specs: &[Spec]) -> PgResult<Option<CatalogArm>> {
             if t == RECORDOID || t == RECORDARRAYOID {
                 return Ok(None); // an anonymous record: its descriptor is the typcache's record registry, not armed
             }
-            let Some(row) = syscache_seams::capture_type_row(t)? else { return Ok(None) };
+            let Some(row) = syscache_seams::capture_type_row(t)? else {
+                return Ok(None);
+            };
             // every other type: its row and its typcache entry (with typcache's closure: an array's element, a range's
             // subtype, a multirange's range), whatever its functions read
             match row.typtype {
@@ -74,7 +77,9 @@ pub(crate) fn catalog(specs: &[Spec]) -> PgResult<Option<CatalogArm>> {
     }
     // bounded("other: one typcache image per type in the closure of the aggregates' argument and transition types (an array's element, a range's subtype), captured once at bind: the query text bounds them, as PG's ExecInitAgg resolves the same types with no poll")
     for i in &images {
-        let Some(row) = syscache_seams::capture_type_row(i.type_id())? else { return Ok(None) };
+        let Some(row) = syscache_seams::capture_type_row(i.type_id())? else {
+            return Ok(None);
+        };
         if matches!(row.typtype, TYPTYPE_COMPOSITE | TYPTYPE_DOMAIN) || !i.procs().all(builtin) {
             return Ok(None);
         }
@@ -84,7 +89,10 @@ pub(crate) fn catalog(specs: &[Spec]) -> PgResult<Option<CatalogArm>> {
         }
         push_row(&mut rows, row);
     }
-    Ok(Some(CatalogArm { rows: rows.into_boxed_slice(), images: images.into_boxed_slice() }))
+    Ok(Some(CatalogArm {
+        rows: rows.into_boxed_slice(),
+        images: images.into_boxed_slice(),
+    }))
 }
 
 fn push_row(rows: &mut Vec<syscache_seams::ArmedTypeRow>, row: syscache_seams::ArmedTypeRow) {
@@ -185,7 +193,11 @@ mod audited_tests {
         ("interval_avg_combine", 3325, "avg(iv)"),
         ("interval_larger", 1198, "max(iv)"),
         ("interval_smaller", 1197, "min(iv)"),
-        ("multirange_intersect_agg_transfn", 4388, "range_intersect_agg(mr)"),
+        (
+            "multirange_intersect_agg_transfn",
+            4388,
+            "range_intersect_agg(mr)",
+        ),
         ("network_larger", 3562, "max(ip)"),
         ("network_smaller", 3563, "min(ip)"),
         ("numeric_accum", 1833, "stddev_pop(n)"),
@@ -199,7 +211,11 @@ mod audited_tests {
         ("oidsmaller", 1966, "min(o)"),
         ("pg_lsn_larger", 4187, "max(lsn)"),
         ("pg_lsn_smaller", 4188, "min(lsn)"),
-        ("range_intersect_agg_transfn", 4401, "range_intersect_agg(r)"),
+        (
+            "range_intersect_agg_transfn",
+            4401,
+            "range_intersect_agg(r)",
+        ),
         ("record_larger", 6375, "max(ROW("),
         ("record_smaller", 6376, "min(ROW("),
         ("string_agg_combine", 6299, "string_agg(t,"),
@@ -221,7 +237,10 @@ mod audited_tests {
     ];
 
     fn root() -> std::path::PathBuf {
-        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it for a test")).join("../../..")
+        std::path::PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it for a test"),
+        )
+        .join("../../..")
     }
 
     /// V4R-453 (main's condition 2): AUDITED is exactly PG 18's transition and combine functions of the aggregates with a
@@ -232,10 +251,17 @@ mod audited_tests {
         let cat = root().join("crates/postgres-18.6-reference/src/include/catalog");
         let agg = std::fs::read_to_string(cat.join("pg_aggregate.dat")).unwrap();
         let procs = std::fs::read_to_string(cat.join("pg_proc.dat")).unwrap();
-        let field = |row: &str, k: &str| row.split(&format!("{k} => '")).nth(1).and_then(|r| r.split('\'').next()).map(str::to_owned); // alloc: Cold
+        let field = |row: &str, k: &str| {
+            row.split(&format!("{k} => '"))
+                .nth(1)
+                .and_then(|r| r.split('\'').next())
+                .map(str::to_owned)
+        }; // alloc: Cold
         let mut want = std::collections::BTreeSet::new();
         for row in agg.split('{').skip(1) {
-            let (Some(t), Some(c)) = (field(row, "aggtransfn"), field(row, "aggcombinefn")) else { continue };
+            let (Some(t), Some(c)) = (field(row, "aggtransfn"), field(row, "aggcombinefn")) else {
+                continue;
+            };
             if c != "-" && field(row, "aggkind").is_none() {
                 want.insert(t);
                 want.insert(c);
@@ -247,24 +273,42 @@ mod audited_tests {
                 oid_of.entry(n).or_insert(o.parse::<u32>().unwrap());
             }
         }
-        let got: std::collections::BTreeSet<String> = SWEPT.iter().map(|&(n, ..)| n.to_owned()).collect();
-        assert_eq!(got, want, "the audited names are PG's combinefn aggregates' functions");
+        let got: std::collections::BTreeSet<String> =
+            SWEPT.iter().map(|&(n, ..)| n.to_owned()).collect();
+        assert_eq!(
+            got, want,
+            "the audited names are PG's combinefn aggregates' functions"
+        );
         for &(n, o, _) in SWEPT {
             assert_eq!(oid_of.get(n), Some(&o), "{n}'s oid");
             assert!(AUDITED.contains(&o), "{n} ({o}) in AUDITED");
         }
-        assert_eq!(AUDITED.len(), SWEPT.len(), "AUDITED has no function the sweep does not run");
+        assert_eq!(
+            AUDITED.len(),
+            SWEPT.len(),
+            "AUDITED has no function the sweep does not run"
+        );
         // The sweep e2e lives in the internal tree (internal/e2e, beside public/); a public-only checkout has
         // no e2e to cross-check, and the name/oid checks above already ran.
-        let sweep_path = root().join("../internal/e2e/gravity/v4/m6_d1409b_worker_catalog_sweep.sql");
+        let sweep_path =
+            root().join("../internal/e2e/gravity/v4/m6_d1409b_worker_catalog_sweep.sql");
         if !sweep_path.exists() {
-            eprintln!("SKIP the W8 cross-check: no internal tree at {}", sweep_path.display());
+            eprintln!(
+                "SKIP the W8 cross-check: no internal tree at {}",
+                sweep_path.display()
+            );
             return;
         }
         let sweep = std::fs::read_to_string(&sweep_path).unwrap();
-        let w8 = sweep.split("==== W8").nth(1).expect("the sweep's W8 section");
+        let w8 = sweep
+            .split("==== W8")
+            .nth(1)
+            .expect("the sweep's W8 section");
         for &(n, _, expr) in SWEPT {
-            assert!(w8.contains(expr), "{n}: the sweep's W8 section runs `{expr}`");
+            assert!(
+                w8.contains(expr),
+                "{n}: the sweep's W8 section runs `{expr}`"
+            );
         }
     }
 }

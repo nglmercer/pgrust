@@ -7,6 +7,7 @@ use crate::{
 };
 use core::marker::PhantomData;
 use tpde_assembler::{elf, SymRef};
+use tpde_compiler::RegallocEvent;
 use tpde_compiler::{
     calls::{CallArg, CallBuilderBase, CallBuilderHooks, CallTarget},
     target::{CompilerOutput, TargetMachine},
@@ -16,7 +17,6 @@ use tpde_core::{
     calling_convention::{CCAssigner, CCAssignment, CallingConventionAssigner},
     Reg, RegBank, RegisterFile,
 };
-use tpde_compiler::RegallocEvent;
 use tpde_util::{misc::BitSetIterator, tpde_assert, tpde_assert_eq};
 use types_error::PgResult;
 
@@ -35,23 +35,41 @@ struct Parked {
     count: usize,
 }
 
-fn park_argument_registers<'m, A: CompilerAdaptor, M: TargetMachine<'m, A, 2>>(compiler: &M) -> PgResult<Parked>
+fn park_argument_registers<'m, A: CompilerAdaptor, M: TargetMachine<'m, A, 2>>(
+    compiler: &M,
+) -> PgResult<Parked>
 where
     M::Target: A64CompilerState,
 {
-    let mut parked = Parked { entries: [(Reg::make_invalid(), tpde_base::ValLocalIdx::new(0), 0, false); 9], count: 0 };
+    let mut parked = Parked {
+        entries: [(
+            Reg::make_invalid(),
+            tpde_base::ValLocalIdx::new(0),
+            0,
+            false,
+        ); 9],
+        count: 0,
+    };
     let candidates = compiler.with_registers(|regs| regs.used.get())
         & AAPCS_INFO.arg_regs()
         & RegisterFile::<2, 32>::bank_regs(RegBank::new(0));
     for id in BitSetIterator::<false>::new(candidates) {
         let reg = Reg::new(id);
         let (fixed, local, part, locks) = compiler.with_registers(|regs| {
-            (regs.is_fixed(reg), regs.reg_local_idx(reg), regs.reg_part(reg), regs.reg_lock_count(reg))
+            (
+                regs.is_fixed(reg),
+                regs.reg_local_idx(reg),
+                regs.reg_part(reg),
+                regs.reg_lock_count(reg),
+            )
         });
         if !fixed || local == tpde_compiler::guard_machine::INVALID_VALUE {
             continue;
         }
-        crate::ensure(locks == 1, "A64 call: a fixed argument register holds a locked reference")?;
+        crate::ensure(
+            locks == 1,
+            "A64 call: a fixed argument register holds a locked reference",
+        )?;
         // On the stack for the call sequence: an argument that is this
         // value reloads from the slot into its argument register.
         let valid = compiler.with_part(local, part, |ap| ap.register_valid());
@@ -69,7 +87,10 @@ where
     Ok(parked)
 }
 
-fn unpark_argument_registers<'m, A: CompilerAdaptor, M: TargetMachine<'m, A, 2>>(compiler: &M, parked: &Parked) -> PgResult<()>
+fn unpark_argument_registers<'m, A: CompilerAdaptor, M: TargetMachine<'m, A, 2>>(
+    compiler: &M,
+    parked: &Parked,
+) -> PgResult<()>
 where
     M::Target: A64CompilerState,
 {

@@ -3,7 +3,10 @@
 //! topk.rs (rule R6: the family's unsafe code lives in raw); topk.rs re-exports them under their old paths.
 use crate::host_abi::*;
 
-use super::super::topk::{cut_rest_calls, CUT_LEN_MASK, CUT_LEN_SEEDED, CUT_NO_SEED, CUT_OFF_CODES, CUT_OFF_LEN, CUT_OFF_LEAST, CUT_REST_MAX, CUT_REST_SHIFT, CUT_ROUND_MASK, CUT_ROUND_SHIFT};
+use super::super::topk::{
+    cut_rest_calls, CUT_LEN_MASK, CUT_LEN_SEEDED, CUT_NO_SEED, CUT_OFF_CODES, CUT_OFF_LEAST,
+    CUT_OFF_LEN, CUT_REST_MAX, CUT_REST_SHIFT, CUT_ROUND_MASK, CUT_ROUND_SHIFT,
+};
 
 // ---- the bounded run's entries (sort.rs h_open / h_insert / h_run / h_order) ----
 
@@ -75,8 +78,18 @@ crate::contract::host! {
 }
 
 /// `insert_by` keeping the rows tied with row `n − 1` under `less` (the exact comparator: equal = neither less): 1 entered, 0 past the bound, `UNSUPPORTED_SCRATCH` when the capacity holds no droppable row.
-unsafe fn insert_text_ties(run: &mut TopK, v: &[u64], nl: &[u8], mut less: impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool) -> i64 {
-    let (w, len, n, cap) = (run.natts as usize, run.len as usize, run.n as usize, run.cap as usize);
+unsafe fn insert_text_ties(
+    run: &mut TopK,
+    v: &[u64],
+    nl: &[u8],
+    mut less: impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool,
+) -> i64 {
+    let (w, len, n, cap) = (
+        run.natts as usize,
+        run.len as usize,
+        run.n as usize,
+        run.cap as usize,
+    );
     if len >= n && less(run.row(n - 1), (v, nl)) {
         return 0;
     }
@@ -88,7 +101,10 @@ unsafe fn insert_text_ties(run: &mut TopK, v: &[u64], nl: &[u8], mut less: impl 
     let vals = base.add(size_of::<TopK>()) as *mut u64;
     let nulls = base.add(size_of::<TopK>() + cap * w * 8);
     let moved = if len == cap {
-        if i >= n || (i < n - 1 && !less(run.row(n - 2), run.row(len - 1))) || (i == n - 1 && !less((v, nl), run.row(len - 1))) {
+        if i >= n
+            || (i < n - 1 && !less(run.row(n - 2), run.row(len - 1)))
+            || (i == n - 1 && !less((v, nl), run.row(len - 1)))
+        {
             return unsupported(UNSUPPORTED_SCRATCH);
         }
         len - 1 - i
@@ -107,7 +123,11 @@ unsafe fn insert_text_ties(run: &mut TopK, v: &[u64], nl: &[u8], mut less: impl 
 }
 
 /// The first row past `n − 1` that is not its exact tie (the run sorted under `less`).
-unsafe fn tie_end(run: &TopK, n: usize, less: &mut impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool) -> usize {
+unsafe fn tie_end(
+    run: &TopK,
+    n: usize,
+    less: &mut impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool,
+) -> usize {
     let len = run.len as usize;
     if len <= n {
         return len;
@@ -119,17 +139,38 @@ unsafe fn tie_end(run: &TopK, n: usize, less: &mut impl FnMut((&[u64], &[u8]), (
     e
 }
 
-pub(crate) unsafe fn code_bytes<'a>(site: *mut gravity_abi::Site, lane: u8, word: u64) -> Option<&'a [u8]> {
-    crate::dict::reps::render(site, lane, word).ok().flatten().map(|p| crate::util::text_bytes(p as u64))
+pub(crate) unsafe fn code_bytes<'a>(
+    site: *mut gravity_abi::Site,
+    lane: u8,
+    word: u64,
+) -> Option<&'a [u8]> {
+    crate::dict::reps::render(site, lane, word)
+        .ok()
+        .flatten()
+        .map(|p| crate::util::text_bytes(p as u64))
 }
 
 /// The exact comparator of a text top-k run (M4-L3T): the key image (the pair under `TOPK_PAIRS`), then a text first key's bytes through the dictionary on an image tie, then the second key (its word or pair, or its bytes, NULLs last); `failed` set when a code renders to nothing.
-unsafe fn topk_text_less<'a>(site: *mut gravity_abi::Site, flags: u32, spec1: u64, spec2: u64, failed: &'a mut bool) -> impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool + 'a {
+unsafe fn topk_text_less<'a>(
+    site: *mut gravity_abi::Site,
+    flags: u32,
+    spec1: u64,
+    spec2: u64,
+    failed: &'a mut bool,
+) -> impl FnMut((&[u64], &[u8]), (&[u64], &[u8])) -> bool + 'a {
     let (k1, l1) = (((spec1 >> 8) & 0xffff) as usize, (spec1 >> 24) as u8);
-    let (kind2, c2, l2, at2) = ((spec2 & 0xff) as u8, ((spec2 >> 8) & 0xffff) as usize, ((spec2 >> 24) & 0xff) as u8, (spec2 >> 40) as usize);
+    let (kind2, c2, l2, at2) = (
+        (spec2 & 0xff) as u8,
+        ((spec2 >> 8) & 0xffff) as usize,
+        ((spec2 >> 24) & 0xff) as u8,
+        (spec2 >> 40) as usize,
+    );
     let pairs = flags & TOPK_PAIRS != 0;
     move |a: (&[u64], &[u8]), b: (&[u64], &[u8])| -> bool {
-        let (ka, kb) = ((a.0[0] as i64, if pairs { a.0[1] } else { 0 }), (b.0[0] as i64, if pairs { b.0[1] } else { 0 }));
+        let (ka, kb) = (
+            (a.0[0] as i64, if pairs { a.0[1] } else { 0 }),
+            (b.0[0] as i64, if pairs { b.0[1] } else { 0 }),
+        );
         if ka != kb {
             return ka < kb;
         }
@@ -151,7 +192,10 @@ unsafe fn topk_text_less<'a>(site: *mut gravity_abi::Site, flags: u32, spec1: u6
                 }
             }
             2 => {
-                let (sa, sb) = ((a.0[at2] as i64, a.0[at2 + 1]), (b.0[at2] as i64, b.0[at2 + 1]));
+                let (sa, sb) = (
+                    (a.0[at2] as i64, a.0[at2 + 1]),
+                    (b.0[at2] as i64, b.0[at2 + 1]),
+                );
                 if sa != sb {
                     return sa < sb;
                 }
@@ -160,14 +204,16 @@ unsafe fn topk_text_less<'a>(site: *mut gravity_abi::Site, flags: u32, spec1: u6
                 (true, true) => {}
                 (true, false) => return false,
                 (false, true) => return true,
-                (false, false) => match (code_bytes(site, l2, a.0[c2]), code_bytes(site, l2, b.0[c2])) {
-                    (Some(x), Some(y)) if x != y => return x < y,
-                    (Some(_), Some(_)) => {}
-                    _ => {
-                        *failed = true;
-                        return false;
+                (false, false) => {
+                    match (code_bytes(site, l2, a.0[c2]), code_bytes(site, l2, b.0[c2])) {
+                        (Some(x), Some(y)) if x != y => return x < y,
+                        (Some(_), Some(_)) => {}
+                        _ => {
+                            *failed = true;
+                            return false;
+                        }
                     }
-                },
+                }
             },
             _ => {}
         }
@@ -326,7 +372,11 @@ fn sift_down(h: &mut [u64], mut i: usize) {
 
 #[cfg(test)]
 mod cut_tests {
-    use super::super::super::topk::{cut_entry_bytes, cut_rest_calls as rest_calls, CUT_LEN_MASK, CUT_LEN_SEEDED, CUT_NO_SEED, CUT_OFF_CODES, CUT_OFF_CUT, CUT_OFF_LEN, CUT_OFF_OWNER, CUT_REST_MAX, CUT_REST_Q16, CUT_REST_SHIFT, CUT_ROUND_MASK, CUT_ROUND_SHIFT};
+    use super::super::super::topk::{
+        cut_entry_bytes, cut_rest_calls as rest_calls, CUT_LEN_MASK, CUT_LEN_SEEDED, CUT_NO_SEED,
+        CUT_OFF_CODES, CUT_OFF_CUT, CUT_OFF_LEN, CUT_OFF_OWNER, CUT_REST_MAX, CUT_REST_Q16,
+        CUT_REST_SHIFT, CUT_ROUND_MASK, CUT_ROUND_SHIFT,
+    };
 
     /// The scan form the heap replaced (a full entry's cut is its largest code, a replacement takes the slot that holds
     /// it), with the same run of rests.
@@ -343,7 +393,8 @@ mod cut_tests {
     impl Scan {
         fn cut(&mut self, code: u64, tag: u64, n: usize) {
             if self.owner != tag {
-                (self.owner, self.cut, self.min, self.round, self.rest) = (tag, if n == 1 { code } else { u64::MAX }, code, 0, 0);
+                (self.owner, self.cut, self.min, self.round, self.rest) =
+                    (tag, if n == 1 { code } else { u64::MAX }, code, 0, 0);
                 self.codes = vec![code]; // alloc: Cold
                 return;
             }
@@ -392,7 +443,11 @@ mod cut_tests {
     /// least codes that reached the top). Returns the rows dropped and the calls made while the entry rested.
     fn run(n: usize, rows: impl Iterator<Item = (u64, u64)>, what: &str) -> (usize, usize) {
         let mut e = vec![0u64; cut_entry_bytes(n as u32) as usize / 8]; // alloc: Cold
-        let (mut scan, mut least, mut part) = (Scan::default(), std::collections::BinaryHeap::<u64>::new(), u64::MAX);
+        let (mut scan, mut least, mut part) = (
+            Scan::default(),
+            std::collections::BinaryHeap::<u64>::new(),
+            u64::MAX,
+        );
         let (mut dropped, mut rested) = (0, 0);
         for (i, (code, tag)) in rows.enumerate() {
             if tag != part {
@@ -400,12 +455,23 @@ mod cut_tests {
             }
             if e[W_OWNER] == tag && code > e[W_CUT] {
                 let nth = (least.len() == n).then(|| *least.peek().unwrap());
-                assert!(nth.is_some_and(|c| c < code), "{what} n {n} row {i}: code {code} dropped, the part's n-th least kept {nth:?}");
+                assert!(
+                    nth.is_some_and(|c| c < code),
+                    "{what} n {n} row {i}: code {code} dropped, the part's n-th least kept {nth:?}"
+                );
                 dropped += 1;
                 continue;
             }
             rested += (e[W_OWNER] == tag && e[W_LEN] >> CUT_REST_SHIFT != 0) as usize;
-            unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, code, tag, n as u64, CUT_NO_SEED) };
+            unsafe {
+                super::topk_cut(
+                    (e.as_mut_ptr() as *mut u8) as u64,
+                    code,
+                    tag,
+                    n as u64,
+                    CUT_NO_SEED,
+                )
+            };
             scan.cut(code, tag, n);
             least.push(code);
             if least.len() > n {
@@ -413,8 +479,16 @@ mod cut_tests {
             }
             let len = (e[W_LEN] & CUT_LEN_MASK) as usize;
             assert_eq!(e[W_CUT], scan.cut, "{what} n {n} row {i}: the cut");
-            assert_eq!((e[W_LEN] >> CUT_ROUND_SHIFT) & CUT_ROUND_MASK, scan.round, "{what} n {n} row {i}: the run");
-            assert_eq!(e[W_LEN] >> CUT_REST_SHIFT, scan.rest, "{what} n {n} row {i}: the rest");
+            assert_eq!(
+                (e[W_LEN] >> CUT_ROUND_SHIFT) & CUT_ROUND_MASK,
+                scan.round,
+                "{what} n {n} row {i}: the run"
+            );
+            assert_eq!(
+                e[W_LEN] >> CUT_REST_SHIFT,
+                scan.rest,
+                "{what} n {n} row {i}: the rest"
+            );
             let mut held: Vec<u64> = e[W_CODES..W_CODES + len].to_vec();
             let mut want = scan.codes.clone();
             held.sort_unstable();
@@ -424,7 +498,11 @@ mod cut_tests {
         (dropped, rested)
     }
 
-    const NS: [usize; 48] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 63, 64, 65, 100, 128, 200, 251, 252];
+    const NS: [usize; 48] = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 63, 64, 65, 100, 128, 200, 251,
+        252,
+    ];
 
     /// B3-12: over `n` from 1 to 252 and parts whose rows lie scattered, rise or repeat a few codes, the heap entry keeps
     /// the scan's cut and codes after every row; every drop is safe. A rising part never rests (no row reaches a full
@@ -441,7 +519,14 @@ mod cut_tests {
                             2 => i,
                             _ => rnd(&mut seed) % 7,
                         };
-                        (code, if i % 997 == 996 { 3 << 32 | 1 } else { 2 << 32 | 1 })
+                        (
+                            code,
+                            if i % 997 == 996 {
+                                3 << 32 | 1
+                            } else {
+                                2 << 32 | 1
+                            },
+                        )
                     })
                     .collect();
                 let (_, rested) = run(n, rows.into_iter(), &format!("shape {shape}")); // alloc: Cold
@@ -469,11 +554,19 @@ mod cut_tests {
     #[test]
     fn a_descending_part_rests_the_entry() {
         for n in NS {
-            let rows = (0..20_000u64).map(|i| (1_000_000 - i, 2 << 32 | 1)).chain((0..2000u64).map(|i| (2000 - i, 3 << 32 | 1)));
+            let rows = (0..20_000u64)
+                .map(|i| (1_000_000 - i, 2 << 32 | 1))
+                .chain((0..2000u64).map(|i| (2000 - i, 3 << 32 | 1)));
             let (_, rested) = run(n, rows, "descending");
-            let (taken, want) = (22_000 - rested, descending_taken(n, 20_000) + descending_taken(n, 2000));
+            let (taken, want) = (
+                22_000 - rested,
+                descending_taken(n, 20_000) + descending_taken(n, 2000),
+            );
             assert_eq!(taken, want, "descending n {n}: {taken} calls took codes");
-            assert!(taken * 4 < 22_000, "descending n {n}: {taken} calls took codes, most should rest");
+            assert!(
+                taken * 4 < 22_000,
+                "descending n {n}: {taken} calls took codes, most should rest"
+            );
         }
     }
 
@@ -484,10 +577,20 @@ mod cut_tests {
         let mut seed = 0x2545_f491_4f6c_dd1du64;
         for n in NS {
             let head = n + 400;
-            let rows: Vec<(u64, u64)> = (0..head as u64).map(|i| 1_000_000 - i).chain((0..30_000).map(|_| rnd(&mut seed) % 1_000_000)).map(|c| (c, 2 << 32 | 1)).collect();
+            let rows: Vec<(u64, u64)> = (0..head as u64)
+                .map(|i| 1_000_000 - i)
+                .chain((0..30_000).map(|_| rnd(&mut seed) % 1_000_000))
+                .map(|c| (c, 2 << 32 | 1))
+                .collect();
             let (dropped, rested) = run(n, rows.into_iter(), "descending then scattered");
-            assert!(rested > 0, "n {n}: the descending head did not rest the entry");
-            assert!(dropped > 30_000 * 7 / 10, "n {n}: {dropped} of the 30000 scattered rows dropped");
+            assert!(
+                rested > 0,
+                "n {n}: the descending head did not rest the entry"
+            );
+            assert!(
+                dropped > 30_000 * 7 / 10,
+                "n {n}: {dropped} of the 30000 scattered rows dropped"
+            );
         }
     }
 
@@ -498,7 +601,11 @@ mod cut_tests {
         assert_eq!(CUT_REST_Q16, cost_profile::cut::REST_Q16);
         for n in 0..=300u64 {
             for round in (0..5000u64).chain([65535, u64::MAX / 4, u64::MAX]) {
-                assert_eq!(rest_calls(n, round), cost_profile::cut::rest_calls(n, round), "n {n} round {round}");
+                assert_eq!(
+                    rest_calls(n, round),
+                    cost_profile::cut::rest_calls(n, round),
+                    "n {n} round {round}"
+                );
             }
         }
     }
@@ -510,8 +617,24 @@ mod cut_tests {
         for n in [0i64, -1, i64::MIN] {
             let mut e = vec![0u64; cut_entry_bytes(1) as usize / 8]; // alloc: Cold
             for code in [5, 3, 9] {
-                unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, code, 2 << 32 | 1, n as u64, CUT_NO_SEED) };
-                unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, code, 3 << 32 | 1, n as u64, 0) };
+                unsafe {
+                    super::topk_cut(
+                        (e.as_mut_ptr() as *mut u8) as u64,
+                        code,
+                        2 << 32 | 1,
+                        n as u64,
+                        CUT_NO_SEED,
+                    )
+                };
+                unsafe {
+                    super::topk_cut(
+                        (e.as_mut_ptr() as *mut u8) as u64,
+                        code,
+                        3 << 32 | 1,
+                        n as u64,
+                        0,
+                    )
+                };
             }
             assert!(e.iter().all(|&w| w == 0), "n {n}: the entry changed");
         }
@@ -527,8 +650,16 @@ mod cut_tests {
     /// (descending, ascending, scattered, descending runs in scattered order), through the inline check as code_cut
     /// lowers it with the claim's seed (`n - 1`; a descending key, its codes complemented: the complement of `ncodes -
     /// n`) and the IR's own rest countdown. Returns the keys that reached the top and those dropped.
-    fn seeded(n: usize, ncodes: u64, shape: u32, desc: bool, seed: &mut u64) -> (Vec<u64>, Vec<u64>, u64) {
-        let mut codes: Vec<u64> = (0..ncodes).chain((0..2000).map(|_| rnd(seed) % ncodes)).collect(); // alloc: Cold
+    fn seeded(
+        n: usize,
+        ncodes: u64,
+        shape: u32,
+        desc: bool,
+        seed: &mut u64,
+    ) -> (Vec<u64>, Vec<u64>, u64) {
+        let mut codes: Vec<u64> = (0..ncodes)
+            .chain((0..2000).map(|_| rnd(seed) % ncodes))
+            .collect(); // alloc: Cold
         match shape {
             0 => codes.sort_unstable_by(|a, b| b.cmp(a)),
             1 => codes.sort_unstable(),
@@ -542,10 +673,21 @@ mod cut_tests {
                 codes = runs.concat();
             }
         }
-        let cut = if desc { !(ncodes - n as u64) } else { n as u64 - 1 };
-        let (tag, mut e) = (2 << 32 | 1, vec![0u64; cut_entry_bytes(n as u32) as usize / 8]); // alloc: Cold
+        let cut = if desc {
+            !(ncodes - n as u64)
+        } else {
+            n as u64 - 1
+        };
+        let (tag, mut e) = (
+            2 << 32 | 1,
+            vec![0u64; cut_entry_bytes(n as u32) as usize / 8],
+        ); // alloc: Cold
         let (mut reached, mut dropped) = (Vec::new(), Vec::new()); // alloc: Cold
-        for (i, key) in codes.into_iter().map(|c| if desc { !c } else { c }).enumerate() {
+        for (i, key) in codes
+            .into_iter()
+            .map(|c| if desc { !c } else { c })
+            .enumerate()
+        {
             if e[W_OWNER] == tag && key > e[W_CUT] {
                 dropped.push(key);
                 continue;
@@ -553,10 +695,16 @@ mod cut_tests {
             if e[W_OWNER] == tag && e[W_LEN] >> CUT_REST_SHIFT != 0 {
                 e[W_LEN] -= 1 << CUT_REST_SHIFT;
             } else {
-                unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, key, tag, n as u64, cut) };
+                unsafe {
+                    super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, key, tag, n as u64, cut)
+                };
             }
             reached.push(key);
-            assert_eq!((e[W_CUT], e[W_LEN] & CUT_LEN_MASK), (cut, CUT_LEN_SEEDED), "n {n} ncodes {ncodes} shape {shape} desc {desc} row {i}: the seeded entry");
+            assert_eq!(
+                (e[W_CUT], e[W_LEN] & CUT_LEN_MASK),
+                (cut, CUT_LEN_SEEDED),
+                "n {n} ncodes {ncodes} shape {shape} desc {desc} row {i}: the seeded entry"
+            );
         }
         (reached, dropped, cut)
     }
@@ -574,11 +722,22 @@ mod cut_tests {
                         let (mut reached, dropped, cut) = seeded(n, ncodes, shape, desc, &mut seed);
                         let what = format!("n {n} ncodes {ncodes} shape {shape} desc {desc}"); // alloc: Cold
                         let first_past = reached.first().is_some_and(|&k| k > cut) as usize;
-                        assert_eq!(reached.iter().filter(|&&k| k > cut).count(), first_past, "{what}: a row past the seed reached the top");
+                        assert_eq!(
+                            reached.iter().filter(|&&k| k > cut).count(),
+                            first_past,
+                            "{what}: a row past the seed reached the top"
+                        );
                         reached.sort_unstable();
                         let nth = reached[n - 1];
-                        assert!(nth <= cut && dropped.iter().all(|&k| k > nth), "{what}: a drop at or before the n-th least key {nth}");
-                        assert_eq!(reached.len() + dropped.len(), ncodes as usize + 2000, "{what}: rows lost");
+                        assert!(
+                            nth <= cut && dropped.iter().all(|&k| k > nth),
+                            "{what}: a drop at or before the n-th least key {nth}"
+                        );
+                        assert_eq!(
+                            reached.len() + dropped.len(),
+                            ncodes as usize + 2000,
+                            "{what}: rows lost"
+                        );
                     }
                 }
             }
@@ -591,17 +750,55 @@ mod cut_tests {
     fn a_seeded_entry_rests_for_good_and_a_plain_claim_starts_empty() {
         let n = 10usize;
         let mut e = vec![0u64; cut_entry_bytes(n as u32) as usize / 8]; // alloc: Cold
-        unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, 500, 2 << 32 | 1, n as u64, 9) };
-        assert_eq!((e[W_CUT], e[W_LEN]), (9, CUT_LEN_SEEDED | CUT_REST_MAX << CUT_REST_SHIFT));
+        unsafe {
+            super::topk_cut(
+                (e.as_mut_ptr() as *mut u8) as u64,
+                500,
+                2 << 32 | 1,
+                n as u64,
+                9,
+            )
+        };
+        assert_eq!(
+            (e[W_CUT], e[W_LEN]),
+            (9, CUT_LEN_SEEDED | CUT_REST_MAX << CUT_REST_SHIFT)
+        );
         for code in [3u64, 9, 0, 8] {
             e[W_LEN] &= CUT_LEN_MASK;
-            unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, code, 2 << 32 | 1, n as u64, 9) };
-            let want = if code < 9 { CUT_LEN_SEEDED | CUT_REST_MAX << CUT_REST_SHIFT } else { CUT_LEN_SEEDED };
+            unsafe {
+                super::topk_cut(
+                    (e.as_mut_ptr() as *mut u8) as u64,
+                    code,
+                    2 << 32 | 1,
+                    n as u64,
+                    9,
+                )
+            };
+            let want = if code < 9 {
+                CUT_LEN_SEEDED | CUT_REST_MAX << CUT_REST_SHIFT
+            } else {
+                CUT_LEN_SEEDED
+            };
             assert_eq!((e[W_CUT], e[W_LEN]), (9, want), "code {code}");
         }
-        assert!(e[W_CODES..].iter().all(|&w| w == 0), "a seeded entry wrote a code");
-        unsafe { super::topk_cut((e.as_mut_ptr() as *mut u8) as u64, 7, 3 << 32 | 1, n as u64, CUT_NO_SEED) };
-        assert_eq!((e[W_CUT], e[W_LEN], e[W_CODES]), (u64::MAX, 1, 7), "the plain claim");
+        assert!(
+            e[W_CODES..].iter().all(|&w| w == 0),
+            "a seeded entry wrote a code"
+        );
+        unsafe {
+            super::topk_cut(
+                (e.as_mut_ptr() as *mut u8) as u64,
+                7,
+                3 << 32 | 1,
+                n as u64,
+                CUT_NO_SEED,
+            )
+        };
+        assert_eq!(
+            (e[W_CUT], e[W_LEN], e[W_CODES]),
+            (u64::MAX, 1, 7),
+            "the plain claim"
+        );
     }
 
     /// OF-TG2-2's fit (`#[ignore]`: run alone on the reference machine, `cargo test -p gravity_kernels --profile
@@ -616,33 +813,62 @@ mod cut_tests {
     #[ignore]
     fn the_cut_unit_costs() {
         const ROWS: u64 = 1 << 21;
-        let call: unsafe extern "C" fn(u64, u64, u64, u64, u64) -> i64 = std::hint::black_box(super::topk_cut);
+        let call: unsafe extern "C" fn(u64, u64, u64, u64, u64) -> i64 =
+            std::hint::black_box(super::topk_cut);
         let (tag, mut depth) = (2 << 32 | 1, [(0.0f64, 0u32); 8]);
-        for n in [1usize, 2, 3, 4, 5, 7, 8, 12, 15, 16, 24, 31, 32, 48, 63, 64, 100, 127, 128, 200, 251] {
+        for n in [
+            1usize, 2, 3, 4, 5, 7, 8, 12, 15, 16, 24, 31, 32, 48, 63, 64, 100, 127, 128, 200, 251,
+        ] {
             let mut e = vec![0u64; cut_entry_bytes(n as u32) as usize / 8]; // alloc: Cold
             let mut best = f64::MAX;
             for _ in 0..5 {
                 e.iter_mut().for_each(|w| *w = 0);
                 let mut code = u64::MAX / 2;
                 for _ in 0..n {
-                    unsafe { call((e.as_mut_ptr() as *mut u8) as u64, code, tag, n as u64, CUT_NO_SEED) };
+                    unsafe {
+                        call(
+                            (e.as_mut_ptr() as *mut u8) as u64,
+                            code,
+                            tag,
+                            n as u64,
+                            CUT_NO_SEED,
+                        )
+                    };
                     code -= 1;
                 }
                 let t = std::time::Instant::now();
                 for _ in 0..ROWS {
-                    unsafe { call((e.as_mut_ptr() as *mut u8) as u64, code, tag, n as u64, CUT_NO_SEED) };
+                    unsafe {
+                        call(
+                            (e.as_mut_ptr() as *mut u8) as u64,
+                            code,
+                            tag,
+                            n as u64,
+                            CUT_NO_SEED,
+                        )
+                    };
                     e[W_LEN] &= CUT_LEN_MASK;
                     code -= 1;
                 }
                 best = best.min(t.elapsed().as_nanos() as f64 / ROWS as f64);
-                assert_eq!(e[W_LEN] & CUT_LEN_MASK, n as u64, "n {n}: the entry stays full");
+                assert_eq!(
+                    e[W_LEN] & CUT_LEN_MASK,
+                    n as u64,
+                    "n {n}: the entry stays full"
+                );
             }
             let levels = (usize::BITS - 1 - n.leading_zeros()) as usize;
             println!("fit\tn\t{n}\tlevels\t{levels}\tns\t{best:.3}");
             depth[levels] = (depth[levels].0 + best, depth[levels].1 + 1);
         }
-        let table: Vec<String> = depth.iter().map(|&(t, k)| format!("{:.2}", t / k as f64)).collect(); // alloc: Cold
+        let table: Vec<String> = depth
+            .iter()
+            .map(|&(t, k)| format!("{:.2}", t / k as f64))
+            .collect(); // alloc: Cold
         println!("fit\tCUT_REPLACE\t{}", table.join("\t"));
-        assert!(depth.iter().all(|&(t, k)| k > 0 && t > 0.0), "every depth measured");
+        assert!(
+            depth.iter().all(|&(t, k)| k > 0 && t > 0.0),
+            "every depth measured"
+        );
     }
 }

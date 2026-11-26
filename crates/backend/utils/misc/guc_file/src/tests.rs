@@ -53,8 +53,7 @@ fn setup() {
                     out.filenames.sort();
                 }
                 Err(_) => {
-                    out.err_msg =
-                        Some(format!("could not open directory \"{}\"", dir.display()));
+                    out.err_msg = Some(format!("could not open directory \"{}\"", dir.display()));
                 }
             }
             Ok(out)
@@ -150,7 +149,10 @@ fn deescape_quoted_string() {
     assert_eq!(DeescapeQuotedString("'abc'"), "abc");
     assert_eq!(DeescapeQuotedString("'a''b'"), "a'b");
     assert_eq!(DeescapeQuotedString("'a\\'b'"), "a'b");
-    assert_eq!(DeescapeQuotedString("'a\\n\\t\\b\\f\\r'"), "a\n\t\u{8}\u{c}\r");
+    assert_eq!(
+        DeescapeQuotedString("'a\\n\\t\\b\\f\\r'"),
+        "a\n\t\u{8}\u{c}\r"
+    );
     assert_eq!(DeescapeQuotedString("'\\101'"), "A");
     assert_eq!(DeescapeQuotedString("'\\x'"), "x");
     assert_eq!(DeescapeQuotedString("''"), "");
@@ -187,8 +189,14 @@ fn syntax_errors_recorded_below_error() {
 fn syntax_error_throws_at_error_level() {
     setup();
     let mut vars = Vec::new();
-    let e = ParseConfigFp(b"= nonsense\n", Path::new("/tmp/x.conf"), 0, ERROR, &mut vars)
-        .unwrap_err();
+    let e = ParseConfigFp(
+        b"= nonsense\n",
+        Path::new("/tmp/x.conf"),
+        0,
+        ERROR,
+        &mut vars,
+    )
+    .unwrap_err();
     assert!(e.message().contains("syntax error in file"));
 }
 
@@ -241,7 +249,16 @@ fn include_recursion_rejected() {
     std::fs::write(&loop_conf, "include 'loop.conf'\n").unwrap();
 
     let mut vars = Vec::new();
-    let ok = ParseConfigFile(loop_conf.to_str().unwrap(), true, None, 0, 0, LOG, &mut vars).unwrap();
+    let ok = ParseConfigFile(
+        loop_conf.to_str().unwrap(),
+        true,
+        None,
+        0,
+        0,
+        LOG,
+        &mut vars,
+    )
+    .unwrap();
     assert!(!ok);
     assert!(vars
         .iter()
@@ -281,7 +298,10 @@ fn unreadable_include_after_open_is_a_scanner_error_even_if_exists() {
     assert!(!ok);
     let err = vars.iter().find(|v| v.ignore).unwrap();
     assert_eq!(err.errmsg.as_deref(), Some("input in flex scanner failed"));
-    assert_eq!(err.filename.as_deref(), Some(dir.join("bad.conf").as_path()));
+    assert_eq!(
+        err.filename.as_deref(),
+        Some(dir.join("bad.conf").as_path())
+    );
     assert_eq!(err.sourceline, 1);
     // guc-file.l:462 keeps scanning the includer after the failed include.
     assert_eq!(settings(&vars), vec![("work_mem".into(), "8MB".into())]);
@@ -293,15 +313,26 @@ fn empty_file_name_rejected() {
     let mut vars = Vec::new();
     let ok = ParseConfigFile("  \t", true, None, 0, 0, LOG, &mut vars).unwrap();
     assert!(!ok);
-    assert_eq!(vars[0].errmsg.as_deref(), Some("empty configuration file name"));
+    assert_eq!(
+        vars[0].errmsg.as_deref(),
+        Some("empty configuration file name")
+    );
 }
 
 #[test]
 fn nesting_depth_limit() {
     setup();
     let mut vars = Vec::new();
-    let ok =
-        ParseConfigFile("x.conf", true, None, 0, CONF_FILE_MAX_DEPTH + 1, LOG, &mut vars).unwrap();
+    let ok = ParseConfigFile(
+        "x.conf",
+        true,
+        None,
+        0,
+        CONF_FILE_MAX_DEPTH + 1,
+        LOG,
+        &mut vars,
+    )
+    .unwrap();
     assert!(!ok);
     assert_eq!(vars[0].errmsg.as_deref(), Some("nesting depth exceeded"));
 }
@@ -359,9 +390,7 @@ fn include_directory_preserves_filename_bytes() {
     let filename = dir.join(OsStr::from_bytes(b"\xff.conf"));
     std::fs::write(&filename, "work_mem = 8MB\n").unwrap();
     let mut vars = Vec::new();
-    assert!(ParseConfigDirectory(
-        dir.to_str().unwrap(), None, 0, 1, LOG, &mut vars,
-    ).unwrap());
+    assert!(ParseConfigDirectory(dir.to_str().unwrap(), None, 0, 1, LOG, &mut vars,).unwrap());
     assert_eq!(settings(&vars), vec![("work_mem".into(), "8MB".into())]);
     assert_eq!(vars[0].filename.as_ref(), Some(&filename));
     std::fs::remove_dir_all(dir).unwrap();
@@ -377,9 +406,18 @@ fn include_directory_detects_recursion_with_non_utf8_filename() {
     let filename = Path::new(OsStr::from_bytes(b"/conf.d/\xff.conf"));
     let mut vars = Vec::new();
     assert!(!ParseConfigDirectory(
-        "non_utf8_self_include", Some(filename), 1, 1, LOG, &mut vars,
-    ).unwrap());
+        "non_utf8_self_include",
+        Some(filename),
+        1,
+        1,
+        LOG,
+        &mut vars,
+    )
+    .unwrap());
     assert_eq!(vars.len(), 1);
-    assert_eq!(vars[0].errmsg.as_deref(), Some("configuration file recursion"));
+    assert_eq!(
+        vars[0].errmsg.as_deref(),
+        Some("configuration file recursion")
+    );
     assert_eq!(vars[0].filename.as_deref(), Some(filename));
 }

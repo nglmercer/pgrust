@@ -26,21 +26,21 @@
 //! index or bitmap arm, such a heap arm) is served beside a hash or merge join too: D2194's no-widen name left at item
 //! 14 part 4 (D2325 fixed, CAND-M39 not reproduced), as D2178 / D2179, D2180, D2197 and D2213 left at their root fixes.
 use gravity_decompose::graph::KeyForm;
-use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::scan::BitmapPlan;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
 use gravity_decompose::{IndexAm, Op, PipelineNode, Source};
 use gravity_program::{Cmd, Rep, SiteDesc};
+use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::primnodes::ParamKind;
 use types_nodes::Node;
-use mcx::{CollectIn, GrowIn, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::frame::px::Px;
+use crate::graph::Gx;
 use crate::ops::scan::index::index_fetch;
 use crate::rerun::inner_arms::UNION_ARM_BEYOND_FORMS;
 use crate::rerun::spool::site::{key, pairs_held, pairs_held_at, shift_held, walk, Entry};
-use crate::frame::px::Px;
-use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -51,24 +51,42 @@ fn shape(node: i32, why: &'static str) -> ! {
 pub(crate) fn admit(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, node: i32) {
     let mut keys = PgVec::new_in(gx.mcx);
     match &p.source {
-        Source::Index { am, relid, iam: IndexAm::Btree, keys: ks, .. } if index_fetch(gx, *am, *relid) => keys.push_in(&ks[..]),
+        Source::Index {
+            am,
+            relid,
+            iam: IndexAm::Btree,
+            keys: ks,
+            ..
+        } if index_fetch(gx, *am, *relid) => keys.push_in(&ks[..]),
         // errorhold (rnd-0194): a BitmapAnd / BitmapOr tree of btree leaves too (bitmap_tree.rs: each leaf's keys in leaf
         // order, the site keyed by the decomposer's index, as exec pairs it)
-        Source::Bitmap { am, relid, plan, .. } if index_fetch(gx, *am, *relid) && btree_leaves(plan, &mut keys) => {}
+        Source::Bitmap {
+            am, relid, plan, ..
+        } if index_fetch(gx, *am, *relid) && btree_leaves(plan, &mut keys) => {}
         _ => shape(node, UNION_ARM_BEYOND_FORMS),
     }
     let keys: PgVec<'_, _> = keys.into_iter().flatten().collect_in(gx.mcx);
     // D3877: `column = ANY (array)` too, the array a constant or an extern parameter: one word bound at the seek, the same
     // at every re-open (index_only.rs `key_words`)
-    let bound = |v: Node<'_>| v.as_const().is_some() || v.as_param().is_some_and(|p| matches!(p.paramkind, ParamKind::PARAM_EXTERN));
-    if !keys.iter().all(|k| matches!(k.form, KeyForm::Op | KeyForm::Null | KeyForm::NotNull) || (k.form == KeyForm::Any && bound(k.value))) {
+    let bound = |v: Node<'_>| {
+        v.as_const().is_some()
+            || v.as_param()
+                .is_some_and(|p| matches!(p.paramkind, ParamKind::PARAM_EXTERN))
+    };
+    if !keys.iter().all(|k| {
+        matches!(k.form, KeyForm::Op | KeyForm::Null | KeyForm::NotNull)
+            || (k.form == KeyForm::Any && bound(k.value))
+    }) {
         shape(node, UNION_ARM_BEYOND_FORMS);
     }
-    keys.iter().filter(|k| k.form == KeyForm::Op).for_each(|k| bare(k.value, node));
+    keys.iter()
+        .filter(|k| k.form == KeyForm::Op)
+        .for_each(|k| bare(k.value, node));
     // D2015: but a MERGE's result relations' arms, rechecked through their keys at the substituted
     // open (merge/nest_arms.rs `covers`); lockrows NEST-CLAIM: or the result relations' arms of an UPDATE / DELETE's union
     // form (merge/nest_claim.rs `covers`); D3680: a statement whose writes are plain INSERTs runs no recheck (`rechecks`)
-    if gx.pipelines().iter().any(rechecks) && !crate::ops::modifytable::merge::nest_arms::covers(gx, p)
+    if gx.pipelines().iter().any(rechecks)
+        && !crate::ops::modifytable::merge::nest_arms::covers(gx, p)
         && !crate::ops::modifytable::merge::nest_claim::covers(gx, p)
     {
         shape(node, UNION_ARM_BEYOND_FORMS);
@@ -76,15 +94,24 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, node: i32) {
 }
 
 /// Bitmap tree `p`'s leaves are btree index scans: each leaf's keys pushed onto `out` in leaf order; false on another leaf.
-fn btree_leaves<'a, 'p>(p: &'a BitmapPlan<'p>, out: &mut PgVec<'_, &'a [gravity_decompose::graph::IndexKey<'p>]>) -> bool {
+fn btree_leaves<'a, 'p>(
+    p: &'a BitmapPlan<'p>,
+    out: &mut PgVec<'_, &'a [gravity_decompose::graph::IndexKey<'p>]>,
+) -> bool {
     crate::stack_check();
     match p {
-        BitmapPlan::Index { iam: IndexAm::Btree, keys, .. } => {
+        BitmapPlan::Index {
+            iam: IndexAm::Btree,
+            keys,
+            ..
+        } => {
             out.push_in(&keys[..]);
             true
         }
         BitmapPlan::Index { .. } => false,
-        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => !plans.is_empty() && plans.iter().all(|q| btree_leaves(q, out)),
+        BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. } => {
+            !plans.is_empty() && plans.iter().all(|q| btree_leaves(q, out))
+        }
     }
 }
 
@@ -100,7 +127,10 @@ fn bare(v: Node<'_>, node: i32) {
 
 /// A key value the makers place (`bare`'s test).
 fn bare_value(v: Node<'_>) -> bool {
-    v.as_const().is_some() || v.as_param().is_some_and(|p| matches!(p.paramkind, ParamKind::PARAM_EXTERN | ParamKind::PARAM_EXEC)) || crate::rerun::params_key::computed(v)
+    v.as_const().is_some()
+        || v.as_param()
+            .is_some_and(|p| matches!(p.paramkind, ParamKind::PARAM_EXTERN | ParamKind::PARAM_EXEC))
+        || crate::rerun::params_key::computed(v)
 }
 
 /// D3377 road (3) (union_arms.rs `arms_read`): `admit`'s test without its refusal, in a statement that writes and locks
@@ -109,11 +139,22 @@ fn bare_value(v: Node<'_>) -> bool {
 pub(crate) fn fits(gx: &Gx<'_, '_>, p: &PipelineNode<'_>) -> bool {
     let mut keys = PgVec::new_in(gx.mcx);
     match &p.source {
-        Source::Index { am, relid, iam: IndexAm::Btree, keys: ks, .. } if index_fetch(gx, *am, *relid) => keys.push_in(&ks[..]),
-        Source::Bitmap { am, relid, plan, .. } if index_fetch(gx, *am, *relid) && btree_leaves(plan, &mut keys) => {}
+        Source::Index {
+            am,
+            relid,
+            iam: IndexAm::Btree,
+            keys: ks,
+            ..
+        } if index_fetch(gx, *am, *relid) => keys.push_in(&ks[..]),
+        Source::Bitmap {
+            am, relid, plan, ..
+        } if index_fetch(gx, *am, *relid) && btree_leaves(plan, &mut keys) => {}
         _ => return false,
     }
-    let key = |k: &gravity_decompose::graph::IndexKey<'_>| matches!(k.form, KeyForm::Null | KeyForm::NotNull) || (k.form == KeyForm::Op && bare_value(k.value));
+    let key = |k: &gravity_decompose::graph::IndexKey<'_>| {
+        matches!(k.form, KeyForm::Null | KeyForm::NotNull)
+            || (k.form == KeyForm::Op && bare_value(k.value))
+    };
     keys.into_iter().flatten().all(key) && !gx.pipelines().iter().any(writes)
 }
 
@@ -125,7 +166,11 @@ fn rechecks(p: &PipelineNode<'_>) -> bool {
     p.ops.iter().any(|op| match op {
         Op::Lock(_) => true,
         Op::Write(w) => w.cmd != Cmd::Insert || w.on_conflict.as_ref().is_some_and(|c| c.update),
-        Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => rechecks(inner),
+        Op::Join(JoinDesc::Nest { inner, .. })
+        | Op::SubPlan(SubPlanDesc {
+            form: SubForm::Nested { inner },
+            ..
+        }) => rechecks(inner),
         _ => false,
     })
 }
@@ -135,7 +180,11 @@ pub(crate) fn writes(p: &PipelineNode<'_>) -> bool {
     crate::stack_check(); // D3832
     p.ops.iter().any(|op| match op {
         Op::Write(_) | Op::Lock(_) => true,
-        Op::Join(JoinDesc::Nest { inner, .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { inner }, .. }) => writes(inner),
+        Op::Join(JoinDesc::Nest { inner, .. })
+        | Op::SubPlan(SubPlanDesc {
+            form: SubForm::Nested { inner },
+            ..
+        }) => writes(inner),
         _ => false,
     })
 }
@@ -153,7 +202,9 @@ pub(crate) fn lone_range(gx: &Gx<'_, '_>, s: &Source<'_>) -> bool {
 pub(crate) fn entries<'g>(gx: &Gx<'g, '_>) -> PgVec<'g, Entry> {
     let ps = gx.pipelines();
     let (mut w, mut next) = (PgVec::new_in(gx.mcx), ps.len());
-    ps.iter().enumerate().for_each(|(k, p)| walk(p, k, &mut next, &mut w));
+    ps.iter()
+        .enumerate()
+        .for_each(|(k, p)| walk(p, k, &mut next, &mut w));
     w
 }
 
@@ -171,14 +222,35 @@ pub(crate) fn hold(px: &mut Px<'_, '_>, kf: usize) {
     let ps = gx.pipelines();
     let n = ps.len();
     let p = &ps[kf];
-    let (Some(k), Some((e, _, _))) = (key(&p.source).filter(|_| matches!(p.source, Source::Index { .. } | Source::Bitmap { .. })), crate::pipes::inner_union(gx, kf)) else { return };
+    let (Some(k), Some((e, _, _))) = (
+        key(&p.source).filter(|_| matches!(p.source, Source::Index { .. } | Source::Bitmap { .. })),
+        crate::pipes::inner_union(gx, kf),
+    ) else {
+        return;
+    };
     let inners = ps.inners();
-    let chain: PgVec<'_, usize> = core::iter::successors(inners.get(e.wrapping_sub(n)).map(|x| x.0 .0), |&o| (o >= n).then(|| inners.get(o - n).map(|x| x.0 .0)).flatten()).collect_in(gx.mcx);
+    let chain: PgVec<'_, usize> =
+        core::iter::successors(inners.get(e.wrapping_sub(n)).map(|x| x.0 .0), |&o| {
+            (o >= n)
+                .then(|| inners.get(o - n).map(|x| x.0 .0))
+                .flatten()
+        })
+        .collect_in(gx.mcx);
     let w = entries(gx);
     // never once the arm is numbered (a remake of the feed): a held number nothing places would pair as its source
-    let Some(own) = w.iter().position(|x| x.0 == kf).filter(|_| px.pipeline_site(kf).is_none()) else { return };
-    let feed = |at: usize| at < n && crate::pipes::inner_union(gx, at).is_some_and(|u| u.2.contains(&at));
-    if w[own + 1..].iter().any(|x| x.1 == Some(k) && !feed(x.0) && !chain.contains(&x.0)) {
+    let Some(own) = w
+        .iter()
+        .position(|x| x.0 == kf)
+        .filter(|_| px.pipeline_site(kf).is_none())
+    else {
+        return;
+    };
+    let feed =
+        |at: usize| at < n && crate::pipes::inner_union(gx, at).is_some_and(|u| u.2.contains(&at));
+    if w[own + 1..]
+        .iter()
+        .any(|x| x.1 == Some(k) && !feed(x.0) && !chain.contains(&x.0))
+    {
         crate::pipes::reserve_site(px, kf);
     }
 }
@@ -195,8 +267,13 @@ pub(crate) fn site(px: &mut Px<'_, '_>, kf: usize, d: SiteDesc) -> usize {
     }
     let w = entries(gx);
     let k = (d.relation, d.index);
-    let Some(own) = w.iter().position(|e| e.0 == kf) else { shape(p.node_id, UNION_ARM_BEYOND_FORMS) };
-    let held = px.ext::<crate::rerun::params::NestExt>(crate::face::kinds::Face::Nest).and_then(|x| x.sites.iter().find(|s| s.0 == kf)).map(|s| s.1);
+    let Some(own) = w.iter().position(|e| e.0 == kf) else {
+        shape(p.node_id, UNION_ARM_BEYOND_FORMS)
+    };
+    let held = px
+        .ext::<crate::rerun::params::NestExt>(crate::face::kinds::Face::Nest)
+        .and_then(|x| x.sites.iter().find(|s| s.0 == kf))
+        .map(|s| s.1);
     if let Some(at) = held {
         if pairs_held_at(px, &w, k, at) != Ok(Some(own)) {
             shape(p.node_id, UNION_ARM_BEYOND_FORMS);
@@ -205,7 +282,8 @@ pub(crate) fn site(px: &mut Px<'_, '_>, kf: usize, d: SiteDesc) -> usize {
     }
     // shapecheck fire signal: an arm whose key a source outside the inner unions' feeds shares (an owner's scan)
     let n = gx.pipelines().len();
-    let feed = |at: usize| at < n && crate::pipes::inner_union(gx, at).is_some_and(|u| u.2.contains(&at));
+    let feed =
+        |at: usize| at < n && crate::pipes::inner_union(gx, at).is_some_and(|u| u.2.contains(&at));
     let shared = w.iter().any(|e| e.1 == Some(k) && !feed(e.0));
     if pairs_held(px, &w, k) == Ok(Some(own)) {
         if shared {
@@ -213,7 +291,8 @@ pub(crate) fn site(px: &mut Px<'_, '_>, kf: usize, d: SiteDesc) -> usize {
         }
         return px.add_site(d);
     }
-    let at = shift_held(px, &w, k, own, d).unwrap_or_else(|| shape(p.node_id, UNION_ARM_BEYOND_FORMS));
+    let at =
+        shift_held(px, &w, k, own, d).unwrap_or_else(|| shape(p.node_id, UNION_ARM_BEYOND_FORMS));
     fires::fire("nest.arm.shift_held");
     at
 }
@@ -221,11 +300,34 @@ pub(crate) fn site(px: &mut Px<'_, '_>, kf: usize, d: SiteDesc) -> usize {
 /// inner_arms.rs `make_empty`'s columns for an index feed: a heap fetch's are the relation's attributes (a heap range's),
 /// an index-only walk's every index column, key or INCLUDE (source/index_only.rs `index_cols`), as its table attribute's;
 /// an expression column (never read) and an attribute without facts are INT8's placeholder, as a heap range's.
-pub(crate) fn cols<'g>(gx: &Gx<'g, '_>, s: &Source<'_>, rep: &dyn Fn(u32) -> Rep) -> PgVec<'g, (u32, Rep)> {
-    let att = |relid: u32, a: i16| gx.facts.att(relid, a).filter(|_| a > 0).map_or((types_core::INT8OID, Rep::Word { bytes: 8 }), |f| (f.typid, rep(f.typid)));
+pub(crate) fn cols<'g>(
+    gx: &Gx<'g, '_>,
+    s: &Source<'_>,
+    rep: &dyn Fn(u32) -> Rep,
+) -> PgVec<'g, (u32, Rep)> {
+    let att = |relid: u32, a: i16| {
+        gx.facts
+            .att(relid, a)
+            .filter(|_| a > 0)
+            .map_or((types_core::INT8OID, Rep::Word { bytes: 8 }), |f| {
+                (f.typid, rep(f.typid))
+            })
+    };
     match s {
-        Source::Index { only: true, relid, indexid, .. } => gx.facts.index(*indexid).map_or_else(|| PgVec::new_in(gx.mcx), |i| i.keys().iter().map(|&a| att(*relid, a)).collect_in(gx.mcx)),
-        Source::Index { relid, .. } | Source::Bitmap { relid, .. } => (1..=gx.facts.rel(*relid).map_or(0, |r| r.natts.max(0))).map(|a| att(*relid, a)).collect_in(gx.mcx),
+        Source::Index {
+            only: true,
+            relid,
+            indexid,
+            ..
+        } => gx.facts.index(*indexid).map_or_else(
+            || PgVec::new_in(gx.mcx),
+            |i| i.keys().iter().map(|&a| att(*relid, a)).collect_in(gx.mcx),
+        ),
+        Source::Index { relid, .. } | Source::Bitmap { relid, .. } => {
+            (1..=gx.facts.rel(*relid).map_or(0, |r| r.natts.max(0)))
+                .map(|a| att(*relid, a))
+                .collect_in(gx.mcx)
+        }
         _ => PgVec::new_in(gx.mcx),
     }
 }

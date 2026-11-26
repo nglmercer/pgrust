@@ -85,7 +85,10 @@ fn const_bytes(text: &str) -> Vec<(usize, usize, u8)> {
 
 /// The positions in the front walk of the key walk's nodes, by identity (`front::fill`'s rule); `None` when one is not there.
 fn positions(f: &Front<'_>, nodes: &[Node<'_>]) -> Option<Vec<u32>> {
-    nodes.iter().map(|n| f.nodes.iter().position(|m| m.ptr_eq(*n)).map(|i| i as u32)).collect()
+    nodes
+        .iter()
+        .map(|n| f.nodes.iter().position(|m| m.ptr_eq(*n)).map(|i| i as u32))
+        .collect()
 }
 
 struct Outcome {
@@ -102,15 +105,26 @@ fn run(text: &str) -> Option<Outcome> {
     let fx = corpus::load(ctx.mcx(), text).ok()?;
     let arena = Arena::new(1 << 22);
     let mut trace = Vec::new();
-    let mut rec = |n: Node<'_>, c: Class, s: Site| trace.push((n.as_const().unwrap().constvalue.as_u64(), c, s));
+    let mut rec = |n: Node<'_>, c: Class, s: Site| {
+        trace.push((n.as_const().unwrap().constvalue.as_u64(), c, s))
+    };
     let f = front::walk(arena.handle(), fx.stmt, Some(&mut rec))?;
     let needs = front::needs(&f, fx.stmt, &fx.facts);
-    let graph = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).map_err(|_| ()).map(|g| {
-        let mut nodes = Vec::new();
-        let k = gravity_lower::inputs::key::key_and_nodes(&g, &mut |n| nodes.push(n));
-        (k, positions(&f, &nodes))
-    });
-    Some(Outcome { main: f.main, tl: f.tl, zone: f.zone, needs, trace, graph })
+    let graph = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .map_err(|_| ())
+        .map(|g| {
+            let mut nodes = Vec::new();
+            let k = gravity_lower::inputs::key::key_and_nodes(&g, &mut |n| nodes.push(n));
+            (k, positions(&f, &nodes))
+        });
+    Some(Outcome {
+        main: f.main,
+        tl: f.tl,
+        zone: f.zone,
+        needs,
+        trace,
+        graph,
+    })
 }
 
 #[test]
@@ -119,7 +133,11 @@ fn a_front_key_decides_what_decompose_decides() {
     let (mut keyed, mut filed, mut consts, mut same) = (0, 0, 0, 0);
     let mut listing: BTreeMap<String, usize> = BTreeMap::new();
     let mut bad = Vec::new();
-    let unvisited = Site { plan: NodeTag::T_Invalid, field: "(not walked)", parent: NodeTag::T_Invalid };
+    let unvisited = Site {
+        plan: NodeTag::T_Invalid,
+        field: "(not walked)",
+        parent: NodeTag::T_Invalid,
+    };
     let (mut walk_ns, mut dec_ns, mut timed) = (0u128, 0u128, 0u128);
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
@@ -138,12 +156,26 @@ fn a_front_key_decides_what_decompose_decides() {
                 continue;
             };
             consts += 1;
-            let moved = base.trace.iter().zip(&p.trace).position(|(a, b)| a.0 != b.0);
-            let (class, site) = moved.map_or((Class::Word, unvisited), |i| (base.trace[i].1, base.trace[i].2));
+            let moved = base
+                .trace
+                .iter()
+                .zip(&p.trace)
+                .position(|(a, b)| a.0 != b.0);
+            let (class, site) = moved.map_or((Class::Word, unvisited), |i| {
+                (base.trace[i].1, base.trace[i].2)
+            });
             if class != Class::Word {
-                *listing.entry(format!("{class:?}\t{:?}.{} (in {:?})", site.plan, site.field, site.parent)).or_default() += 1;
+                *listing
+                    .entry(format!(
+                        "{class:?}\t{:?}.{} (in {:?})",
+                        site.plan, site.field, site.parent
+                    ))
+                    .or_default() += 1;
             }
-            if base.main == p.main && (!base.needs.0 || base.tl == p.tl) && (!base.needs.1 || base.zone == p.zone) {
+            if base.main == p.main
+                && (!base.needs.0 || base.tl == p.tl)
+                && (!base.needs.1 || base.zone == p.zone)
+            {
                 same += 1;
                 if base.graph != p.graph {
                     bad.push(format!("{name}: {class:?} {:?}.{} (in {:?}): the front key holds, decompose differs ({:?} / {:?})", site.plan, site.field, site.parent, base.graph.as_ref().map(|g| g.0), p.graph.as_ref().map(|g| g.0)));
@@ -156,8 +188,16 @@ fn a_front_key_decides_what_decompose_decides() {
     for (k, n) in listing.iter() {
         eprintln!("  by value\t{k}\tx{n}");
     }
-    assert!(bad.is_empty(), "{} front-key rule violations:\n{}", bad.len(), bad.join("\n"));
-    assert!(keyed > 100 && consts > 500, "the corpus exercises the walk ({keyed} fixtures, {consts} Consts)");
+    assert!(
+        bad.is_empty(),
+        "{} front-key rule violations:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        keyed > 100 && consts > 500,
+        "the corpus exercises the walk ({keyed} fixtures, {consts} Consts)"
+    );
 }
 
 /// PM3a: the census of what makes no front key. Over the corpus, every statement the walk refuses names the construct
@@ -171,10 +211,17 @@ fn every_refusal_is_named_and_counted() {
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
         let ctx = MemoryContext::new("front refusal");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { continue };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            continue;
+        };
         let arena = Arena::new(1 << 22);
         let why = front::refusal(arena.handle(), fx.stmt);
-        assert_eq!(why.is_none(), front::walk(arena.handle(), fx.stmt, None).is_some(), "{}: refusal and walk disagree", path.display());
+        assert_eq!(
+            why.is_none(),
+            front::walk(arena.handle(), fx.stmt, None).is_some(),
+            "{}: refusal and walk disagree",
+            path.display()
+        );
         walked += 1;
         let Some((tag, what)) = why else { continue };
         refused += 1;
@@ -188,7 +235,10 @@ fn every_refusal_is_named_and_counted() {
     for (k, (n, served)) in &rows {
         eprintln!("  refused\t{k}\tx{n}\tdecompose serves {served}");
     }
-    assert!(walked > 100, "the corpus exercises the walk ({walked} fixtures)");
+    assert!(
+        walked > 100,
+        "the corpus exercises the walk ({walked} fixtures)"
+    );
     // PM3a: every node and field has its arm (3029 of 5464 refused before; 1 at the arms' landing)
     assert!(refused * 100 <= walked, "{refused} of {walked} corpus fixtures make no front key (at most 1%): a construct lost its arm");
 }
@@ -197,10 +247,16 @@ fn every_refusal_is_named_and_counted() {
 #[test]
 fn a_hit_binds_the_new_plans_nodes_and_the_memo_is_bounded() {
     seams();
-    let path = fixtures().into_iter().find(|p| p.to_string_lossy().ends_with("/oltp-001.plan")).or_else(|| fixtures().into_iter().find(|p| {
-        let t = std::fs::read_to_string(p).unwrap();
-        !const_bytes(&t).is_empty() && run(&t).is_some_and(|o| o.graph.is_ok_and(|g| g.1.is_some()))
-    }));
+    let path = fixtures()
+        .into_iter()
+        .find(|p| p.to_string_lossy().ends_with("/oltp-001.plan"))
+        .or_else(|| {
+            fixtures().into_iter().find(|p| {
+                let t = std::fs::read_to_string(p).unwrap();
+                !const_bytes(&t).is_empty()
+                    && run(&t).is_some_and(|o| o.graph.is_ok_and(|g| g.1.is_some()))
+            })
+        });
     let text = std::fs::read_to_string(path.expect("a fileable fixture with a Const")).unwrap();
     let (ctx, arena) = (MemoryContext::new("front hit"), Arena::new(1 << 22));
     let fx = corpus::load(ctx.mcx(), &text).unwrap();
@@ -216,8 +272,14 @@ fn a_hit_binds_the_new_plans_nodes_and_the_memo_is_bounded() {
     let (k2, hit) = front::hit(&f2, arena.handle()).expect("the filed shape hits");
     let g2 = decompose_in(arena.handle(), fx2.stmt, &fx2.facts, fx2.mcx).unwrap();
     let mut fresh = Vec::new();
-    assert_eq!(gravity_lower::inputs::key::key_and_nodes(&g2, &mut |n| fresh.push(n)), k2);
-    assert!(hit.len() == fresh.len() && hit.iter().zip(&fresh).all(|(a, b)| a.ptr_eq(*b)), "the hit's nodes are the new plan's");
+    assert_eq!(
+        gravity_lower::inputs::key::key_and_nodes(&g2, &mut |n| fresh.push(n)),
+        k2
+    );
+    assert!(
+        hit.len() == fresh.len() && hit.iter().zip(&fresh).all(|(a, b)| a.ptr_eq(*b)),
+        "the hit's nodes are the new plan's"
+    );
     let mut f3 = front::walk(arena.handle(), fx.stmt, None).unwrap();
     for i in 0..front::FRONT_ENTRIES as u128 + 10 {
         f3.main = i;
@@ -291,7 +353,11 @@ fn both_keys(text: &str) -> Option<(ContentKey, Option<u128>, Vec<(String, Vec<u
             islands.push((label(n.node_tag()), vals));
         }
     });
-    Some((key, front::walk(arena.handle(), fx.stmt, None).map(|f| f.main), islands))
+    Some((
+        key,
+        front::walk(arena.handle(), fx.stmt, None).map(|f| f.main),
+        islands,
+    ))
 }
 
 /// Island kinds the corpus holds no by-value Const under, each with where its constants are covered instead: a new
@@ -312,29 +378,51 @@ const COVERED_ELSEWHERE: [(NodeTag, &str); 4] = [
 #[test]
 fn every_island_kinds_constants_are_in_both_keys() {
     seams();
-    let (mut seen, mut elsewhere, mut bad): (BTreeMap<String, usize>, BTreeMap<String, usize>, Vec<String>) = Default::default();
+    let (mut seen, mut elsewhere, mut bad): (
+        BTreeMap<String, usize>,
+        BTreeMap<String, usize>,
+        Vec<String>,
+    ) = Default::default();
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
         let spans = island_spans(&text);
         if spans.is_empty() {
             continue;
         }
-        let Some(base) = both_keys(&text) else { continue };
+        let Some(base) = both_keys(&text) else {
+            continue;
+        };
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
         for (at, len, byte) in const_bytes(&text) {
-            let Some(span) = spans.iter().find(|s| s.0 < at && at < s.1).map(|s| s.2.clone()) else { continue };
+            let Some(span) = spans
+                .iter()
+                .find(|s| s.0 < at && at < s.1)
+                .map(|s| s.2.clone())
+            else {
+                continue;
+            };
             let mut t = text.clone();
             t.replace_range(at..at + len, &(byte ^ 1).to_string());
             let Some(p) = both_keys(&t) else { continue };
-            let Some(label) = base.2.iter().zip(&p.2).find(|(a, b)| a != b).map(|(a, _)| a.0.clone()) else {
+            let Some(label) = base
+                .2
+                .iter()
+                .zip(&p.2)
+                .find(|(a, b)| a != b)
+                .map(|(a, _)| a.0.clone())
+            else {
                 *elsewhere.entry(span).or_default() += 1;
                 continue;
             };
             if p.0 == base.0 {
-                bad.push(format!("{name}: a Const under {label}: the content key is unchanged"));
+                bad.push(format!(
+                    "{name}: a Const under {label}: the content key is unchanged"
+                ));
             }
             if base.1.is_some() && p.1 == base.1 {
-                bad.push(format!("{name}: a Const under {label}: the front key is unchanged"));
+                bad.push(format!(
+                    "{name}: a Const under {label}: the front key is unchanged"
+                ));
             }
             *seen.entry(label).or_default() += 1;
         }
@@ -346,8 +434,16 @@ fn every_island_kinds_constants_are_in_both_keys() {
         .map(|t| label(*t))
         .filter(|l| !seen.contains_key(l))
         .collect();
-    assert!(bad.is_empty(), "{} island Consts outside a key:\n{}", bad.len(), bad.join("\n"));
-    assert!(missing.is_empty(), "island kinds the corpus never exercised over a by-value Const: {missing:?}");
+    assert!(
+        bad.is_empty(),
+        "{} island Consts outside a key:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        missing.is_empty(),
+        "island kinds the corpus never exercised over a by-value Const: {missing:?}"
+    );
 }
 
 /// The `{SUBSCRIPTINGREF ...}` spans of `text`, each with the kinds its own fields show: a constant index, a Param index
@@ -406,8 +502,18 @@ fn subscript_spans(text: &str) -> Vec<(usize, usize, Vec<&'static str>)> {
 #[test]
 fn every_subscript_kind_is_walked_and_its_constants_keep_the_rule() {
     seams();
-    const KINDS: [&str; 5] = ["const index", "Param index", "slice", "assignment", "nested"];
-    let (mut walked, mut perturbed, mut bad): (BTreeMap<&str, usize>, BTreeMap<&str, usize>, Vec<String>) = Default::default();
+    const KINDS: [&str; 5] = [
+        "const index",
+        "Param index",
+        "slice",
+        "assignment",
+        "nested",
+    ];
+    let (mut walked, mut perturbed, mut bad): (
+        BTreeMap<&str, usize>,
+        BTreeMap<&str, usize>,
+        Vec<String>,
+    ) = Default::default();
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
         let spans = subscript_spans(&text);
@@ -420,17 +526,27 @@ fn every_subscript_kind_is_walked_and_its_constants_keep_the_rule() {
             *walked.entry(k).or_default() += 1;
         }
         for (at, len, byte) in const_bytes(&text) {
-            let under: Vec<&str> = spans.iter().filter(|s| s.0 < at && at < s.1).flat_map(|s| s.2.iter().copied()).collect();
+            let under: Vec<&str> = spans
+                .iter()
+                .filter(|s| s.0 < at && at < s.1)
+                .flat_map(|s| s.2.iter().copied())
+                .collect();
             if !spans.iter().any(|s| s.0 < at && at < s.1) {
                 continue;
             }
             let mut t = text.clone();
             t.replace_range(at..at + len, &(byte ^ 1).to_string());
             let Some(p) = run(&t) else {
-                bad.push(format!("{name}: a perturbed Const under a subscript leaves the walk"));
+                bad.push(format!(
+                    "{name}: a perturbed Const under a subscript leaves the walk"
+                ));
                 continue;
             };
-            if base.main == p.main && (!base.needs.0 || base.tl == p.tl) && (!base.needs.1 || base.zone == p.zone) && base.graph != p.graph {
+            if base.main == p.main
+                && (!base.needs.0 || base.tl == p.tl)
+                && (!base.needs.1 || base.zone == p.zone)
+                && base.graph != p.graph
+            {
                 bad.push(format!("{name}: a Const under a subscript ({under:?}): the front key holds, decompose differs ({:?} / {:?})", base.graph.as_ref().map(|g| g.0), p.graph.as_ref().map(|g| g.0)));
             }
             for k in under {
@@ -439,11 +555,29 @@ fn every_subscript_kind_is_walked_and_its_constants_keep_the_rule() {
         }
     }
     eprintln!("--stats subscript kinds walked {walked:?}; by-value Consts perturbed under each {perturbed:?}");
-    assert!(bad.is_empty(), "{} subscript front-key rule violations:\n{}", bad.len(), bad.join("\n"));
-    let unwalked: Vec<&str> = KINDS.iter().copied().filter(|k| !walked.contains_key(k)).collect();
-    assert!(unwalked.is_empty(), "subscript kinds the front walk never keyed: {unwalked:?}");
-    let unperturbed: Vec<&str> = ["const index", "slice", "assignment", "nested"].into_iter().filter(|k| !perturbed.contains_key(k)).collect();
-    assert!(unperturbed.is_empty(), "subscript kinds with no by-value Const perturbed: {unperturbed:?}");
+    assert!(
+        bad.is_empty(),
+        "{} subscript front-key rule violations:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    let unwalked: Vec<&str> = KINDS
+        .iter()
+        .copied()
+        .filter(|k| !walked.contains_key(k))
+        .collect();
+    assert!(
+        unwalked.is_empty(),
+        "subscript kinds the front walk never keyed: {unwalked:?}"
+    );
+    let unperturbed: Vec<&str> = ["const index", "slice", "assignment", "nested"]
+        .into_iter()
+        .filter(|k| !perturbed.contains_key(k))
+        .collect();
+    assert!(
+        unperturbed.is_empty(),
+        "subscript kinds with no by-value Const perturbed: {unperturbed:?}"
+    );
 }
 
 /// The planner's estimates in a plan text: every plan node's `startup_cost` / `total_cost` / `plan_rows` (the plans of
@@ -459,7 +593,13 @@ fn estimates(text: &str) -> Vec<(&'static str, usize, usize, f64, bool)> {
         (at, end.unwrap_or(text.len()))
     });
     let mut out = Vec::new();
-    for f in ["startup_cost", "total_cost", "plan_rows", "rows_total", "enrtuples"] {
+    for f in [
+        "startup_cost",
+        "total_cost",
+        "plan_rows",
+        "rows_total",
+        "enrtuples",
+    ] {
         // the field by its last name: a node prints its Plan's under its own path (`:scan.plan.plan_rows`, `:join.plan.…`)
         let pat = format!("{f} ");
         let mut from = 0;
@@ -499,9 +639,16 @@ fn front_keys(text: &str) -> Option<(u128, u128, u128)> {
 fn every_estimate_moves_the_front_key_or_leaves_decompose_identical() {
     seams();
     let mut paths = fixtures();
-    let extra = std::env::var("FRONT_CENSUS_EXTRA").ok().filter(|d| !d.is_empty());
+    let extra = std::env::var("FRONT_CENSUS_EXTRA")
+        .ok()
+        .filter(|d| !d.is_empty());
     if let Some(d) = &extra {
-        let mut more: Vec<PathBuf> = std::fs::read_dir(d).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "plan")).collect();
+        let mut more: Vec<PathBuf> = std::fs::read_dir(d)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "plan"))
+            .collect();
         more.sort();
         eprintln!("--stats FRONT_CENSUS_EXTRA {d}: {} fixtures", more.len());
         paths.extend(more);
@@ -514,8 +661,15 @@ fn every_estimate_moves_the_front_key_or_leaves_decompose_identical() {
     // panic in one fixture's work names the fixture
     let per = par_map(&paths, |p| {
         std::panic::catch_unwind(|| estimate_census(p)).unwrap_or_else(|e| {
-            let what = e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned());
-            panic!("{}: {}", p.display(), what.unwrap_or_else(|| "a panic".into()))
+            let what = e
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| e.downcast_ref::<String>().cloned());
+            panic!(
+                "{}: {}",
+                p.display(),
+                what.unwrap_or_else(|| "a panic".into())
+            )
         })
     });
     for one in per {
@@ -539,18 +693,37 @@ fn every_estimate_moves_the_front_key_or_leaves_decompose_identical() {
     }
     eprintln!("--stats estimate census: {keyed} fixtures keyed; {unkeyed} not keyed ({unkeyed_est} estimates, {unkeyed_sub} of them in subplans: today's path)");
     for ((f, sub), [n, moved, kept]) in stats.iter() {
-        eprintln!("  {f}{}\tperturbed {n}\tkey moved {moved}\tkey kept (decompose identical) {kept}", if *sub { " (in subplans)" } else { "" });
+        eprintln!(
+            "  {f}{}\tperturbed {n}\tkey moved {moved}\tkey kept (decompose identical) {kept}",
+            if *sub { " (in subplans)" } else { "" }
+        );
     }
-    assert!(bad.is_empty(), "{} estimate front-key rule violations:\n{}", bad.len(), bad.join("\n"));
-    assert!(keyed > 100, "the corpus exercises the walk ({keyed} fixtures)");
-    let never_kept: Vec<&str> = ["startup_cost", "total_cost", "plan_rows"].into_iter().filter(|f| stats.get(&(*f, false)).is_none_or(|s| s[2] == 0)).collect();
-    assert!(never_kept.is_empty(), "estimates the front key still hashes raw (no perturbation kept the key): {never_kept:?}");
+    assert!(
+        bad.is_empty(),
+        "{} estimate front-key rule violations:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        keyed > 100,
+        "the corpus exercises the walk ({keyed} fixtures)"
+    );
+    let never_kept: Vec<&str> = ["startup_cost", "total_cost", "plan_rows"]
+        .into_iter()
+        .filter(|f| stats.get(&(*f, false)).is_none_or(|s| s[2] == 0))
+        .collect();
+    assert!(
+        never_kept.is_empty(),
+        "estimates the front key still hashes raw (no perturbation kept the key): {never_kept:?}"
+    );
 }
 
 /// One fixture of `every_estimate_moves_the_front_key_or_leaves_decompose_identical`: `Err((estimates, of them in
 /// subplans))` when the walk does not key it, else its (field, in subplans) -> [perturbed, moved, kept] and its violations.
 #[allow(clippy::type_complexity)]
-fn estimate_census(path: &Path) -> Result<(BTreeMap<(&'static str, bool), [usize; 3]>, Vec<String>), (usize, usize)> {
+fn estimate_census(
+    path: &Path,
+) -> Result<(BTreeMap<(&'static str, bool), [usize; 3]>, Vec<String>), (usize, usize)> {
     let mut stats: BTreeMap<(&'static str, bool), [usize; 3]> = BTreeMap::new();
     let mut bad = Vec::new();
     {
@@ -570,10 +743,15 @@ fn estimate_census(path: &Path) -> Result<(BTreeMap<(&'static str, bool), [usize
                 let e = stats.entry((field, sub)).or_default();
                 e[0] += 1;
                 let Some(k) = front_keys(&t) else {
-                    bad.push(format!("{name}: {field} {v} -> {nv}: the perturbed plan leaves the walk"));
+                    bad.push(format!(
+                        "{name}: {field} {v} -> {nv}: the perturbed plan leaves the walk"
+                    ));
                     continue;
                 };
-                if k.0 != base.main || (base.needs.0 && k.1 != base.tl) || (base.needs.1 && k.2 != base.zone) {
+                if k.0 != base.main
+                    || (base.needs.0 && k.1 != base.tl)
+                    || (base.needs.1 && k.2 != base.zone)
+                {
                     e[1] += 1;
                     continue;
                 }
@@ -581,7 +759,9 @@ fn estimate_census(path: &Path) -> Result<(BTreeMap<(&'static str, bool), [usize
                 let p = run(&t).expect("the walk keyed it");
                 if p.graph != base.graph {
                     // the plan node the estimate belongs to: the nearest node name before it in the plan text
-                    let node = text[..at].rfind('{').map_or("?", |i| text[i + 1..].split([' ', '\n']).next().unwrap_or("?"));
+                    let node = text[..at].rfind('{').map_or("?", |i| {
+                        text[i + 1..].split([' ', '\n']).next().unwrap_or("?")
+                    });
                     bad.push(format!("{name}: {node} {field} {v} -> {nv}{}: the front key holds, decompose differs ({:?} / {:?})", if sub { " (in subplans)" } else { "" }, base.graph.as_ref().map(|g| g.0), p.graph.as_ref().map(|g| g.0)));
                 }
             }
@@ -624,11 +804,16 @@ fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> 
             }
         }
     });
-    out.into_iter().map(|r| r.expect("par_map: every item mapped")).collect()
+    out.into_iter()
+        .map(|r| r.expect("par_map: every item mapped"))
+        .collect()
 }
 
 /// Decompose's answer keyed: the content key, the key walk's positions in `f`, the key walk's nodes.
-fn keyed<'p>(g: &gravity_decompose::PipelineGraph<'p>, f: &Front<'_>) -> (ContentKey, Option<Vec<u32>>, Vec<Node<'p>>) {
+fn keyed<'p>(
+    g: &gravity_decompose::PipelineGraph<'p>,
+    f: &Front<'_>,
+) -> (ContentKey, Option<Vec<u32>>, Vec<Node<'p>>) {
     let mut nodes = Vec::new();
     let k = gravity_lower::inputs::key::key_and_nodes(g, &mut |n| nodes.push(n));
     (k, positions(f, &nodes), nodes)
@@ -668,30 +853,50 @@ fn every_byref_word_keeps_the_shape_and_decompose_logs_what_it_reads() {
         let text = std::fs::read_to_string(&path).unwrap();
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
         let ctx = MemoryContext::new("front census byref");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { continue };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            continue;
+        };
         let arena = Arena::new(1 << 22);
-        let Some(f) = front::walk(arena.handle(), fx.stmt, None) else { continue };
+        let Some(f) = front::walk(arena.handle(), fx.stmt, None) else {
+            continue;
+        };
         if f.byref.is_empty() {
             continue;
         }
-        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else { continue };
+        let Ok(g) = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx) else {
+            continue;
+        };
         let (key, pos, nodes) = keyed(&g, &f);
         let logged = f.plan_reads();
         fixtures_n += 1;
         let needs = front::needs(&f, fx.stmt, &fx.facts);
         // V4R-110: an `= ANY` list's count is the shape (the front key puts its `list_class`), so a list's word is
         // perturbed past its dimensions header (ndim, dataoffset, elemtype, then dims and lower bounds): its last byte
-        let lists: Vec<usize> = f.nodes.iter().filter_map(|n| n.as_scalar_array_op_expr()).filter_map(|o| o.args.nth(1).as_const().map(|k| k.constvalue.as_usize())).collect(); // alloc: Cold
+        let lists: Vec<usize> = f
+            .nodes
+            .iter()
+            .filter_map(|n| n.as_scalar_array_op_expr())
+            .filter_map(|o| o.args.nth(1).as_const().map(|k| k.constvalue.as_usize()))
+            .collect(); // alloc: Cold
         for &p in f.byref.iter() {
             let k = f.nodes[p as usize].as_const().unwrap();
             let img = k.constvalue.as_usize();
             // SAFETY: a non-null by-reference varlena constant of the loaded plan, in the test's own arena.
-            let Some((at, len)) = (k.constlen == -1).then(|| unsafe { payload(img as *mut u8) }).flatten() else { continue };
+            let Some((at, len)) = (k.constlen == -1)
+                .then(|| unsafe { payload(img as *mut u8) })
+                .flatten()
+            else {
+                continue;
+            };
             let at = if !lists.contains(&img) {
                 at
             } else {
                 // SAFETY: the payload holds at least ndim (its first 4 bytes are checked by the length).
-                let ndim = if len >= 4 { unsafe { at.cast::<i32>().read_unaligned() }.max(0) as usize } else { 0 };
+                let ndim = if len >= 4 {
+                    unsafe { at.cast::<i32>().read_unaligned() }.max(0) as usize
+                } else {
+                    0
+                };
                 if len <= 12 + 8 * ndim {
                     continue; // an empty list: no element byte
                 }
@@ -708,10 +913,14 @@ fn every_byref_word_keeps_the_shape_and_decompose_logs_what_it_reads() {
             let a2 = Arena::new(1 << 22);
             let f2 = front::walk(a2.handle(), fx.stmt, None).expect("the perturbed plan keys");
             if f2.main != f.main || f2.tl != f.tl || f2.zone != f.zone {
-                bad.push(format!("{name}: a by-reference word's image moved the shape"));
+                bad.push(format!(
+                    "{name}: a by-reference word's image moved the shape"
+                ));
             }
             if front::hit(&f2, a2.handle()).is_some() {
-                bad.push(format!("{name}: a variant with every image baked hit another image"));
+                bad.push(format!(
+                    "{name}: a variant with every image baked hit another image"
+                ));
             }
             unsafe { *at ^= 1 };
             front::clear();
@@ -736,8 +945,16 @@ fn every_byref_word_keeps_the_shape_and_decompose_logs_what_it_reads() {
         }
     }
     eprintln!("--stats by-reference words: {fixtures_n} fixtures, {words} varlena words perturbed; decompose's answer held {held} (unlogged), held {logged_held} (logged), moved {logged_moved} (logged)");
-    assert!(bad.is_empty(), "{} by-reference word violations:\n{}", bad.len(), bad.join("\n"));
-    assert!(words > 100, "the corpus exercises by-reference words ({words})");
+    assert!(
+        bad.is_empty(),
+        "{} by-reference word violations:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        words > 100,
+        "the corpus exercises by-reference words ({words})"
+    );
 }
 
 /// A plan's text with what the front key leaves out by design removed (V4R-18's plan-shape guarantee): every Const's
@@ -746,7 +963,14 @@ fn every_byref_word_keeps_the_shape_and_decompose_logs_what_it_reads() {
 /// parameters, types, collations, operators, indexes and join order.
 fn shape_text(text: &str) -> String {
     let plan = text.lines().find(|l| l.starts_with('{')).unwrap_or("");
-    let skip_one = [":location", ":queryId", ":stmt_location", ":stmt_len", ":rows_total", ":enrtuples"];
+    let skip_one = [
+        ":location",
+        ":queryId",
+        ":stmt_location",
+        ":stmt_len",
+        ":rows_total",
+        ":enrtuples",
+    ];
     let est = ["startup_cost", "total_cost", "plan_rows"];
     let mut out = String::with_capacity(plan.len());
     let mut it = plan.split_whitespace();
@@ -791,8 +1015,13 @@ fn sql_template(sql: &str) -> String {
                 }
             }
             out.push('?');
-        } else if c.is_ascii_digit() && !out.ends_with(|p: char| p.is_ascii_alphanumeric() || p == '_') {
-            while chars.peek().is_some_and(|d| d.is_ascii_digit() || *d == '.') {
+        } else if c.is_ascii_digit()
+            && !out.ends_with(|p: char| p.is_ascii_alphanumeric() || p == '_')
+        {
+            while chars
+                .peek()
+                .is_some_and(|d| d.is_ascii_digit() || *d == '.')
+            {
                 chars.next();
             }
             out.push('?');
@@ -819,18 +1048,29 @@ fn one_front_key_means_one_plan_shape() {
     for path in fixtures() {
         let text = std::fs::read_to_string(&path).unwrap();
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let Some((main, _, _)) = front_keys(&text) else { continue };
+        let Some((main, _, _)) = front_keys(&text) else {
+            continue;
+        };
         keyed += 1;
         let shape = shape_text(&text);
-        let sql = text.lines().find_map(|l| l.strip_prefix("-- sql: ")).unwrap_or("").to_string();
+        let sql = text
+            .lines()
+            .find_map(|l| l.strip_prefix("-- sql: "))
+            .unwrap_or("")
+            .to_string();
         match by_key.get(&main) {
-            Some((other, s)) if *s != shape => bad.push(format!("{name} and {other}: one front key, two plan shapes")),
+            Some((other, s)) if *s != shape => bad.push(format!(
+                "{name} and {other}: one front key, two plan shapes"
+            )),
             Some(_) => {}
             None => {
                 by_key.insert(main, (name.clone(), shape.clone()));
             }
         }
-        by_template.entry(sql_template(&sql)).or_default().push((main, shape, name));
+        by_template
+            .entry(sql_template(&sql))
+            .or_default()
+            .push((main, shape, name));
     }
     let (mut replans, mut same_shape) = (0usize, 0usize);
     for v in by_template.values() {
@@ -848,8 +1088,16 @@ fn one_front_key_means_one_plan_shape() {
         }
     }
     eprintln!("--stats plan shapes: {keyed} fixtures keyed, {} front keys; {replans} same-statement pairs planned otherwise (each two keys), {same_shape} same-statement pairs of one shape", by_key.len());
-    assert!(bad.is_empty(), "{} front keys over two plan shapes:\n{}", bad.len(), bad.join("\n"));
-    assert!(keyed > 100, "the corpus exercises the walk ({keyed} fixtures)");
+    assert!(
+        bad.is_empty(),
+        "{} front keys over two plan shapes:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        keyed > 100,
+        "the corpus exercises the walk ({keyed} fixtures)"
+    );
 }
 
 /// The same guarantee on one plan edited by hand the ways a replan moves it: another index of the relation, another
@@ -857,32 +1105,55 @@ fn one_front_key_means_one_plan_shape() {
 #[test]
 fn a_literal_that_replans_makes_another_front_key() {
     seams();
-    let path = fixtures().into_iter().find(|p| p.to_string_lossy().ends_with("/oltp-001.plan")).expect("oltp-001.plan");
+    let path = fixtures()
+        .into_iter()
+        .find(|p| p.to_string_lossy().ends_with("/oltp-001.plan"))
+        .expect("oltp-001.plan");
     let text = std::fs::read_to_string(path).unwrap();
     let base = front_keys(&text).expect("oltp-001 keys").0;
     // another index of the same relation (customer's second unique index, 16517): the planner's other choice
     let other_index = text.replacen(":indexid 16410", ":indexid 16517", 1);
     assert_ne!(other_index, text);
-    assert_ne!(front_keys(&other_index).expect("keys").0, base, "another index, one front key");
+    assert_ne!(
+        front_keys(&other_index).expect("keys").0,
+        base,
+        "another index, one front key"
+    );
     // another scan direction (a backward scan: ORDER BY ... DESC)
     let backward = text.replacen(":indexorderdir 1", ":indexorderdir -1", 1);
     if backward != text {
-        assert_ne!(front_keys(&backward).expect("keys").0, base, "another scan direction, one front key");
+        assert_ne!(
+            front_keys(&backward).expect("keys").0,
+            base,
+            "another scan direction, one front key"
+        );
     }
     // another width (another projection) and another plan node id
     let width = text.replacen(":scan.plan.plan_width 26", ":scan.plan.plan_width 27", 1);
-    assert_ne!(front_keys(&width).expect("keys").0, base, "another width, one front key");
+    assert_ne!(
+        front_keys(&width).expect("keys").0,
+        base,
+        "another width, one front key"
+    );
     // the estimates alone (D359): one key
     let rows = text.replacen(":scan.plan.plan_rows 1 ", ":scan.plan.plan_rows 2 ", 1);
     assert_ne!(rows, text);
-    assert_eq!(front_keys(&rows).expect("keys").0, base, "an estimate moved the front key");
+    assert_eq!(
+        front_keys(&rows).expect("keys").0,
+        base,
+        "an estimate moved the front key"
+    );
 }
 
 /// D793-b: the checkout under test, read at run time (cargo sets CARGO_MANIFEST_DIR for every test process), never
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }
 
 /// D3 (front walk): the walk asks normalize `op_classes` once per plan OpExpr in place of the six class fns; each class
@@ -891,14 +1162,25 @@ fn manifest_dir() -> &'static std::path::Path {
 fn op_classes_are_each_class_fns_answer() {
     use gravity_decompose::normalize::{self, OpClasses};
     seams();
-    let none = OpClasses { retype: None, detext: None, identity: None, implied: None, twin: None, coalesce: None };
+    let none = OpClasses {
+        retype: None,
+        detext: None,
+        identity: None,
+        implied: None,
+        twin: None,
+        coalesce: None,
+    };
     let (mut ops, mut classed) = (0usize, 0usize);
     for p in fixtures() {
         let text = std::fs::read_to_string(&p).unwrap();
         let ctx = MemoryContext::new("op classes");
-        let Ok(fx) = corpus::load(ctx.mcx(), &text) else { continue };
+        let Ok(fx) = corpus::load(ctx.mcx(), &text) else {
+            continue;
+        };
         let arena = Arena::new(1 << 22);
-        let Some(f) = front::walk(arena.handle(), fx.stmt, None) else { continue };
+        let Some(f) = front::walk(arena.handle(), fx.stmt, None) else {
+            continue;
+        };
         for &n in f.nodes.iter().filter(|n| n.as_op_expr().is_some()) {
             let got = normalize::op_classes(n);
             let each = OpClasses {
@@ -915,5 +1197,8 @@ fn op_classes_are_each_class_fns_answer() {
         }
     }
     eprintln!("op classes: {ops} OpExprs, {classed} with a class");
-    assert!(ops > 1000 && classed > 0, "{ops} OpExprs, {classed} with a class: the corpus reaches the classes");
+    assert!(
+        ops > 1000 && classed > 0,
+        "{ops} OpExprs, {classed} with a class: the corpus reaches the classes"
+    );
 }

@@ -1,15 +1,14 @@
 use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
-use ::types_core::{
-    catalog::{CHAROID, INT2ARRAYOID, INT2OID, RECORDOID, TEXTARRAYOID, TEXTOID},
-};
+use ::types_core::catalog::{CHAROID, INT2ARRAYOID, INT2OID, RECORDOID, TEXTARRAYOID, TEXTOID};
 use ::types_error::{
     PgError, PgResult, ERRCODE_NULL_VALUE_NOT_ALLOWED, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
     ERRCODE_ZERO_LENGTH_CHARACTER_STRING,
 };
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, };
+    FunctionCallInfoBaseData as Fcinfo,
+};
 
 use crate::io::{tsvector_in_core, tsvector_out_core, tsvector_recv_core, tsvector_send_core};
 use crate::layout::{wep_getpos, wep_getweight, TsVec, MAXSTRLEN, MAXSTRPOS};
@@ -139,7 +138,11 @@ fn arg_text_array<'a>(
 ) -> PgResult<(PgVec<'a, Datum>, PgVec<'a, bool>)> {
     // SAFETY: catalog arg is a non-null live text[] varlena.
     let pv = unsafe { fcinfo.arg_varlena_packed(i) }?;
-    let img = if pv.is_short() { pv.data_expanded(mcx)? } else { pv.data() };
+    let img = if pv.is_short() {
+        pv.data_expanded(mcx)?
+    } else {
+        pv.data()
+    };
     let mut full = vec_with_capacity_in(mcx, img.len() + 4)?;
     full.extend_from_slice(&[0u8; 4]);
     ::mcx::vec_append_bytes(&mut full, img)?;
@@ -163,7 +166,9 @@ pub fn fc_tsvector_setweight_by_filter(
             lexemes.push(text_datum_bytes(*d));
         }
     }
-    Ok(image_result(tsvector_setweight_by_filter_core(mcx, v, w, &lexemes)?))
+    Ok(image_result(tsvector_setweight_by_filter_core(
+        mcx, v, w, &lexemes,
+    )?))
 }
 
 pub fn fc_tsvector_concat(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -227,7 +232,10 @@ pub fn fc_tsvector_to_array(
     let mut elems: PgVec<Datum> = vec_with_capacity_in(mcx, v.size())?;
     for i in 0..v.size() {
         let e = v.entry(i);
-        elems.push(varlena_result(::varlena::cstring_to_text(mcx, v.lexeme(e))?));
+        elems.push(varlena_result(::varlena::cstring_to_text(
+            mcx,
+            v.lexeme(e),
+        )?));
     }
     let arr = ::arrayfuncs::construct_array(
         mcx,
@@ -300,7 +308,11 @@ pub fn fc_tsvector_filter(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     // SAFETY: catalog arg 1 is a non-null live "char"[] varlena.
     let pv = unsafe { fcinfo.arg_varlena_packed(1) }?;
-    let img = if pv.is_short() { pv.data_expanded(mcx)? } else { pv.data() };
+    let img = if pv.is_short() {
+        pv.data_expanded(mcx)?
+    } else {
+        pv.data()
+    };
     let mut full = vec_with_capacity_in(mcx, img.len() + 4)?;
     full.extend_from_slice(&[0u8; 4]);
     ::mcx::vec_append_bytes(&mut full, img)?;
@@ -340,10 +352,7 @@ enum UnnestRows {
     Tuples(Vec<Vec<u8>>),
 }
 
-pub fn fc_tsvector_unnest(
-    flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut Fcinfo,
-) -> PgResult<Datum> {
+pub fn fc_tsvector_unnest(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let flinfo = flinfo.expect("tsvector_unnest: NULL flinfo");
     if !flinfo.has_fn_extra() {
         ::funcapi::init_MultiFuncCall(flinfo, fcinfo)?;
@@ -428,7 +437,7 @@ fn unnest_collect(fcinfo: &mut Fcinfo) -> PgResult<Vec<Vec<u8>>> {
             nulls[2] = false;
         }
         let tuple = ::heaptuple::heap_form_tuple(mcx, &desc, &values, &nulls)?;
-        rows.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
     }
     Ok(rows)
 }
@@ -440,9 +449,19 @@ use ::types_fmgr::builtin_strict_retset as srf;
 pub const TSVECTOR_BUILTINS: &[FmgrBuiltin] = &[
     // ts_typanalyze.c hook (no crate of its own): ANALYZE dispatches
     // natively; fmgr-lookup parity row.
-    b(3688, "ts_typanalyze", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        3688,
+        "ts_typanalyze",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
     b(3319, "tsvector_filter", 2, fc_tsvector_filter),
-    b(3320, "tsvector_setweight_by_filter", 3, fc_tsvector_setweight_by_filter),
+    b(
+        3320,
+        "tsvector_setweight_by_filter",
+        3,
+        fc_tsvector_setweight_by_filter,
+    ),
     b(3321, "tsvector_delete_str", 2, fc_tsvector_delete_str),
     srf(3322, "tsvector_unnest", 1, fc_tsvector_unnest),
     b(3323, "tsvector_delete_arr", 2, fc_tsvector_delete_arr),

@@ -41,9 +41,21 @@ impl JitTags {
             Some(o) => SendRoot::new_owned_small(ROOT_NAME, o),
             None => SendRoot::new_small(ROOT_NAME),
         };
-        let (text, ends) = (IrVec::new_in(raw::tags_handle(&mut root)), IrVec::new_in(raw::tags_handle(&mut root)));
-        let (runs, last) = (IrVec::new_in(raw::tags_handle(&mut root)), IrVec::new_in(raw::tags_handle(&mut root)));
-        let mut t = JitTags { text, ends, runs, last, root };
+        let (text, ends) = (
+            IrVec::new_in(raw::tags_handle(&mut root)),
+            IrVec::new_in(raw::tags_handle(&mut root)),
+        );
+        let (runs, last) = (
+            IrVec::new_in(raw::tags_handle(&mut root)),
+            IrVec::new_in(raw::tags_handle(&mut root)),
+        );
+        let mut t = JitTags {
+            text,
+            ends,
+            runs,
+            last,
+            root,
+        };
         t.intern(format_args!("frame"));
         t
     }
@@ -65,7 +77,9 @@ impl JitTags {
 
     pub fn name(&self, tag: u32) -> &str {
         let i = tag as usize;
-        let Some(&end) = self.ends.get(i) else { return "untagged" };
+        let Some(&end) = self.ends.get(i) else {
+            return "untagged";
+        };
         let lo = if i == 0 { 0 } else { self.ends[i - 1] as usize };
         core::str::from_utf8(&self.text[lo..end as usize]).unwrap_or("untagged")
     }
@@ -108,7 +122,10 @@ impl JitTags {
 
 impl fmt::Debug for JitTags {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JitTags").field("names", &self.ends.len()).field("runs", &self.runs.len()).finish()
+        f.debug_struct("JitTags")
+            .field("names", &self.ends.len())
+            .field("runs", &self.runs.len())
+            .finish()
     }
 }
 
@@ -133,7 +150,11 @@ pub(crate) struct JitState {
 
 impl JitState {
     pub(crate) fn new(owner: Option<memledger::Owner>) -> JitState {
-        JitState { tags: JitTags::new(owner), cur: 0, func: 0 }
+        JitState {
+            tags: JitTags::new(owner),
+            cur: 0,
+            func: 0,
+        }
     }
 
     pub(crate) fn define(&mut self, func: u32) {
@@ -157,7 +178,12 @@ impl JitState {
             t.runs[run as usize].tag = self.cur;
         } else {
             t.last[b].1 = t.runs.len() as u32;
-            t.runs.push(JitRun { func: self.func, block, idx, tag: self.cur });
+            t.runs.push(JitRun {
+                func: self.func,
+                block,
+                idx,
+                tag: self.cur,
+            });
         }
         t.last[b].0 = self.cur;
     }
@@ -165,7 +191,11 @@ impl JitState {
     /// `n` instructions were inserted at `idx` of `block`: the runs after it move down.
     pub(crate) fn inserted(&mut self, block: u32, idx: u32, n: u32) {
         let func = self.func;
-        self.tags.runs.iter_mut().filter(|r| r.func == func && r.block == block && r.idx > idx).for_each(|r| r.idx += n);
+        self.tags
+            .runs
+            .iter_mut()
+            .filter(|r| r.func == func && r.block == block && r.idx > idx)
+            .for_each(|r| r.idx += n);
     }
 
     /// The tag `name` writes (interned) in effect from here on; the tag before it returned.
@@ -219,7 +249,12 @@ mod tests {
     }
 
     fn of(t: &super::JitTags, func: u32) -> Vec<JitRun> {
-        let mut v: Vec<JitRun> = t.runs().iter().copied().filter(|r| r.func == func).collect();
+        let mut v: Vec<JitRun> = t
+            .runs()
+            .iter()
+            .copied()
+            .filter(|r| r.func == func)
+            .collect();
         v.sort_unstable_by_key(|r| (r.block, r.idx));
         v
     }
@@ -233,8 +268,16 @@ mod tests {
         assert_eq!(on, off, "tags change no IR");
         assert!(none.is_none());
         let t = tags.expect("tags");
-        assert_eq!((0..t.names()).map(|i| t.name(i)).collect::<Vec<_>>(), ["frame", "a", "b"]);
-        let r = |block, idx, tag| JitRun { func: 0, block, idx, tag };
+        assert_eq!(
+            (0..t.names()).map(|i| t.name(i)).collect::<Vec<_>>(),
+            ["frame", "a", "b"]
+        );
+        let r = |block, idx, tag| JitRun {
+            func: 0,
+            block,
+            idx,
+            tag,
+        };
         assert_eq!(of(&t, 0), [r(0, 0, 1), r(1, 0, 2), r(1, 1, 1), r(1, 2, 0)]);
         assert_eq!((t.name(2), t.name(9)), ("b", "untagged"));
         assert!(t.bytes() > 0);
@@ -248,7 +291,23 @@ mod tests {
         j.cur = 1;
         j.at(0, 3);
         j.inserted(0, 2, 2);
-        assert_eq!(j.tags.runs(), [JitRun { func: 0, block: 0, idx: 0, tag: 0 }, JitRun { func: 0, block: 0, idx: 5, tag: 1 }]);
+        assert_eq!(
+            j.tags.runs(),
+            [
+                JitRun {
+                    func: 0,
+                    block: 0,
+                    idx: 0,
+                    tag: 0
+                },
+                JitRun {
+                    func: 0,
+                    block: 0,
+                    idx: 5,
+                    tag: 1
+                }
+            ]
+        );
     }
 
     /// A second tag at the same place retags the run there; interning returns the same tag for the same name.
@@ -263,7 +322,23 @@ mod tests {
         j.set(format_args!("y"));
         j.at(0, 1);
         assert_eq!(j.set(format_args!("x.1")), 2);
-        assert_eq!(j.tags.runs(), [JitRun { func: 0, block: 0, idx: 0, tag: 0 }, JitRun { func: 0, block: 0, idx: 1, tag: 2 }]);
+        assert_eq!(
+            j.tags.runs(),
+            [
+                JitRun {
+                    func: 0,
+                    block: 0,
+                    idx: 0,
+                    tag: 0
+                },
+                JitRun {
+                    func: 0,
+                    block: 0,
+                    idx: 1,
+                    tag: 2
+                }
+            ]
+        );
         let t = j.finish();
         assert_eq!((t.names(), t.name(1), t.name(2)), (3, "x.1", "y"));
     }

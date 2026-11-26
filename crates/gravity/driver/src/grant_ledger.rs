@@ -26,11 +26,13 @@ pub(crate) static EPOCH: AtomicU64 = AtomicU64::new(0);
 
 pub fn mode() -> Mode {
     static MODE: pgsync::OnceLock<Mode> = pgsync::OnceLock::new();
-    *MODE.get_or_init(|| match crate::env::text("PGRUST_GRAVITY_LEDGER").as_deref() {
-        Some("abort") => Mode::Abort,
-        Some("off") => Mode::Off,
-        _ => Mode::Report,
-    })
+    *MODE.get_or_init(
+        || match crate::env::text("PGRUST_GRAVITY_LEDGER").as_deref() {
+            Some("abort") => Mode::Abort,
+            Some("off") => Mode::Off,
+            _ => Mode::Report,
+        },
+    )
 }
 
 #[inline]
@@ -51,9 +53,16 @@ pub(crate) fn next_id() -> u64 {
 pub(crate) fn violation(check: Check, stmt: u64, what: core::fmt::Arguments<'_>) {
     let i = check as usize;
     COUNTS[i].fetch_add(1, Ordering::Relaxed);
-    let key = if stmt == 0 { EPOCH.load(Ordering::Relaxed) } else { stmt };
+    let key = if stmt == 0 {
+        EPOCH.load(Ordering::Relaxed)
+    } else {
+        stmt
+    };
     if LAST[i].swap(key, Ordering::Relaxed) != key {
-        eprintln!("gravity: ledger: {check:?} stmt={stmt} thread={:?} {what}", std::thread::current().id());
+        eprintln!(
+            "gravity: ledger: {check:?} stmt={stmt} thread={:?} {what}",
+            std::thread::current().id()
+        );
     }
     if mode() == Mode::Abort {
         panic!("gravity: ledger: {check:?} stmt={stmt} {what}");
@@ -79,10 +88,21 @@ mod d3863 {
     #[test]
     fn learned_shares_inside_the_reservation_are_no_overdraw() {
         let g = Grant::of(128 * KIB);
-        assert_eq!(l2_bound(g, 2, 0), 128 * KIB + 2 * 4096, "no reservation: the grant, two 64 KiB floors, a page each");
+        assert_eq!(
+            l2_bound(g, 2, 0),
+            128 * KIB + 2 * 4096,
+            "no reservation: the grant, two 64 KiB floors, a page each"
+        );
         assert!(2_027_520 <= l2_bound(g, 2, 10_428 * KIB), "m1_d1887_row_collation W0 (work_mem 64 kB): two raised shares inside the 10428 KiB reservation");
-        assert!(10_428 * KIB + 1 > l2_bound(g, 2, 10_428 * KIB), "past the grant and the reservation: still an overdraw");
+        assert!(
+            10_428 * KIB + 1 > l2_bound(g, 2, 10_428 * KIB),
+            "past the grant and the reservation: still an overdraw"
+        );
         let f = Grant::of(128 * KIB).with_floors(4 * MIB, 8 * MIB);
-        assert_eq!(l2_bound(f, 2, 0), 128 * KIB + 2 * (4096 + 8 * MIB), "D2587: a floor a share past the grant");
+        assert_eq!(
+            l2_bound(f, 2, 0),
+            128 * KIB + 2 * (4096 + 8 * MIB),
+            "D2587: a floor a share past the grant"
+        );
     }
 }

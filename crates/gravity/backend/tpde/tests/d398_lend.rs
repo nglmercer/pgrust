@@ -26,7 +26,11 @@ fn lends_outside_regions(c: &gravity_tpde::Compiled<'_>) -> usize {
             RegallocEvent::RegionBegin => depth += 1,
             RegallocEvent::RegionEnd => depth -= 1,
             RegallocEvent::Lend => {
-                assert_eq!(depth, 0, "a register lent inside a branch region (block {:?})", e.block);
+                assert_eq!(
+                    depth, 0,
+                    "a register lent inside a branch region (block {:?})",
+                    e.block
+                );
                 lends += 1;
             }
             _ => {}
@@ -38,10 +42,18 @@ fn lends_outside_regions(c: &gravity_tpde::Compiled<'_>) -> usize {
 #[test]
 fn a_starved_instruction_borrows_a_fixed_register() {
     as_on_macos();
-    let p = parse_program(include_str!("fixtures/th14_addhi_exhaustion.txt"), &|_| Some(0x1000)).unwrap_or_else(|e| panic!("{e}"));
+    let p = parse_program(include_str!("fixtures/th14_addhi_exhaustion.txt"), &|_| {
+        Some(0x1000)
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
     let ctx = MemoryContext::new("gravity-tpde-test");
-    let lends = gravity_tpde::compile_recording(ctx.mcx(), &p).map(|c| lends_outside_regions(&c)).unwrap_or_else(|e| panic!("compile: {}", e.message()));
-    assert!(lends > 0, "no register was lent: the fixture no longer starves the allocator");
+    let lends = gravity_tpde::compile_recording(ctx.mcx(), &p)
+        .map(|c| lends_outside_regions(&c))
+        .unwrap_or_else(|e| panic!("compile: {}", e.message()));
+    assert!(
+        lends > 0,
+        "no register was lent: the fixture no longer starves the allocator"
+    );
 }
 
 /// Fourteen loop invariants read in every block of the body (the fixed budget), nine loop-carried phis (the pinned
@@ -59,7 +71,9 @@ fn a_lent_register_keeps_its_value() {
     let f = pb.declare_func("lend", &[Type::Ptr, Type::I64], &[Type::I64]);
     let mut b = pb.define(f);
     let [p, n]: [Value; 2] = b.params().try_into().unwrap();
-    let inv: Vec<Value> = (0..NINV).map(|k| b.load(Type::I64, p, 8 * k as i32)).collect();
+    let inv: Vec<Value> = (0..NINV)
+        .map(|k| b.load(Type::I64, p, 8 * k as i32))
+        .collect();
     let header = b.create_block(&[Type::I64; NACC + 1]);
     b.mark_loop_header(header);
     let bodies: Vec<Block> = (0..4).map(|_| b.create_block(&[])).collect();
@@ -81,8 +95,14 @@ fn a_lent_register_keeps_its_value() {
             *a = b.int_bin(IntBinOp::Add, x, i);
         }
         if s == 1 {
-            let x: Vec<Value> = (0..4).map(|k| b.load(Type::I64, p, 8 * (NINV + k) as i32)).collect();
-            let x: Vec<Value> = x.iter().enumerate().map(|(k, &v)| b.int_bin(IntBinOp::Add, v, acc[k])).collect();
+            let x: Vec<Value> = (0..4)
+                .map(|k| b.load(Type::I64, p, 8 * (NINV + k) as i32))
+                .collect();
+            let x: Vec<Value> = x
+                .iter()
+                .enumerate()
+                .map(|(k, &v)| b.int_bin(IntBinOp::Add, v, acc[k]))
+                .collect();
             let h = b.add_hi(x[0], x[1], x[2], x[3]);
             acc[0] = b.int_bin(IntBinOp::Add, acc[0], h);
             // The four operands stay live past the `addhi`, so its result cannot take one of their registers.
@@ -115,12 +135,19 @@ fn a_lent_register_keeps_its_value() {
     gravity_ir::verify::verify_dominance(&prog).unwrap_or_else(|e| panic!("{e:?}"));
     let ctx = MemoryContext::new("gravity-tpde-test");
     let lends = {
-        let c = gravity_tpde::compile_recording(ctx.mcx(), &prog).unwrap_or_else(|e| panic!("compile: {}", e.message()));
+        let c = gravity_tpde::compile_recording(ctx.mcx(), &prog)
+            .unwrap_or_else(|e| panic!("compile: {}", e.message()));
         lends_outside_regions(&c)
     };
-    assert!(lends > 0, "no register was lent: the shape no longer starves the allocator");
-    let mut data: Vec<i64> = (0..(NINV + 4) as i64).map(|k| k.wrapping_mul(0x9E37_79B9_7F4A_7C15u64 as i64) ^ (k << 40)).collect();
+    assert!(
+        lends > 0,
+        "no register was lent: the shape no longer starves the allocator"
+    );
+    let mut data: Vec<i64> = (0..(NINV + 4) as i64)
+        .map(|k| k.wrapping_mul(0x9E37_79B9_7F4A_7C15u64 as i64) ^ (k << 40))
+        .collect();
     for trips in [0u64, 1, 2, 7, 100] {
-        common::both(&prog, f, &[data.as_mut_ptr() as u64, trips]).unwrap_or_else(|t| panic!("interp trapped: {t:?}"));
+        common::both(&prog, f, &[data.as_mut_ptr() as u64, trips])
+            .unwrap_or_else(|t| panic!("interp trapped: {t:?}"));
     }
 }

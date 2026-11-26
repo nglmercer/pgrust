@@ -1,7 +1,9 @@
 use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
 use gravity_program::{limits, ArenaVec, End, LifeId, Pipeline};
 
-use crate::graph::{slot_has, slot_set, slot_unset, BreakerDecl, Layout, Order, PipelineGraph, SlotSet};
+use crate::graph::{
+    slot_has, slot_set, slot_unset, BreakerDecl, Layout, Order, PipelineGraph, SlotSet,
+};
 use crate::walk::{Builder, Open};
 
 pub fn live_slots(g: &PipelineGraph<'_>) -> SlotSet {
@@ -32,10 +34,19 @@ pub fn leased(g: &PipelineGraph<'_>) -> SlotSet {
             *t |= *h;
         }
     }
-    for s in g.init_plans.iter().filter_map(|i| i.slot).chain(g.shared_sets.iter().map(|&(_, s)| s)) {
+    for s in g
+        .init_plans
+        .iter()
+        .filter_map(|i| i.slot)
+        .chain(g.shared_sets.iter().map(|&(_, s)| s))
+    {
         slot_set(&mut taken, s);
     }
-    for p in g.pipelines.iter().skip(g.term_from.map_or(usize::MAX, usize::from)) {
+    for p in g
+        .pipelines
+        .iter()
+        .skip(g.term_from.map_or(usize::MAX, usize::from))
+    {
         for s in p.desc.consumes.iter().chain(p.desc.produces().iter()) {
             slot_set(&mut taken, *s);
         }
@@ -80,7 +91,9 @@ pub fn free_slot(g: &PipelineGraph<'_>, producer: &Open<'_>) -> Option<u8> {
     for c in producer.desc.consumes.iter() {
         slot_set(&mut taken, *c);
     }
-    (0..limits::BREAKERS as u16).map(|s| s as u8).find(|&s| !slot_has(&taken, s))
+    (0..limits::BREAKERS as u16)
+        .map(|s| s as u8)
+        .find(|&s| !slot_has(&taken, s))
 }
 
 /// The slots every pipeline after the work table's life up to the body fills or reads again per generation.
@@ -109,12 +122,18 @@ pub fn iter_leases(g: &PipelineGraph<'_>, ops: &[crate::graph::Op<'_>]) -> SlotS
 }
 
 /// Push `it` onto the driver `open` and lease its re-run range to it.
-pub fn lease_iter<'p>(b: &mut Builder<'p, '_>, open: &mut Open<'p>, it: crate::ops::shared::setop::IterDesc) {
+pub fn lease_iter<'p>(
+    b: &mut Builder<'p, '_>,
+    open: &mut Open<'p>,
+    it: crate::ops::shared::setop::IterDesc,
+) {
     let set = iter_slots(&b.graph, &it);
     for s in (0..=u8::MAX).filter(|s| slot_has(&set, *s)) {
         b.graph.reads[s as usize] += 1;
     }
-    open.push(crate::graph::Op::SetOp(crate::ops::shared::setop::SetDesc::Iter(it)));
+    open.push(crate::graph::Op::SetOp(
+        crate::ops::shared::setop::SetDesc::Iter(it),
+    ));
 }
 
 /// `open`, a bare emit over its slot, is dropped for the slot itself (`sort::spool`): its read goes with it.
@@ -130,23 +149,60 @@ pub fn one_fill<'p>(g: &mut PipelineGraph<'p>, open: Open<'p>) -> Open<'p> {
     crate::ops::shared::union::settle(g, open)
 }
 
-pub fn declare<'p>(g: &mut PipelineGraph<'p>, producer: Open<'p>, kind: BreakerKind, layout: Layout<'p>, budget: Budget, spill: Spill, order: Order) -> u8 {
+pub fn declare<'p>(
+    g: &mut PipelineGraph<'p>,
+    producer: Open<'p>,
+    kind: BreakerKind,
+    layout: Layout<'p>,
+    budget: Budget,
+    spill: Spill,
+    order: Order,
+) -> u8 {
     let producer = crate::ops::shared::union::resolve(g, producer);
     let slot = free_slot(g, &producer).expect("checked by the caller: a free breaker slot");
-    declare_breaker(g, producer, Breaker { kind, slot, bytes: 0, budget, spill }, layout, order)
+    declare_breaker(
+        g,
+        producer,
+        Breaker {
+            kind,
+            slot,
+            bytes: 0,
+            budget,
+            spill,
+        },
+        layout,
+        order,
+    )
 }
 
 /// `declare` with the breaker given whole (a sized `PlainAgg`, its `slot` the caller's `free_slot`) and read `order`.
-pub fn declare_breaker<'p>(g: &mut PipelineGraph<'p>, producer: Open<'p>, b: Breaker, layout: Layout<'p>, order: Order) -> u8 {
+pub fn declare_breaker<'p>(
+    g: &mut PipelineGraph<'p>,
+    producer: Open<'p>,
+    b: Breaker,
+    layout: Layout<'p>,
+    order: Order,
+) -> u8 {
     declare_producers(g, producer, b, layout, order);
     b.slot
 }
 
-pub fn declare_producers<'p>(g: &mut PipelineGraph<'p>, mut producer: Open<'p>, b: Breaker, layout: Layout<'p>, order: Order) -> ArenaVec<u16> {
+pub fn declare_producers<'p>(
+    g: &mut PipelineGraph<'p>,
+    mut producer: Open<'p>,
+    b: Breaker,
+    layout: Layout<'p>,
+    order: Order,
+) -> ArenaVec<u16> {
     producer.desc.ends_in = End::Breaker(b);
     let ends = g.push(producer);
     for &p in ends.iter() {
-        g.breakers.push(BreakerDecl { breaker: b, layout, producer: p, order });
+        g.breakers.push(BreakerDecl {
+            breaker: b,
+            layout,
+            producer: p,
+            order,
+        });
     }
     ends
 }
@@ -159,13 +215,29 @@ pub fn decl_of<'a, 'p>(g: &'a PipelineGraph<'p>, slot: u8) -> Option<&'a Breaker
 /// A settled union's arms (append.rs `settle_arms`, a nest's embedded Append inner): `emit` reads its slot and opens with
 /// `Union { slot, children }`, and the slot's last `children` declarations are the arm pipelines that feed it, each
 /// ending in its `Feed`; None for any other open, or when the declarations do not read so.
-pub fn union_arms<'a, 'p>(g: &'a PipelineGraph<'p>, emit: &Open<'p>) -> Option<impl Iterator<Item = &'a Open<'p>> + Clone> {
+pub fn union_arms<'a, 'p>(
+    g: &'a PipelineGraph<'p>,
+    emit: &Open<'p>,
+) -> Option<impl Iterator<Item = &'a Open<'p>> + Clone> {
     use crate::ops::shared::append::AppendDesc;
-    let crate::graph::Source::Breaker { slot } = emit.source else { return None };
-    let Some(crate::graph::Op::Append(AppendDesc::Union { slot: s, children, .. })) = emit.ops.first() else { return None };
+    let crate::graph::Source::Breaker { slot } = emit.source else {
+        return None;
+    };
+    let Some(crate::graph::Op::Append(AppendDesc::Union {
+        slot: s, children, ..
+    })) = emit.ops.first()
+    else {
+        return None;
+    };
     let n = *children as usize;
     let feeds = |p: &Open<'p>| matches!(p.ops.last(), Some(crate::graph::Op::Append(AppendDesc::Feed { slot: f, .. })) if *f == slot);
-    let arms = g.breakers.iter().rev().filter(move |d| d.breaker.slot == slot).take(n).filter_map(move |d| g.pipelines.get(d.producer as usize));
+    let arms = g
+        .breakers
+        .iter()
+        .rev()
+        .filter(move |d| d.breaker.slot == slot)
+        .take(n)
+        .filter_map(move |d| g.pipelines.get(d.producer as usize));
     (*s == slot && n > 0 && arms.clone().count() == n && arms.clone().all(feeds)).then_some(arms)
 }
 
@@ -181,7 +253,9 @@ pub fn consuming(b: &mut Builder<'_, '_>, desc: Pipeline, slot: u8) -> Pipeline 
 fn read_life(b: &mut Builder<'_, '_>, desc: Pipeline, slot: u8, life: Option<LifeId>) -> Pipeline {
     b.graph.reads[slot as usize] += 1;
     match life {
-        Some(l) if desc.consumes_from.len() == desc.consumes.len() => desc.consuming_from_in(b.arena, slot, l),
+        Some(l) if desc.consumes_from.len() == desc.consumes.len() => {
+            desc.consuming_from_in(b.arena, slot, l)
+        }
         _ => {
             let mut d = desc.consuming_in(b.arena, slot);
             d.consumes_from = &[];
@@ -201,15 +275,22 @@ fn cascade_reads(b: &mut Builder<'_, '_>, mut desc: Pipeline, slot: u8) -> Pipel
     if b.graph.cascades.is_empty() {
         return desc;
     }
-    let Some(top) = decl_of(&b.graph, slot).filter(|d| matches!(d.breaker.kind, BreakerKind::Sort | BreakerKind::TopK)).map(|d| d.producer as usize) else {
+    let Some(top) = decl_of(&b.graph, slot)
+        .filter(|d| matches!(d.breaker.kind, BreakerKind::Sort | BreakerKind::TopK))
+        .map(|d| d.producer as usize)
+    else {
         return desc;
     };
     // bounded("other: one pass over the graph's cascades, at most limits::CASCADE_SETS_MAX per grouping-sets node")
     for i in 0..b.graph.cascades.len() {
         let c = &b.graph.cascades[i];
         let (base_slot, base, set, life) = (c.base_slot, c.base, c.slot, c.producer);
-        let Some(t) = b.graph.pipelines.get(top) else { return desc };
-        let reads_base = t.desc.consumes.iter().enumerate().any(|(j, &s)| s == base_slot && t.desc.consumes_from.get(j).is_none_or(|&l| l == base));
+        let Some(t) = b.graph.pipelines.get(top) else {
+            return desc;
+        };
+        let reads_base = t.desc.consumes.iter().enumerate().any(|(j, &s)| {
+            s == base_slot && t.desc.consumes_from.get(j).is_none_or(|&l| l == base)
+        });
         if !reads_base {
             continue;
         }
@@ -227,7 +308,12 @@ fn cascade_reads(b: &mut Builder<'_, '_>, mut desc: Pipeline, slot: u8) -> Pipel
 /// the inner holds its regions. The inner keeps its entry. A slot `d` reads already stays one entry; another life of it
 /// is `Err(slot)`. `reads`: an open `d`'s reader counts, one more per slot (its push takes it back, as `consuming`'s):
 /// the inner's own read, never pushed, keeps the slot leased as before.
-pub fn embed(arena: gravity_program::ArenaRef, mut d: Pipeline, inner: &Pipeline, mut reads: Option<&mut [u16; 256]>) -> Result<Pipeline, u8> {
+pub fn embed(
+    arena: gravity_program::ArenaRef,
+    mut d: Pipeline,
+    inner: &Pipeline,
+    mut reads: Option<&mut [u16; 256]>,
+) -> Result<Pipeline, u8> {
     let named = inner.consumes_from.len() == inner.consumes.len();
     for (j, &s) in inner.consumes.iter().enumerate() {
         let life = inner.consumes_from.get(j).copied().filter(|_| named);
@@ -241,7 +327,9 @@ pub fn embed(arena: gravity_program::ArenaRef, mut d: Pipeline, inner: &Pipeline
             r[s as usize] += 1;
         }
         d = match life {
-            Some(l) if d.consumes_from.len() == d.consumes.len() => d.consuming_from_in(arena, s, l),
+            Some(l) if d.consumes_from.len() == d.consumes.len() => {
+                d.consuming_from_in(arena, s, l)
+            }
             _ => {
                 let mut x = d.consuming_in(arena, s);
                 x.consumes_from = &[];

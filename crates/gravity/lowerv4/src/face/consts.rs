@@ -13,8 +13,8 @@ use gravity_ir::Value;
 use gravity_decompose::ops::shared::agg::GroupDecl;
 use gravity_program::Pipeline;
 
-use crate::frame::env::Env;
 use crate::face::strategy::TOPK_WALK;
+use crate::frame::env::Env;
 use crate::frame::px::Px;
 
 crate::strategies! {
@@ -103,7 +103,10 @@ pub fn walk(px: &mut Px<'_, '_>, k: usize, site: Option<usize>, desc: &mut Pipel
         return;
     }
     let node = px.gx.pipelines()[px.after_of(k)].node_id;
-    RtConst::Claims.need::<WalkImpl>(&node).0.declare(px, k, site, desc);
+    RtConst::Claims
+        .need::<WalkImpl>(&node)
+        .0
+        .declare(px, k, site, desc);
 }
 
 /// V4R-177: the group walk `(n, attno)` that pipeline `k`'s keyed end folds under, gated as in `walk`. The end is made
@@ -112,5 +115,8 @@ pub fn walk_group(px: &Px<'_, '_>, k: usize, g: &GroupDecl<'_>) -> Option<(u32, 
     if !(px.strategies.has(TOPK_WALK) && RtConst::Claims.on()) {
         return None;
     }
-    RtConst::Claims.need::<WalkImpl>(&g.node_id).0.group(px, k, g)
+    RtConst::Claims
+        .need::<WalkImpl>(&g.node_id)
+        .0
+        .group(px, k, g)
 }

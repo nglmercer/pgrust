@@ -29,7 +29,12 @@ fn is_min(env: &Env, a: &AggDecl<'_>) -> bool {
     match a.reg {
         R::MinInterval => true,
         R::MaxInterval => false,
-        _ => crate::refuse!(env.node, Reason::Bug { payload: "class.other's interval fold over another register" }),
+        _ => crate::refuse!(
+            env.node,
+            Reason::Bug {
+                payload: "class.other's interval fold over another register"
+            }
+        ),
     }
 }
 
@@ -39,7 +44,10 @@ fn load(b: &mut FunctionBuilder<'_>, env: &Env, acc: &Acc<'_>) -> [Value; 3] {
         Acc::Regs(w) => [w[0], w[1], w[2]],
         Acc::Slot { base, off, valid } => {
             let ok = crate::ops::shared::slots::slot_ok(b, env, *base, *valid);
-            let (t, dm) = (b.load(Type::I64, *base, *off), b.load(Type::I64, *base, off + 8));
+            let (t, dm) = (
+                b.load(Type::I64, *base, *off),
+                b.load(Type::I64, *base, off + 8),
+            );
             let (t, dm) = (b.select(ok, t, env.zero), b.select(ok, dm, env.zero));
             [t, dm, b.conv(ConvOp::Zext, Type::I64, ok)]
         }
@@ -69,7 +77,10 @@ fn span(b: &mut FunctionBuilder<'_>, t: Value, dm: Value) -> (Value, Value) {
     let days = b.int_bin(IntBinOp::Mul, month, thirty);
     let days = b.int_bin(IntBinOp::Add, days, day);
     let (du, s63) = (b.iconst(Type::I64, USECS_PER_DAY), b.iconst(Type::I64, 63));
-    let (lo, hi) = (b.int_bin(IntBinOp::Mul, days, du), b.int_bin(IntBinOp::Smulh, days, du));
+    let (lo, hi) = (
+        b.int_bin(IntBinOp::Mul, days, du),
+        b.int_bin(IntBinOp::Smulh, days, du),
+    );
     let th = b.int_bin(IntBinOp::Sshr, t, s63);
     let (lo, hi) = crate::ops::agg::trans::class_word::add128(b, lo, hi, t, th);
     (hi, lo)
@@ -77,7 +88,10 @@ fn span(b: &mut FunctionBuilder<'_>, t: Value, dm: Value) -> (Value, Value) {
 
 /// Whether `x` orders strictly before `y` (`interval_cmp_internal(x, y) < 0`): the high words signed, then the low unsigned.
 fn lt(b: &mut FunctionBuilder<'_>, x: (Value, Value), y: (Value, Value)) -> Value {
-    let (dl, de) = (b.icmp(IntCond::Slt, x.0, y.0), b.icmp(IntCond::Eq, x.0, y.0));
+    let (dl, de) = (
+        b.icmp(IntCond::Slt, x.0, y.0),
+        b.icmp(IntCond::Eq, x.0, y.0),
+    );
     let ul = b.icmp(IntCond::Ult, x.1, y.1);
     let tie = b.int_bin(IntBinOp::And, de, ul);
     b.int_bin(IntBinOp::Or, dl, tie)
@@ -87,7 +101,13 @@ fn lt(b: &mut FunctionBuilder<'_>, x: (Value, Value), y: (Value, Value)) -> Valu
 /// (min) / larger (max) than a valid `v`; an invalid `v` leaves `s`. Branches, not selects (perf: a run carry merges into
 /// its slot at every key change, so unclustered keys paid four spans a row): an empty side, or one known empty or valid
 /// at compile time, folds no span, and equal `day | month` words order by `time` alone (the spans differ by exactly that).
-fn fold(b: &mut FunctionBuilder<'_>, env: &Env, min: bool, s: [Value; 3], v: [Value; 3]) -> [Value; 3] {
+fn fold(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    min: bool,
+    s: [Value; 3],
+    v: [Value; 3],
+) -> [Value; 3] {
     let known = |b: &FunctionBuilder<'_>, x: Value| b.const_of(x).map(|(_, c)| c != 0);
     match (known(b, s[2]), known(b, v[2])) {
         (_, Some(false)) => return s,
@@ -110,7 +130,11 @@ fn fold(b: &mut FunctionBuilder<'_>, env: &Env, min: bool, s: [Value; 3], v: [Va
     let same = b.icmp(IntCond::Eq, s[1], v[1]);
     b.cond_br(same, (l_eq, &[]), (l_ne, &[]));
     b.switch_to(l_eq);
-    let keep = if min { b.icmp(IntCond::Slt, s[0], v[0]) } else { b.icmp(IntCond::Slt, v[0], s[0]) };
+    let keep = if min {
+        b.icmp(IntCond::Slt, s[0], v[0])
+    } else {
+        b.icmp(IntCond::Slt, v[0], s[0])
+    };
     let t = b.select(keep, s[0], v[0]);
     b.br(out, &[t, s[1], one]);
     b.switch_to(l_ne);
@@ -123,10 +147,13 @@ fn fold(b: &mut FunctionBuilder<'_>, env: &Env, min: bool, s: [Value; 3], v: [Va
     [p[0], p[1], p[2]]
 }
 
-
 impl FoldClass for Interval {
     fn shape(&self, _a: &AggDecl<'_>) -> AccShape {
-        AccShape { words: 3, bytes: 16, align: 8 }
+        AccShape {
+            words: 3,
+            bytes: 16,
+            align: 8,
+        }
     }
 
     fn init(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) {
@@ -134,40 +161,82 @@ impl FoldClass for Interval {
         store(b, env, acc, [env.zero; 3]);
     }
 
-    fn step(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>, args: &[CellRef<'_>]) {
+    fn step(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+        args: &[CellRef<'_>],
+    ) {
         let min = is_min(env, a);
         if args.len() != 1 {
-            crate::refuse!(env.node, Reason::Bug { payload: "class.other's interval fold over other than one argument" });
+            crate::refuse!(
+                env.node,
+                Reason::Bug {
+                    payload: "class.other's interval fold over other than one argument"
+                }
+            );
         }
         let (d, ok) = crate::ops::agg::trans::plain::args_ok(b, env, a, args);
         // a NULL or FILTER-dropped row folds nothing: the state passes the branch unchanged (a NULL's datum is no address)
         let s = load(b, env, &acc);
-        let (l_do, l_j) = (b.create_block(&[]), b.create_block(&[Type::I64, Type::I64, Type::I64]));
+        let (l_do, l_j) = (
+            b.create_block(&[]),
+            b.create_block(&[Type::I64, Type::I64, Type::I64]),
+        );
         b.cond_br(ok, (l_do, &[]), (l_j, &s));
         b.switch_to(l_do);
         let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
-        let (t, dm) = (b.load_unaligned(Type::I64, p, 0), b.load_unaligned(Type::I64, p, 8));
+        let (t, dm) = (
+            b.load_unaligned(Type::I64, p, 0),
+            b.load_unaligned(Type::I64, p, 8),
+        );
         let one = b.iconst(Type::I64, 1);
         let w = fold(b, env, min, s, [t, dm, one]);
         b.br(l_j, &w);
         b.switch_to(l_j);
-        let w = [b.block_params(l_j)[0], b.block_params(l_j)[1], b.block_params(l_j)[2]];
+        let w = [
+            b.block_params(l_j)[0],
+            b.block_params(l_j)[1],
+            b.block_params(l_j)[2],
+        ];
         store(b, env, acc, w);
     }
 
-    fn merge(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, into: Acc<'_>, from: Acc<'_>) {
+    fn merge(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        into: Acc<'_>,
+        from: Acc<'_>,
+    ) {
         let min = is_min(env, a);
         let (x, y) = (load(b, env, &into), load(b, env, &from));
         let w = fold(b, env, min, x, y);
         store(b, env, into, w);
     }
 
-    fn finish(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, a: &AggDecl<'_>, acc: Acc<'_>) -> (Value, Value) {
+    fn finish(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        a: &AggDecl<'_>,
+        acc: Acc<'_>,
+    ) -> (Value, Value) {
         is_min(env, a);
         let w = load(b, env, &acc);
         let none = b.icmp(IntCond::Eq, w[2], env.zero);
         let host = crate::ops::agg::raw::interval_box as *const () as usize;
-        let v = crate::ops::agg::trans::slots::host_final(b, env, "class_interval::interval_box", host, &[w[0], w[1]], none);
+        let v = crate::ops::agg::trans::slots::host_final(
+            b,
+            env,
+            "class_interval::interval_box",
+            host,
+            &[w[0], w[1]],
+            none,
+        );
         (v, none)
     }
 }

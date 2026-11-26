@@ -20,14 +20,14 @@ use mcx::GrowIn;
 use crate::admit::refusal::Variant;
 use crate::effects::visible::hashjoin::{copies_alike, past_volatile};
 use crate::face::end::EndMech;
-use crate::table::keyimg::ImageWords;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
+use crate::table::keyimg::ImageWords;
 
 use crate::ops::hashjoin::build::LOW;
-use crate::ops::hashjoin::rt::{rd, wr, Rt};
 use crate::ops::hashjoin::build_side::Shape;
 use crate::ops::hashjoin::probe::{rec_at, Hv};
+use crate::ops::hashjoin::rt::{rd, wr, Rt};
 
 mod raw;
 pub(crate) use raw::{bump, collapse};
@@ -40,7 +40,10 @@ crate::strategies! {
     JOIN_MULT = 51, "join.mult", JoinFold;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(crate::face::strategy::JOIN_MULT, &Mult)], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(crate::face::strategy::JOIN_MULT, &Mult)],
+    ..crate::ops::NONE
+};
 
 /// Whether probe op `j` of pipeline `k` (with an empty join qual: `qual_empty`) over build `sh` may take the form, as far
 /// as the ops after it tell (the end answers later, `decide`).
@@ -74,7 +77,15 @@ fn count(b: &mut FunctionBuilder<'_>, env: &Env, rec: Value, link_off: i32) -> V
 /// The multiplicity of image `img` in the build (`I64`, 0: no match) from its first candidate record `first` (0: none).
 /// `exact`: the form's candidate is the key's own record (dense); otherwise the chain is walked to the equal image,
 /// which after `collapse` is the only one.
-pub(crate) fn weight(b: &mut FunctionBuilder<'_>, env: &mut Env, hv: &Hv, img: &ImageWords, first: Value, exact: Value, sh: &Shape) -> Value {
+pub(crate) fn weight(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    hv: &Hv,
+    img: &ImageWords,
+    first: Value,
+    exact: Value,
+    sh: &Shape,
+) -> Value {
     let l_walk = b.create_block(&[Type::I64]);
     let l_out = b.create_block(&[Type::I64]);
     b.br(l_walk, &[first]);
@@ -111,7 +122,10 @@ pub(crate) fn weight(b: &mut FunctionBuilder<'_>, env: &mut Env, hv: &Hv, img: &
 mod tests {
     use gravity_abi::hash::{Depth, KeyHash};
 
-    use crate::ops::hashjoin::build::{A_DENSE, A_MULT, A_TAGS, ALLOW, BITS, DENSE, DIR, FLAGS, FORM, F_RANGE, HASH, HI, IDX, LO, LOW, N, PHASE, REC, SLOTS, TOP, WORDS};
+    use crate::ops::hashjoin::build::{
+        ALLOW, A_DENSE, A_MULT, A_TAGS, BITS, DENSE, DIR, FLAGS, FORM, F_RANGE, HASH, HI, IDX, LO,
+        LOW, N, PHASE, REC, SLOTS, TOP, WORDS,
+    };
     use crate::ops::hashjoin::rt::{lay_out, rd, wr};
 
     /// One-word keys laid out under `allow`: the form, and each probe key's count (0: no match) as the probe reads it.
@@ -120,24 +134,49 @@ mod tests {
         let mut buf = vec![0u64; len / 8];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region; records of 16 bytes (the key word, the link word) from HDR.
-        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
-wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
-wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
-            keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, crate::ops::hashjoin::build::HDR + 16 * i, k));
+        unsafe {
+            wr::<u8>(d, PHASE, 1);
+            wr::<u8>(d, WORDS, 1);
+            wr::<u32>(d, REC, 16);
+            wr::<u8>(d, ALLOW, allow);
+            wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, TOP, len as u64);
+            wr::<i64>(d, LO, *keys.iter().min().unwrap());
+            wr::<i64>(d, HI, *keys.iter().max().unwrap());
+            keys.iter()
+                .enumerate()
+                .for_each(|(i, &k)| wr::<i64>(d, crate::ops::hashjoin::build::HDR + 16 * i, k));
             lay_out(d, len).unwrap();
             let (form, lo) = (rd::<u8>(d, FORM), rd::<i64>(d, LO));
             let rec = |i: u64| d.add(crate::ops::hashjoin::build::HDR + 16 * (i as usize - 1));
             let of = |k: i64| match form {
                 DENSE if (k - lo) as u64 >= (rd::<i64>(d, HI) - lo + 1) as u64 => 0,
-                DENSE if rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * ((k - lo) as usize >> 6)) >> ((k - lo) & 63) & 1 == 0 => 0,
-                DENSE => (rd::<u64>(d, rd::<u64>(d, SLOTS) as usize + 8 * (k - lo) as usize) >> 32) + 1,
+                DENSE
+                    if rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * ((k - lo) as usize >> 6))
+                        >> ((k - lo) & 63)
+                        & 1
+                        == 0 =>
+                {
+                    0
+                }
+                DENSE => {
+                    (rd::<u64>(d, rd::<u64>(d, SLOTS) as usize + 8 * (k - lo) as usize) >> 32) + 1
+                }
                 _ => {
                     let h = KeyHash::of(&[k as u64]);
-                    let mut i1 = rd::<u64>(d, rd::<u64>(d, DIR) as usize + 8 * h.home(rd::<u32>(d, BITS), Depth::TOP)) & IDX;
+                    let mut i1 = rd::<u64>(
+                        d,
+                        rd::<u64>(d, DIR) as usize + 8 * h.home(rd::<u32>(d, BITS), Depth::TOP),
+                    ) & IDX;
                     while i1 != 0 && rd::<i64>(rec(i1), 0) != k {
                         i1 = rd::<u64>(rec(i1), 8) & LOW;
                     }
-                    if i1 == 0 { 0 } else { (rd::<u64>(rec(i1), 8) >> 32) + 1 }
+                    if i1 == 0 {
+                        0
+                    } else {
+                        (rd::<u64>(rec(i1), 8) >> 32) + 1
+                    }
                 }
             };
             (form, probes.iter().map(|&k| of(k)).collect())
@@ -146,7 +185,17 @@ wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max
 
     #[test]
     fn repeated_keys_collapse_into_counts_in_both_forms() {
-        assert_eq!(counts(&[5, 7, 5, 5, 9], A_DENSE | A_MULT, &[5, 6, 7, 9, 10]), (DENSE, vec![3, 0, 1, 1, 0]));
-        assert_eq!(counts(&[1, 1_000_000, 1, 42, 1_000_000], A_DENSE | A_MULT | A_TAGS, &[1, 42, 1_000_000, 7]), (HASH, vec![2, 1, 2, 0]));
+        assert_eq!(
+            counts(&[5, 7, 5, 5, 9], A_DENSE | A_MULT, &[5, 6, 7, 9, 10]),
+            (DENSE, vec![3, 0, 1, 1, 0])
+        );
+        assert_eq!(
+            counts(
+                &[1, 1_000_000, 1, 42, 1_000_000],
+                A_DENSE | A_MULT | A_TAGS,
+                &[1, 42, 1_000_000, 7]
+            ),
+            (HASH, vec![2, 1, 2, 0])
+        );
     }
 }

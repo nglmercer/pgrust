@@ -5,7 +5,9 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use pgsync::Mutex;
 use types_core::instrument::{BufferUsage, WalUsage};
 
-use pgstat::section::{discard_thread_deltas, fold_thread_deltas, take_thread_deltas, ThreadDeltas};
+use pgstat::section::{
+    discard_thread_deltas, fold_thread_deltas, take_thread_deltas, ThreadDeltas,
+};
 
 pub struct SectionStats {
     bank: Mutex<ThreadDeltas>,
@@ -48,7 +50,12 @@ impl SectionStats {
             bank: Mutex::new(ThreadDeltas::empty()),
             blocks: Mutex::new([0; 9]),
             times: Mutex::new([0; 4]),
-            wal: Mutex::new(WalUsage { wal_records: 0, wal_fpi: 0, wal_bytes: 0, wal_buffers_full: 0 }),
+            wal: Mutex::new(WalUsage {
+                wal_records: 0,
+                wal_fpi: 0,
+                wal_bytes: 0,
+                wal_buffers_full: 0,
+            }),
             rec_end: AtomicU64::new(0),
             temp: Mutex::new([0; 4]),
         }
@@ -74,17 +81,23 @@ impl SectionStats {
         let t = fd::buffile::temp_take_since(&start.temp);
         if t.iter().any(|&n| n != 0) {
             let mut bank = self.temp.lock().unwrap_or_else(|p| p.into_inner());
-            bank.iter_mut().zip(t.iter()).for_each(|(a, n)| *a = a.wrapping_add(*n));
+            bank.iter_mut()
+                .zip(t.iter())
+                .for_each(|(a, n)| *a = a.wrapping_add(*n));
         }
         let b = bufmgr::counters::take_since(&start.blocks);
         if b.iter().any(|&n| n != 0) {
             let mut bank = self.blocks.lock().unwrap_or_else(|p| p.into_inner());
-            bank.iter_mut().zip(b.iter()).for_each(|(a, n)| *a = a.wrapping_add(*n));
+            bank.iter_mut()
+                .zip(b.iter())
+                .for_each(|(a, n)| *a = a.wrapping_add(*n));
         }
         let t = pgstat::io::take_block_times_since(&start.times);
         if t.iter().any(|&n| n != 0) {
             let mut bank = self.times.lock().unwrap_or_else(|p| p.into_inner());
-            bank.iter_mut().zip(t.iter()).for_each(|(a, n)| *a = a.wrapping_add(*n));
+            bank.iter_mut()
+                .zip(t.iter())
+                .for_each(|(a, n)| *a = a.wrapping_add(*n));
         }
         let w = transam_xlog::take_wal_usage_since(&start.wal);
         if w != WalUsage::default() {
@@ -97,7 +110,10 @@ impl SectionStats {
     }
 
     pub fn fold_into_leader(&self) {
-        let d = core::mem::replace(&mut *self.bank.lock().unwrap_or_else(|p| p.into_inner()), ThreadDeltas::empty());
+        let d = core::mem::replace(
+            &mut *self.bank.lock().unwrap_or_else(|p| p.into_inner()),
+            ThreadDeltas::empty(),
+        );
         if !d.is_empty() {
             fold_thread_deltas(&d);
         }

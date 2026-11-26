@@ -36,7 +36,13 @@ struct Late(bool, bool);
 
 impl SourceMech for Late {
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("cursor", Base::Ctx, (site_off(0) + site::CURSOR) as i32, Type::I32, 0));
+        w.declare(OpenWord::open(
+            "cursor",
+            Base::Ctx,
+            (site_off(0) + site::CURSOR) as i32,
+            Type::I32,
+            0,
+        ));
     }
     fn open(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Value {
         b.iconst(I64, 0)
@@ -53,17 +59,51 @@ impl SourceMech for Late {
         b.switch_to(l_win);
         let w = b.iconst(I64, 70);
         let end = b.int_bin(IntBinOp::Add, cursor, w);
-        Win { cursor, end, facts: Default::default() }
+        Win {
+            cursor,
+            end,
+            facts: Default::default(),
+        }
     }
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         let p = late_at(b, env, j);
         let v = b.load(I64, p, 0);
-        RowVals { row: gravity_lowerv4::cell::Row::new_in(env.mcx), vals: mcx::pg_vec![in env.mcx; (v, None)], cols: mcx::PgVec::new_in(env.mcx), carry, next, at: j }
+        RowVals {
+            row: gravity_lowerv4::cell::Row::new_in(env.mcx),
+            vals: mcx::pg_vec![in env.mcx; (v, None)],
+            cols: mcx::PgVec::new_in(env.mcx),
+            carry,
+            next,
+            at: j,
+        }
     }
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> {
-        self.0.then(|| WordWin { lanes: mcx::PgVec::new_in(env.mcx), valid: mcx::PgVec::new_in(env.mcx), plain: env.one })
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
+        self.0.then(|| WordWin {
+            lanes: mcx::PgVec::new_in(env.mcx),
+            valid: mcx::PgVec::new_in(env.mcx),
+            plain: env.one,
+        })
     }
-    fn fill_late(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, win: &Win, at: Option<(Value, Mask)>) {
+    fn fill_late(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        win: &Win,
+        at: Option<(Value, Mask)>,
+    ) {
         let (base, m, n) = match at {
             Some((base, m)) => (base, Some(m.0), 64),
             None => (win.cursor, None, 70),
@@ -88,14 +128,32 @@ impl SourceMech for Late {
 struct Even(bool);
 
 impl StepMech for Even {
-    fn block_open(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env, _w: &WordWin) -> Option<Mask> {
+    fn block_open(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        _w: &WordWin,
+    ) -> Option<Mask> {
         self.0.then_some(Mask(env.one))
     }
-    fn block(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _w: &WordWin, _base: Value, m: Mask) -> Mask {
+    fn block(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _w: &WordWin,
+        _base: Value,
+        m: Mask,
+    ) -> Mask {
         let even = b.iconst(I64, 0x5555_5555_5555_5555);
         Mask(b.int_bin(IntBinOp::And, m.0, even))
     }
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         if env.masked {
             return next(b, env, row);
         }
@@ -115,7 +173,13 @@ impl StepMech for Even {
 struct Checked;
 
 impl StepMech for Checked {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let zero = b.icmp(IntCond::Eq, row.vals[0].0, env.zero);
         let (l_bad, l_ok) = (b.create_block(&[]), b.create_block(&[]));
         b.cond_br(zero, (l_bad, &[]), (l_ok, &[]));
@@ -131,10 +195,27 @@ impl StepMech for Checked {
 struct SumLate(bool);
 
 impl EndMech for SumLate {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
-        Carry::new(b.int_bin(IntBinOp::Add, row.carry.out, row.vals[0].0), env.mcx)
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
+        Carry::new(
+            b.int_bin(IntBinOp::Add, row.carry.out, row.vals[0].0),
+            env.mcx,
+        )
     }
-    fn block<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _w: &WordWin, base: Value, m: Mask, c: &Carry) -> Option<Carry<'e>> {
+    fn block<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _w: &WordWin,
+        base: Value,
+        m: Mask,
+        c: &Carry,
+    ) -> Option<Carry<'e>> {
         if !self.0 {
             return None;
         }
@@ -152,18 +233,35 @@ impl EndMech for SumLate {
 }
 
 /// The pipeline `source → steps → end` over a fresh context with the late lane after it: its status and the context.
-fn run<'g>(c: mcx::Mcx<'g>, source: Late, steps: mcx::PgVec<'g, mcx::PgBox<'g, dyn StepMech>>, end: SumLate) -> (i64, Vec<u64>) {
+fn run<'g>(
+    c: mcx::Mcx<'g>,
+    source: Late,
+    steps: mcx::PgVec<'g, mcx::PgBox<'g, dyn StepMech>>,
+    end: SumLate,
+) -> (i64, Vec<u64>) {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
     let desc = gravity_program::Pipeline::eligible(0, gravity_program::End::Sink, 0);
-    let mut m = Mechs { k: 0, source: mcx::pg_box_dyn!(c, source => dyn SourceMech), steps, end: mcx::pg_box_dyn!(c, end => dyn EndMech), site: Some(0), desc, words: None, state_word: None };
+    let mut m = Mechs {
+        k: 0,
+        source: mcx::pg_box_dyn!(c, source => dyn SourceMech),
+        steps,
+        end: mcx::pg_box_dyn!(c, end => dyn EndMech),
+        site: Some(0),
+        desc,
+        words: None,
+        state_word: None,
+    };
     let mut pb = ProgramBuilder::new();
     let core = env::declare(&mut pb);
-    let (f, bounded) = frame::pipeline_fn(&mut pb, core, Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
+    let (f, bounded) =
+        frame::pipeline_fn(&mut pb, core, Ir::none(), &[], "p0", 1, &mut m, rig.mcx());
     let p = pb.finish();
     gravity_ir::verify::verify(&p).expect("the frame's IR verifies");
     assert_eq!(cancel::verify(p.func(f), &bounded, rig.mcx()), Ok(()));
     let mut ctx = vec![0u64; LATE + LATE_WORDS];
-    let st = Interp::new(&p).run(f, &[ctx.as_mut_ptr() as u64]).expect("runs")[0] as i64;
+    let st = Interp::new(&p)
+        .run(f, &[ctx.as_mut_ptr() as u64])
+        .expect("runs")[0] as i64;
     (st, ctx)
 }
 
@@ -174,17 +272,46 @@ fn late_lanes_are_filled_for_survivors_before_any_step_or_fold_reads_them() {
     let rig = mcx::MemoryContext::new("test");
     let c = rig.mcx();
     // row bodies: the whole window filled at the body's entry; the raising qual sees only filled rows
-    let (st, ctx) = run(c, Late(false, true), mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(false) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)], SumLate(false));
+    let (st, ctx) = run(
+        c,
+        Late(false, true),
+        mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(false) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)],
+        SumLate(false),
+    );
     assert_eq!((st, out(&ctx)), (-5, even_sum));
     // block path: a block fills its survivors only (the odd rows of whole blocks stay unfilled, and the raising qual after
     // the first never sees them: no qual runs early); a tail fills every tail row
-    let (st, ctx) = run(c, Late(true, true), mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)], SumLate(false));
+    let (st, ctx) = run(
+        c,
+        Late(true, true),
+        mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)],
+        SumLate(false),
+    );
     assert_eq!((st, out(&ctx)), (-5, even_sum));
-    assert_eq!((ctx[LATE + 1], ctx[LATE + 70], ctx[LATE + 71], ctx[LATE + 65], ctx[LATE + 209]), (0, 71, 0, 66, 210));
+    assert_eq!(
+        (
+            ctx[LATE + 1],
+            ctx[LATE + 70],
+            ctx[LATE + 71],
+            ctx[LATE + 65],
+            ctx[LATE + 209]
+        ),
+        (0, 71, 0, 66, 210)
+    );
     // mask.fold: the end folds each whole block from the late lane after the block's fill
-    let (st, ctx) = run(c, Late(true, true), mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech)], SumLate(true));
+    let (st, ctx) = run(
+        c,
+        Late(true, true),
+        mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech)],
+        SumLate(true),
+    );
     assert_eq!((st, out(&ctx)), (-5, even_sum));
     // without the fill the raising qual does raise, so the checks above are not vacuous
-    let (st, _) = run(c, Late(true, false), mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)], SumLate(false));
+    let (st, _) = run(
+        c,
+        Late(true, false),
+        mcx::pg_vec![in c; mcx::pg_box_dyn!(c, Even(true) => dyn StepMech), mcx::pg_box_dyn!(c, Checked => dyn StepMech)],
+        SumLate(false),
+    );
     assert_ne!(st, -5);
 }

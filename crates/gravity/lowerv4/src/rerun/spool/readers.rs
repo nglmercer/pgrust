@@ -10,10 +10,10 @@
 //! rerun guard (decision 2): a fill pipeline any rerun set re-runs refuses by D1107's name, as the set would append again
 //! under the spool's count where PostgreSQL refills on a changed parameter (ExecReScanMaterial). `walk_bound`: D1630's
 //! class, which a statement B-R1 newly serves refuses by name (spool_form.rs, nest/spool_site.rs).
-use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::ops::shared::scan::{BitmapPlan, TidForm};
 use gravity_decompose::graph::{IndexKey, KeyForm};
 use gravity_decompose::join::JoinDesc;
+use gravity_decompose::ops::shared::append::AppendDesc;
+use gravity_decompose::ops::shared::scan::{BitmapPlan, TidForm};
 use gravity_decompose::ops::shared::setop::SetDesc;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
 use gravity_decompose::{Op, Source};
@@ -22,7 +22,7 @@ use mcx::{CollectIn, GrowIn, PgVec};
 use types_nodes::Node;
 
 use crate::graph::Gx;
-use crate::rerun::spool::form::{REFILL_CHILD, MANY_READERS};
+use crate::rerun::spool::form::{MANY_READERS, REFILL_CHILD};
 
 /// One pipeline of the view (graph pipelines, then the inners in view order) as the walk sees it.
 #[derive(Clone, Copy, Debug, Default)]
@@ -41,10 +41,19 @@ struct Seen {
 /// The breaker slots op `op` reads itself (an embedded inner's are the inner's).
 fn slots(op: &Op<'_>) -> [Option<u8>; 2] {
     match op {
-        Op::Join(JoinDesc::Probe { slot, .. } | JoinDesc::Merge { slot, .. }) => [Some(*slot), None],
+        Op::Join(JoinDesc::Probe { slot, .. } | JoinDesc::Merge { slot, .. }) => {
+            [Some(*slot), None]
+        }
         Op::Join(JoinDesc::Drain { matches, .. }) => [Some(*matches), None],
-        Op::SubPlan(SubPlanDesc { form: SubForm::Hashed { slot }, .. }) => [Some(*slot), None],
-        Op::Append(AppendDesc::Feed { slot, .. } | AppendDesc::Union { slot, .. } | AppendDesc::Merge { slot, .. }) => [Some(*slot), None],
+        Op::SubPlan(SubPlanDesc {
+            form: SubForm::Hashed { slot },
+            ..
+        }) => [Some(*slot), None],
+        Op::Append(
+            AppendDesc::Feed { slot, .. }
+            | AppendDesc::Union { slot, .. }
+            | AppendDesc::Merge { slot, .. },
+        ) => [Some(*slot), None],
         Op::SetOp(SetDesc::Set { left, right, .. }) => [Some(*left), Some(*right)],
         _ => [None, None],
     }
@@ -58,19 +67,48 @@ pub(crate) fn reader(gx: &Gx<'_, '_>, k: usize) -> Result<usize, &'static str> {
     let seen: PgVec<'_, Seen> = (0..n + inners.len())
         .map(|i| {
             let q = &ps[i];
-            let from = |s: u8| q.desc.consumes.iter().position(|&x| x == s).and_then(|j| q.desc.consumes_from.get(j).copied());
+            let from = |s: u8| {
+                q.desc
+                    .consumes
+                    .iter()
+                    .position(|&x| x == s)
+                    .and_then(|j| q.desc.consumes_from.get(j).copied())
+            };
             let of = |s: u8| if i < n { gx.life_of(i, s) } else { from(s) };
             let src = matches!(q.source, Source::Breaker { slot } if of(slot) == life);
-            let own = src || q.ops.iter().any(|op| slots(op).into_iter().flatten().any(|s| of(s) == life));
+            let own = src
+                || q.ops
+                    .iter()
+                    .any(|op| slots(op).into_iter().flatten().any(|s| of(s) == life));
             let (up, nest) = match i.checked_sub(n).map(|x| inners[x].0) {
                 // D1109 (R2's SubPlan link): a nested SubPlan's inner re-opens per call as a nest's per outer row
-                Some((o, j)) => (Some(o), matches!(ps[o].ops.get(j), Some(Op::Join(JoinDesc::Nest { .. }) | Op::SubPlan(SubPlanDesc { form: SubForm::Nested { .. }, .. })))),
+                Some((o, j)) => (
+                    Some(o),
+                    matches!(
+                        ps[o].ops.get(j),
+                        Some(
+                            Op::Join(JoinDesc::Nest { .. })
+                                | Op::SubPlan(SubPlanDesc {
+                                    form: SubForm::Nested { .. },
+                                    ..
+                                })
+                        )
+                    ),
+                ),
                 None => (None, false),
             };
-            Seen { up, nest, reads: q.desc.consumes.iter().any(|&s| of(s) == life), src, own }
+            Seen {
+                up,
+                nest,
+                reads: q.desc.consumes.iter().any(|&s| of(s) == life),
+                src,
+                own,
+            }
         })
         .collect_in(gx.mcx);
-    one_reader(&seen[..], k).filter(|&r| seen[r].src).ok_or(MANY_READERS)
+    one_reader(&seen[..], k)
+        .filter(|&r| seen[r].src)
+        .ok_or(MANY_READERS)
 }
 
 /// `reader`, or (rowsecurity#343) the first of `copies`: `(reader, false)` for the one reader, `(first copy, true)` for
@@ -78,7 +116,10 @@ pub(crate) fn reader(gx: &Gx<'_, '_>, k: usize) -> Result<usize, &'static str> {
 pub(crate) fn reader_or_copies(gx: &Gx<'_, '_>, k: usize) -> Result<(usize, bool), &'static str> {
     match reader(gx, k) {
         Ok(r) => Ok((r, false)),
-        Err(e) => copies(gx, k).and_then(|c| c.first().copied()).map(|r| (r, true)).ok_or(e),
+        Err(e) => copies(gx, k)
+            .and_then(|c| c.first().copied())
+            .map(|r| (r, true))
+            .ok_or(e),
     }
 }
 
@@ -96,7 +137,13 @@ pub(crate) fn copies<'g>(gx: &Gx<'g, '_>, k: usize) -> Option<PgVec<'g, usize>> 
     let mut select = true;
     for (x, ((o, j), _)) in inners.iter().enumerate() {
         let q = &ps[n + x];
-        let from = |s: u8| q.desc.consumes.iter().position(|&y| y == s).and_then(|i| q.desc.consumes_from.get(i).copied());
+        let from = |s: u8| {
+            q.desc
+                .consumes
+                .iter()
+                .position(|&y| y == s)
+                .and_then(|i| q.desc.consumes_from.get(i).copied())
+        };
         if !q.desc.consumes.iter().any(|&s| from(s) == life) {
             continue;
         }
@@ -110,10 +157,22 @@ pub(crate) fn copies<'g>(gx: &Gx<'g, '_>, k: usize) -> Option<PgVec<'g, usize>> 
     let up = |i: usize| inners[i - n].0 .0;
     let first = *out.first()?;
     let arms = gx.stream_arms(up(first));
-    let same = out.iter().all(|&i| ps[i].node_id == ps[first].node_id && (up(i) == up(first) || arms.contains(&up(i))) && (select || !ps[up(i)].desc.is_eligible()));
+    let same = out.iter().all(|&i| {
+        ps[i].node_id == ps[first].node_id
+            && (up(i) == up(first) || arms.contains(&up(i)))
+            && (select || !ps[up(i)].desc.is_eligible())
+    });
     let mut ups: PgVec<'_, usize> = out.iter().map(|&i| up(i)).collect_in(gx.mcx);
     ups.dedup();
-    let only = (0..n).all(|c| c == k || ups.contains(&c) || !ps[c].desc.consumes.iter().any(|&s| gx.life_of(c, s) == life));
+    let only = (0..n).all(|c| {
+        c == k
+            || ups.contains(&c)
+            || !ps[c]
+                .desc
+                .consumes
+                .iter()
+                .any(|&s| gx.life_of(c, s) == life)
+    });
     (out.len() > 1 && ups.len() == out.len() && same && only).then_some(out)
 }
 
@@ -125,18 +184,27 @@ pub(crate) fn union_nest(gx: &Gx<'_, '_>, o: usize, j: usize) -> bool {
     if o >= ps.len() {
         return false;
     }
-    let Some(Op::Join(JoinDesc::Nest { facts, .. })) = ps[o].ops.get(j) else { return false };
-    gx.graph.union_nests.contains(&facts.node) && !ps[o].ops.iter().any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
+    let Some(Op::Join(JoinDesc::Nest { facts, .. })) = ps[o].ops.get(j) else {
+        return false;
+    };
+    gx.graph.union_nests.contains(&facts.node)
+        && !ps[o]
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::Write(_) | Op::Lock(_)))
 }
 
 /// R1 over `seen` (`k` the fill pipeline): the one pipeline that reads the life and is no owner, when it is an inner
 /// linked to its graph pipeline by nests only.
 fn one_reader(seen: &[Seen], k: usize) -> Option<usize> {
-    let under = |j: usize, i: usize| core::iter::successors(seen[j].up, |&u| seen[u].up).any(|u| u == i);
-    let owner = |i: usize| !seen[i].own && (0..seen.len()).any(|j| j != i && seen[j].reads && under(j, i));
+    let under =
+        |j: usize, i: usize| core::iter::successors(seen[j].up, |&u| seen[u].up).any(|u| u == i);
+    let owner =
+        |i: usize| !seen[i].own && (0..seen.len()).any(|j| j != i && seen[j].reads && under(j, i));
     let mut readers = (0..seen.len()).filter(|&i| i != k && seen[i].reads && !owner(i));
     let r = readers.next()?;
-    let nests = core::iter::successors(Some(r), |&x| seen[x].up).all(|x| seen[x].up.is_none() || seen[x].nest);
+    let nests = core::iter::successors(Some(r), |&x| seen[x].up)
+        .all(|x| seen[x].up.is_none() || seen[x].nest);
     (readers.next().is_none() && seen[r].up.is_some() && nests).then_some(r)
 }
 
@@ -145,7 +213,12 @@ fn one_reader(seen: &[Seen], k: usize) -> Option<usize> {
 /// value, a TABLESAMPLE argument. PostgreSQL evaluates it at the inner's scan only, never under an empty outer.
 pub(crate) fn walk_bound(gx: &Gx<'_, '_>) -> bool {
     let ps = gx.pipelines();
-    let tid = |q: Node<'_>| q.as_op_expr().map(|o| &o.args).or_else(|| q.as_scalar_array_op_expr().map(|a| &a.args)).is_some_and(|a| a.iter().any(|v| v.as_var().is_none() && bound(v)));
+    let tid = |q: Node<'_>| {
+        q.as_op_expr()
+            .map(|o| &o.args)
+            .or_else(|| q.as_scalar_array_op_expr().map(|a| &a.args))
+            .is_some_and(|a| a.iter().any(|v| v.as_var().is_none() && bound(v)))
+    };
     ps.inners().iter().any(|(_, q)| match &q.source {
         Source::Index { keys, .. } => keys_bound(keys),
         Source::Bitmap { plan, .. } => bitmap_bound(plan),
@@ -162,14 +235,19 @@ fn bound(v: Node<'_>) -> bool {
 fn keys_bound(keys: &[IndexKey<'_>]) -> bool {
     keys.iter().any(|k| match k.form {
         KeyForm::Null | KeyForm::NotNull => false,
-        KeyForm::Row => k.value.as_row_compare_expr().is_some_and(|rc| rc.rargs.iter().any(bound)),
+        KeyForm::Row => k
+            .value
+            .as_row_compare_expr()
+            .is_some_and(|rc| rc.rargs.iter().any(bound)),
         _ => bound(k.value),
     })
 }
 
 fn bitmap_bound(p: &BitmapPlan<'_>) -> bool {
     crate::stack_check();
-    let (BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. }) = p else { return matches!(p, BitmapPlan::Index { keys, .. } if keys_bound(keys)) };
+    let (BitmapPlan::And { plans, .. } | BitmapPlan::Or { plans, .. }) = p else {
+        return matches!(p, BitmapPlan::Index { keys, .. } if keys_bound(keys));
+    };
     plans.iter().any(bitmap_bound)
 }
 
@@ -178,7 +256,11 @@ fn bitmap_bound(p: &BitmapPlan<'_>) -> bool {
 /// ExecReScanAgg keeps over a rescan that changes no param), the fill's one set: it runs once, as PostgreSQL runs the
 /// Agg's input, the Material's fill and its readers once.
 pub(crate) fn rerun_free(gx: &Gx<'_, '_>, k: usize) -> Result<(), &'static str> {
-    let mut sets = gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(k as u16)));
+    let mut sets = gx
+        .graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(k as u16)));
     match (sets.next(), sets.next()) {
         (None, _) => Ok(()),
         (Some(r), None) if crate::rerun::sets::kept_whole(gx, r) => Ok(()),
@@ -192,12 +274,21 @@ mod tests {
 
     /// A graph pipeline (`up` None) or an inner under `up`, linked by a nest (or a nested SubPlan) unless `sub`.
     fn p(up: Option<usize>, sub: bool, reads: bool, src: bool, own: bool) -> Seen {
-        Seen { up, nest: up.is_some() && !sub, reads, src, own: own || src }
+        Seen {
+            up,
+            nest: up.is_some() && !sub,
+            reads,
+            src,
+            own: own || src,
+        }
     }
 
     /// The fill pipeline 0 (no reader of its own life) and its owner graph pipeline 1.
     fn fill_and_owner() -> Vec<Seen> {
-        vec![p(None, false, false, false, false), p(None, false, true, false, false)] // alloc: Program
+        vec![
+            p(None, false, false, false, false),
+            p(None, false, true, false, false),
+        ] // alloc: Program
     }
 
     #[test]
@@ -246,7 +337,10 @@ mod tests {
         s.push(p(Some(1), true, true, false, false));
         s.push(p(Some(2), false, true, true, false));
         assert_eq!(one_reader(&s, 0), None);
-        let mut g = vec![p(None, false, false, false, false), p(None, false, true, true, false)]; // alloc: Program
+        let mut g = vec![
+            p(None, false, false, false, false),
+            p(None, false, true, true, false),
+        ]; // alloc: Program
         assert_eq!(one_reader(&g, 0), None);
         g[1] = p(None, false, true, false, false);
         g.push(p(Some(1), false, true, true, false));

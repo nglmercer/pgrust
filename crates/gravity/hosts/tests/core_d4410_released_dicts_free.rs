@@ -61,10 +61,20 @@ fn a_running_statements_released_parts_give_their_dictionaries_back_to_the_trim(
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).unwrap();
     let want = render(&mut src, 0, 0);
-    let rows: u64 = (0..list.granules()).map(|g| code_rows(&mut src, g, g + 1)).sum();
+    let rows: u64 = (0..list.granules())
+        .map(|g| code_rows(&mut src, g, g + 1))
+        .sum();
     assert_eq!(rows, list.rows());
-    assert_eq!(resolved.part_release_counts().0, 2, "both parts released while the statement runs");
-    assert_eq!(list.shared_dicts(), 2, "with room the list keeps both dictionaries for the next statement");
+    assert_eq!(
+        resolved.part_release_counts().0,
+        2,
+        "both parts released while the statement runs"
+    );
+    assert_eq!(
+        list.shared_dicts(),
+        2,
+        "with room the list keeps both dictionaries for the next statement"
+    );
     let held = partcache::bytes();
     assert!(held > 0, "the dictionaries' images are cached");
 
@@ -72,8 +82,16 @@ fn a_running_statements_released_parts_give_their_dictionaries_back_to_the_trim(
     reg.trim_contents(0);
     let left = partcache::bytes();
     assert_eq!(left, 0, "the released parts' dictionary images stay cached ({left} of {held} bytes): the running statement's list keeps them");
-    assert_eq!(list.shared_dicts(), 0, "the hook let the list's warm cells go");
-    assert_eq!(render(&mut src, 0, 0), want, "a code word renders the same bytes after the trim (its dictionary opened again)");
+    assert_eq!(
+        list.shared_dicts(),
+        0,
+        "the hook let the list's warm cells go"
+    );
+    assert_eq!(
+        render(&mut src, 0, 0),
+        want,
+        "a code word renders the same bytes after the trim (its dictionary opened again)"
+    );
     src.unbind();
     drop(src.release_rel(REL_TEXT));
     drop(resolved);
@@ -88,11 +106,16 @@ fn a_running_statements_released_parts_give_their_dictionaries_back_to_the_trim(
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&keeps)).unwrap();
     let want = render(&mut src, 1, 0);
-    let rows: u64 = (0..list.granules()).map(|g| code_rows(&mut src, g, g + 1)).sum();
+    let rows: u64 = (0..list.granules())
+        .map(|g| code_rows(&mut src, g, g + 1))
+        .sum();
     assert_eq!(rows, list.rows());
     assert_eq!(keeps.part_release_counts().0, 2, "its parts' uses go back");
     reg.trim_contents(0);
-    assert!(partcache::bytes() > 0, "its dictionaries stay: its kept images point into them");
+    assert!(
+        partcache::bytes() > 0,
+        "its dictionaries stay: its kept images point into them"
+    );
     assert_eq!(render(&mut src, 1, 0), want);
     src.unbind();
     drop(src.release_rel(REL_TEXT));

@@ -25,7 +25,8 @@ seam_core::seam!(
     pub fn reset_catalog_caches_ext(debug_discard: bool) -> PgResult<()>
 );
 
-pub static POOL_CATALOG_MISSES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+pub static POOL_CATALOG_MISSES: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 #[cold]
 pub fn note_pool_miss(_cache_id: i32) {
@@ -43,7 +44,9 @@ pub fn note_catalog_registered() {
 }
 
 pub fn catalog_readable_here() -> bool {
-    CATALOG_HERE.try_with(core::cell::Cell::get).unwrap_or(false)
+    CATALOG_HERE
+        .try_with(core::cell::Cell::get)
+        .unwrap_or(false)
 }
 
 pub fn pool_catalog_misses() -> u64 {

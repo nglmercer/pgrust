@@ -13,7 +13,12 @@ pub fn quiet<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
 }
 
 /// `quiet` over the statement, facts and arena alone (decompose ops/setop.rs `Reach`, D3373).
-pub fn quiet_in<'p>(stmt: &'p types_nodes::plannodes::PlannedStmt<'p>, facts: &dyn crate::catalog::Facts, arena: gravity_program::ArenaRef, n: Node<'p>) -> bool {
+pub fn quiet_in<'p>(
+    stmt: &'p types_nodes::plannodes::PlannedStmt<'p>,
+    facts: &dyn crate::catalog::Facts,
+    arena: gravity_program::ArenaRef,
+    n: Node<'p>,
+) -> bool {
     let f = crate::rerun::of_plan(stmt, facts, arena, n);
     let e = Effects::of_found(f);
     !e.acts && !e.may_raise && !f.user_call
@@ -54,8 +59,16 @@ pub fn streamed_left_raises<'p>(b: &Builder<'p, '_>, ln: Node<'p>) -> bool {
 /// AGA-30: a key whose type's default btree comparator reaches no user code (USEROP): a by-reference value of a built-in
 /// base type (no pseudo-type, no `record[]`, whose comparator reaches each column's), its default btree comparator a
 /// built-in. A built-in type's array is of a built-in element, so btarraycmp reaches built-in code only.
-pub fn builtin_cmp_key(f: &dyn crate::catalog::Facts, tf: &crate::catalog::typefacts::TypeFacts) -> bool {
+pub fn builtin_cmp_key(
+    f: &dyn crate::catalog::Facts,
+    tf: &crate::catalog::typefacts::TypeFacts,
+) -> bool {
     use crate::catalog::typefacts::FIRST_NORMAL_OID;
     let base = f.type_row(tf.base).is_some_and(|r| r.typtype == b'b');
-    !tf.byval && base && tf.base < FIRST_NORMAL_OID && tf.base != types_core::catalog::RECORDARRAYOID && tf.cmp != 0 && tf.cmp < FIRST_NORMAL_OID
+    !tf.byval
+        && base
+        && tf.base < FIRST_NORMAL_OID
+        && tf.base != types_core::catalog::RECORDARRAYOID
+        && tf.cmp != 0
+        && tf.cmp < FIRST_NORMAL_OID
 }

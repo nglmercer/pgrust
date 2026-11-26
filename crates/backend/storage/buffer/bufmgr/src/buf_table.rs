@@ -330,7 +330,10 @@ pub fn BufTableInsert(tag: &buftag, hashcode: u32, buf_id: i32) -> PgResult<i32>
 unsafe fn grow(part: &mut Partition) -> PgResult<()> {
     let new_cap = (part.mask as usize + 1) * 2;
     let Some(new_entries) = alloc_entries(new_cap) else {
-        return Err(oom_error("out of shared memory".to_string(), "BufTableInsert"));
+        return Err(oom_error(
+            "out of shared memory".to_string(),
+            "BufTableInsert",
+        ));
     };
     // SAFETY: caller holds the exclusive partition lock.
     unsafe { rehash_into(part, new_entries, new_cap) };
@@ -399,7 +402,11 @@ pub(crate) fn BufTableShrinkToFit(size: i32) -> PgResult<u32> {
     let mut halvings = 0u32;
     for i in 0..NUM_BUFFER_PARTITIONS as u32 {
         let lock = BufMappingPartitionLock(i);
-        lwlock::LWLockAcquire(lock, lwlock::LW_EXCLUSIVE, init_small::globals::MyProcNumber())?;
+        lwlock::LWLockAcquire(
+            lock,
+            lwlock::LW_EXCLUSIVE,
+            init_small::globals::MyProcNumber(),
+        )?;
         // SAFETY: exclusive lock on partition i (hashcode i selects it).
         unsafe {
             let part = &mut *partition_for(i);
@@ -409,7 +416,9 @@ pub(crate) fn BufTableShrinkToFit(size: i32) -> PgResult<u32> {
                 if half < floor || part.count as usize * 4 >= cap {
                     break;
                 }
-                let Some(new_entries) = alloc_entries(half) else { break };
+                let Some(new_entries) = alloc_entries(half) else {
+                    break;
+                };
                 rehash_into(part, new_entries, half);
                 halvings += 1;
             }
@@ -442,7 +451,11 @@ pub fn BufTableDelete(tag: &buftag, hashcode: u32) -> PgResult<()> {
             if ent.key.blockNum == EMPTY_BLOCK {
                 return Err(Box::new(
                     types_error::PgError::new(ERROR, "shared buffer hash table corrupted")
-                        .with_error_location(ErrorLocation::new(file!(), line!() as i32, "BufTableDelete")),
+                        .with_error_location(ErrorLocation::new(
+                            file!(),
+                            line!() as i32,
+                            "BufTableDelete",
+                        )),
                 ));
             }
             if ent.key == *tag {

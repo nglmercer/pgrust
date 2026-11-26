@@ -28,8 +28,16 @@ fn verdict(text: &str) -> String {
 #[test]
 fn the_census_joined_arms_pass_d1486_to_the_guard() {
     let user_fn = format!("Shape: {}", USER_FN.0);
-    for f in ["partition_join-027.plan", "partition_join-028.plan", "partition_join-103.plan"] {
-        assert_eq!(verdict(&text(f)), user_fn, "{f}: past D1486's arms rule, at GUARD-G1's hash support");
+    for f in [
+        "partition_join-027.plan",
+        "partition_join-028.plan",
+        "partition_join-103.plan",
+    ] {
+        assert_eq!(
+            verdict(&text(f)),
+            user_fn,
+            "{f}: past D1486's arms rule, at GUARD-G1's hash support"
+        );
     }
 }
 
@@ -39,9 +47,21 @@ fn an_arm_whose_hash_clause_can_raise_reads_ahead() {
     assert_eq!(t.matches(INT4EQ).count(), 4, "the fixture's int4 = clauses");
     for arm in 1..=3 {
         // the arm's clause through int4pl (177): not leakproof, it can raise
-        let at = t.match_indices(INT4EQ).nth(arm).map(|(i, _)| i).expect("the arm's clause");
-        let loud = format!("{}:opno 96 :opfuncid 177{}", &t[..at], &t[at + INT4EQ.len()..]);
-        assert_eq!(verdict(&loud), "served", "arm {arm} loud: its union fills ahead unchecked");
+        let at = t
+            .match_indices(INT4EQ)
+            .nth(arm)
+            .map(|(i, _)| i)
+            .expect("the arm's clause");
+        let loud = format!(
+            "{}:opno 96 :opfuncid 177{}",
+            &t[..at],
+            &t[at + INT4EQ.len()..]
+        );
+        assert_eq!(
+            verdict(&loud),
+            "served",
+            "arm {arm} loud: its union fills ahead unchecked"
+        );
     }
 }
 

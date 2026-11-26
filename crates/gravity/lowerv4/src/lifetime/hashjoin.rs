@@ -50,7 +50,12 @@ pub(crate) fn reset_at_reopen(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Val
 fn clear(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Value) {
     let form = b.load_zext(Type::I8, r, FORM as i32);
     let has = b.icmp(IntCond::Ne, form, env.zero);
-    let (l_clear, l_loop, l_body, l_done) = (b.create_block(&[]), b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[]));
+    let (l_clear, l_loop, l_body, l_done) = (
+        b.create_block(&[]),
+        b.create_block(&[Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(has, (l_clear, &[]), (l_done, &[]));
     b.switch_to(l_clear);
     let n = b.load(Type::I64, r, N as i32);
@@ -86,7 +91,12 @@ fn clear(b: &mut FunctionBuilder<'_>, env: &mut Env, r: Value) {
 /// would be one run's, and a kept table serves the set's later runs. spill/build.rs's spill rule (`alone`) keeps such a
 /// build in memory (named growth).
 pub(crate) fn resident_in_rerun(gx: &Gx<'_, '_>, k: usize, q: usize, slot: u8) -> bool {
-    gx.graph.reruns.iter().any(|r| r.pipelines.iter().any(|&x| x as usize == k || x as usize == q) || gravity_decompose::graph::slot_has(&r.slots, slot))
+    gx.graph.reruns.iter().any(|r| {
+        r.pipelines
+            .iter()
+            .any(|&x| x as usize == k || x as usize == q)
+            || gravity_decompose::graph::slot_has(&r.slots, slot)
+    })
 }
 
 /// D1902's Shape (the SubPlan and the nest roads alike): a rerun set's outer-first build whose sides can raise or call.
@@ -122,9 +132,26 @@ pub(crate) const KEPT_BUILD_CALLS: &str = "a rerun set's hash probe over a table
 /// A PARAM_EXEC a nest or a per-row SubPlan binds reads as quiet (`side_by`). Checked at the member's make, where the side
 /// classification is: the members are made before their owner. D1902's outer side has no key term: over an empty rebuilt
 /// table PG computes no outer key either.
-pub(crate) fn rerun_order(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: bool) -> Option<&'static str> {
-    let Some(gravity_decompose::Op::Join(gravity_decompose::join::JoinDesc::Probe { jointype, outer_first, catalog: false, .. })) = gx.pipelines()[q].ops.get(j) else { return None };
-    let fill = matches!(jointype, JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL);
+pub(crate) fn rerun_order(
+    gx: &Gx<'_, '_>,
+    q: usize,
+    j: usize,
+    b: usize,
+    lazy: bool,
+) -> Option<&'static str> {
+    let Some(gravity_decompose::Op::Join(gravity_decompose::join::JoinDesc::Probe {
+        jointype,
+        outer_first,
+        catalog: false,
+        ..
+    })) = gx.pipelines()[q].ops.get(j)
+    else {
+        return None;
+    };
+    let fill = matches!(
+        jointype,
+        JoinType::JOIN_LEFT | JoinType::JOIN_ANTI | JoinType::JOIN_FULL
+    );
     // D1902 (errorhold): a raising build op 14 holds is held per call (the driver's rerun call scope: a call's member probe
     // raises its own build's error, a call whose outer has no row drops it) where PG's per-call order cannot show: under a
     // quiet outer side, a fill type fetches its outer's first row before it builds at every call, and the cost path's outer,
@@ -134,23 +161,50 @@ pub(crate) fn rerun_order(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: b
     // hash clause, which v4 compares by the key's type, D2036).
     // A cost-path outer that reads an executor parameter (empty at some calls only) takes `Order` over the held build
     // (`held_order`): a build-first call raises the held error at its first window, as PG's build does over an empty outer.
-    let held = || side_by(gx, b, usize::MAX, false) == Side::Raises && !probe::opaque(gx, b) && build_class::quiet_statement(gx) && build_class::defers(gx, b, q, j) && side_by(gx, q, j, false) == Side::Safe && (fill || !probe::reads_param(gx, q, j) || probe::held_order(gx, q, j, b, lazy));
-    let (build, outer) = (|| side_by(gx, b, usize::MAX, false) != Side::Safe && !held(), |key| side_by(gx, q, j, key) != Side::Safe);
-    gx.graph.reruns.iter().filter(|r| r.pipelines.contains(&(q as u16))).find_map(|r| match r.pipelines.contains(&(b as u16)) {
-        // D3217: a set kept whole runs the join once, at its first run, where PostgreSQL's first call decides as for a probe
-        // in no set (inherit#404's reading, rerun/sets.rs): no later call decides again
-        true if crate::rerun::sets::kept_whole(gx, r) => None,
-        true => (*outer_first && !lazy && (build() || !fill && outer(false)) && !probe_calls::orders(gx, q, j, b)).then_some(OUTER_FIRST_RAISES),
-        // the keep rule (`kept_across`): a build outside the set whose table it does not show kept
-        false if !kept_across(gx, r, b) => Some(KEPT_UNKNOWN),
-        // D1906 (probe_kept.rs): served over a lazy build, the table kept at any size (D2713: call counts are free)
-        false if build_calls(gx, b, false) => (!probe_kept::kept(gx, q, j, b, lazy)).then_some(KEPT_BUILD_CALLS),
-        // D1906: a kept build whose calls the side class does not read (probe_kept.rs `hidden`): served over a lazy build
-        // under a quiet outer side; else refused by what blocks it: an outer side that may raise or call over the lazy build
-        // (D1904's: PG's whole-outer rescan), a build that takes no lazy group (D1906's)
-        false if kept_road(gx, q, j, b) && !probe_kept::kept(gx, q, j, b, lazy) => Some(if lazy { KEPT_OUTER_RAISES } else { KEPT_BUILD_CALLS }),
-        false => (!fill && outer(true) && !probe_kept::rescans(gx, q, j, b, lazy)).then_some(KEPT_OUTER_RAISES),
-    })
+    let held = || {
+        side_by(gx, b, usize::MAX, false) == Side::Raises
+            && !probe::opaque(gx, b)
+            && build_class::quiet_statement(gx)
+            && build_class::defers(gx, b, q, j)
+            && side_by(gx, q, j, false) == Side::Safe
+            && (fill || !probe::reads_param(gx, q, j) || probe::held_order(gx, q, j, b, lazy))
+    };
+    let (build, outer) = (
+        || side_by(gx, b, usize::MAX, false) != Side::Safe && !held(),
+        |key| side_by(gx, q, j, key) != Side::Safe,
+    );
+    gx.graph
+        .reruns
+        .iter()
+        .filter(|r| r.pipelines.contains(&(q as u16)))
+        .find_map(|r| match r.pipelines.contains(&(b as u16)) {
+            // D3217: a set kept whole runs the join once, at its first run, where PostgreSQL's first call decides as for a probe
+            // in no set (inherit#404's reading, rerun/sets.rs): no later call decides again
+            true if crate::rerun::sets::kept_whole(gx, r) => None,
+            true => (*outer_first
+                && !lazy
+                && (build() || !fill && outer(false))
+                && !probe_calls::orders(gx, q, j, b))
+            .then_some(OUTER_FIRST_RAISES),
+            // the keep rule (`kept_across`): a build outside the set whose table it does not show kept
+            false if !kept_across(gx, r, b) => Some(KEPT_UNKNOWN),
+            // D1906 (probe_kept.rs): served over a lazy build, the table kept at any size (D2713: call counts are free)
+            false if build_calls(gx, b, false) => {
+                (!probe_kept::kept(gx, q, j, b, lazy)).then_some(KEPT_BUILD_CALLS)
+            }
+            // D1906: a kept build whose calls the side class does not read (probe_kept.rs `hidden`): served over a lazy build
+            // under a quiet outer side; else refused by what blocks it: an outer side that may raise or call over the lazy build
+            // (D1904's: PG's whole-outer rescan), a build that takes no lazy group (D1906's)
+            false if kept_road(gx, q, j, b) && !probe_kept::kept(gx, q, j, b, lazy) => {
+                Some(if lazy {
+                    KEPT_OUTER_RAISES
+                } else {
+                    KEPT_BUILD_CALLS
+                })
+            }
+            false => (!fill && outer(true) && !probe_kept::rescans(gx, q, j, b, lazy))
+                .then_some(KEPT_OUTER_RAISES),
+        })
 }
 
 /// D1906: probe `j` of pipeline `q` over build `b` is probe_kept.rs's road's: an INNER or SEMI probe (not psql's catalog
@@ -159,11 +213,24 @@ pub(crate) fn rerun_order(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: b
 /// call, where PG never builds). Whether the side calls is the effects home's answer (effects/visible/hashjoin.rs
 /// `build_calls`); what the table's lifetime makes of it is decided here.
 pub(crate) fn kept_road(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
-    let Some(gravity_decompose::Op::Join(gravity_decompose::join::JoinDesc::Probe { jointype, outer_first: true, catalog: false, .. })) = gx.pipelines()[q].ops.get(j) else { return false };
+    let Some(gravity_decompose::Op::Join(gravity_decompose::join::JoinDesc::Probe {
+        jointype,
+        outer_first: true,
+        catalog: false,
+        ..
+    })) = gx.pipelines()[q].ops.get(j)
+    else {
+        return false;
+    };
     let sets = || gx.graph.reruns.iter();
     let holds_q = |r: &&gravity_decompose::graph::Rerun| r.pipelines.contains(&(q as u16));
-    matches!(jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_UNIQUE_OUTER | JoinType::JOIN_UNIQUE_INNER)
-        && sets().any(|r| holds_q(&r))
+    matches!(
+        jointype,
+        JoinType::JOIN_INNER
+            | JoinType::JOIN_SEMI
+            | JoinType::JOIN_UNIQUE_OUTER
+            | JoinType::JOIN_UNIQUE_INNER
+    ) && sets().any(|r| holds_q(&r))
         && sets().filter(holds_q).all(|r| kept_across(gx, r, b))
         && build_calls(gx, b, true)
 }
@@ -174,5 +241,8 @@ pub(crate) fn kept_road(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
 /// (`Quiet`), or never reaches it (`Unreached`). No answer (`r` runs `b` again, or the rule recorded none): not kept.
 pub(crate) fn kept_across(gx: &Gx<'_, '_>, r: &gravity_decompose::graph::Rerun, b: usize) -> bool {
     use gravity_decompose::lifetime::KeptBy;
-    matches!(crate::lifetime::kept_input(gx.graph, r.node_id, r.plan_id, b), Some(KeptBy::Pg { .. } | KeptBy::Usual { .. } | KeptBy::Quiet | KeptBy::Unreached))
+    matches!(
+        crate::lifetime::kept_input(gx.graph, r.node_id, r.plan_id, b),
+        Some(KeptBy::Pg { .. } | KeptBy::Usual { .. } | KeptBy::Quiet | KeptBy::Unreached)
+    )
 }

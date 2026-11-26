@@ -49,13 +49,26 @@ pub struct Regions<'m> {
 impl<'m> Regions<'m> {
     /// No regions, the lists in `m`.
     pub fn new_in(m: Mcx<'m>) -> Self {
-        Regions { of: PgVec::new_in(m), parent: PgVec::new_in(m) }
+        Regions {
+            of: PgVec::new_in(m),
+            parent: PgVec::new_in(m),
+        }
     }
 
     /// The regions holding node `id`, innermost first; none when PostgreSQL runs it whenever its statement runs.
     pub fn chain(&self, id: i32) -> impl Iterator<Item = i32> + '_ {
-        let up = |r: &i32| self.parent.binary_search_by_key(r, |x| x.0).ok().map(|i| self.parent[i].1).filter(|&p| p >= 0);
-        let first = self.of.binary_search_by_key(&id, |x| x.0).ok().map(|i| self.of[i].1);
+        let up = |r: &i32| {
+            self.parent
+                .binary_search_by_key(r, |x| x.0)
+                .ok()
+                .map(|i| self.parent[i].1)
+                .filter(|&p| p >= 0)
+        };
+        let first = self
+            .of
+            .binary_search_by_key(&id, |x| x.0)
+            .ok()
+            .map(|i| self.of[i].1);
         core::iter::successors(first, up).take(self.parent.len() + 1)
     }
 }
@@ -73,8 +86,18 @@ pub fn regions<'m>(stmt: &PlannedStmt<'_>, m: Mcx<'m>) -> Regions<'m> {
     // anything else on demand. A CTE or such an InitPlan whose readers all sit in one region runs whenever that region
     // runs, so it joins it (a MATERIALIZED CTE inside a SubPlan: the SubPlan's rescan runs it); readers in several
     // regions open its own
-    for (id, sub) in stmt.subplans.iter().enumerate().filter_map(|(i, s)| s.map(|s| (i as i32 + 1, s))).rev() {
-        let readers: PgVec<'_, i32> = at_start.iter().filter(|x| x.0 == id).map(|x| x.1).collect_in(m);
+    for (id, sub) in stmt
+        .subplans
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| s.map(|s| (i as i32 + 1, s)))
+        .rev()
+    {
+        let readers: PgVec<'_, i32> = at_start
+            .iter()
+            .filter(|x| x.0 == id)
+            .map(|x| x.1)
+            .collect_in(m);
         let region = match readers.first() {
             // a data-modifying CTE's plan always runs (the module doc)
             _ if sub.node_tag() == NodeTag::T_ModifyTable => -1,
@@ -109,7 +132,12 @@ fn walk(n: Node<'_>, region: i32, r: &mut Regions<'_>, at_start: &mut PgVec<'_, 
         at_start.push_in((c.ctePlanId, region));
     }
     if let Some(q) = n.as_result().and_then(|r| r.resconstantqual) {
-        for s in p.initPlan.iter().filter_map(|s| s.as_sub_plan()).filter(|s| s.subLinkType != SubLinkType::CTE_SUBLINK && reads_param(q, &s.setParam)) {
+        for s in p
+            .initPlan
+            .iter()
+            .filter_map(|s| s.as_sub_plan())
+            .filter(|s| s.subLinkType != SubLinkType::CTE_SUBLINK && reads_param(q, &s.setParam))
+        {
             at_start.push_in((s.plan_id, region));
         }
     }
@@ -120,12 +148,18 @@ fn walk(n: Node<'_>, region: i32, r: &mut Regions<'_>, at_start: &mut PgVec<'_, 
         walk(o, at, r, at_start);
     }
     if let Some(i) = inner {
-        let at = if once || waits { open(i, region, r) } else { region };
+        let at = if once || waits {
+            open(i, region, r)
+        } else {
+            region
+        };
         walk(i, at, r, at_start);
     }
     // an Append's or MergeAppend's arms, a SubqueryScan's subplan, a BitmapAnd's or BitmapOr's inputs (`explain::children`
     // lists the two trees first)
-    for (c, _) in crate::explain::children(n).skip(usize::from(outer.is_some()) + usize::from(inner.is_some())) {
+    for (c, _) in crate::explain::children(n)
+        .skip(usize::from(outer.is_some()) + usize::from(inner.is_some()))
+    {
         walk(c, region, r, at_start);
     }
 }
@@ -137,13 +171,26 @@ fn inner_waits(n: Node<'_>) -> bool {
     match n.node_tag() {
         NodeTag::T_NestLoop => true,
         NodeTag::T_MergeJoin => {
-            let jt = n.as_merge_join().map_or(JoinType::JOIN_INNER, |m| m.join.jointype);
-            !matches!(jt, JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_ANTI)
+            let jt = n
+                .as_merge_join()
+                .map_or(JoinType::JOIN_INNER, |m| m.join.jointype);
+            !matches!(
+                jt,
+                JoinType::JOIN_RIGHT | JoinType::JOIN_FULL | JoinType::JOIN_RIGHT_ANTI
+            )
         }
         NodeTag::T_HashJoin => {
-            let jt = n.as_hash_join().map_or(JoinType::JOIN_INNER, |h| h.join.jointype);
-            let hash_total = p.righttree.and_then(|h| h.as_plan()).map_or(0.0, |h| h.total_cost);
-            let outer_startup = p.lefttree.and_then(|o| o.as_plan()).map_or(0.0, |o| o.startup_cost);
+            let jt = n
+                .as_hash_join()
+                .map_or(JoinType::JOIN_INNER, |h| h.join.jointype);
+            let hash_total = p
+                .righttree
+                .and_then(|h| h.as_plan())
+                .map_or(0.0, |h| h.total_cost);
+            let outer_startup = p
+                .lefttree
+                .and_then(|o| o.as_plan())
+                .map_or(0.0, |o| o.startup_cost);
             crate::join::outer_first(jt, p.parallel_aware, outer_startup, hash_total)
         }
         _ => false,
@@ -170,7 +217,12 @@ pub fn result_gated<'m>(stmt: &PlannedStmt<'_>, m: Mcx<'m>) -> PgVec<'m, (i32, P
     out
 }
 
-fn walk_results<'m>(n: Node<'_>, gates: &mut PgVec<'m, i32>, out: &mut PgVec<'m, (i32, PgVec<'m, i32>)>, m: Mcx<'m>) {
+fn walk_results<'m>(
+    n: Node<'_>,
+    gates: &mut PgVec<'m, i32>,
+    out: &mut PgVec<'m, (i32, PgVec<'m, i32>)>,
+    m: Mcx<'m>,
+) {
     crate::walk::stack_check();
     let Some(p) = n.as_plan() else { return };
     if !gates.is_empty() {
@@ -187,7 +239,9 @@ fn walk_results<'m>(n: Node<'_>, gates: &mut PgVec<'m, i32>, out: &mut PgVec<'m,
     if let Some(i) = inner.filter(|_| !inner_waits(n)) {
         walk_results(i, gates, out, m);
     }
-    for (c, _) in crate::explain::children(n).skip(usize::from(outer.is_some()) + usize::from(inner.is_some())) {
+    for (c, _) in crate::explain::children(n)
+        .skip(usize::from(outer.is_some()) + usize::from(inner.is_some()))
+    {
         walk_results(c, gates, out, m);
     }
     if own {
@@ -198,7 +252,9 @@ fn walk_results<'m>(n: Node<'_>, gates: &mut PgVec<'m, i32>, out: &mut PgVec<'m,
 /// Expression `n` reads one of exec parameters `ids`.
 fn reads_param(n: Node<'_>, ids: &IntList<'_>) -> bool {
     crate::walk::stack_check(); // D3748
-    if n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && ids.iter().any(|i| i == p.paramid)) {
+    if n.as_param()
+        .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXEC && ids.iter().any(|i| i == p.paramid))
+    {
         return true;
     }
     let mut hit = false;

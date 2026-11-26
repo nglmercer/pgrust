@@ -29,14 +29,17 @@ use crate::ops::hashjoin::build_class::{feed, side_by, Side};
 /// The road serves probe `j` of `q` over `b`: `kept_road` (the lifetime home's), its build lazy (`lazy`, made before), and an outer side that
 /// is quiet or takes D1904's later-call words (its source and feeders quiet: they run at every call).
 pub(crate) fn kept(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: bool) -> bool {
-    lazy && crate::lifetime::hashjoin::kept_road(gx, q, j, b) && (side_by(gx, q, j, true) == Side::Safe || side_by(gx, q, 0, false) == Side::Safe)
+    lazy && crate::lifetime::hashjoin::kept_road(gx, q, j, b)
+        && (side_by(gx, q, j, true) == Side::Safe || side_by(gx, q, 0, false) == Side::Safe)
 }
 
 /// D1904's later-call road (probe_calls.rs `Calls`): its own test, or this file's kept build under an outer side that is not
 /// quiet (each later call scans the whole outer over the kept table, an empty one too, as PG's rescan does), or a nest
 /// inner's kept probe whose outer keys may raise (D3378 C3: probe_calls.rs `nest_rescans`).
 pub(crate) fn rescans(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: bool) -> bool {
-    crate::ops::hashjoin::probe_calls::rescans(gx, q, j, b) || kept(gx, q, j, b, lazy) && side_by(gx, q, j, true) != Side::Safe || crate::ops::hashjoin::probe_calls::nest_rescans(gx, q, j, b)
+    crate::ops::hashjoin::probe_calls::rescans(gx, q, j, b)
+        || kept(gx, q, j, b, lazy) && side_by(gx, q, j, true) != Side::Safe
+        || crate::ops::hashjoin::probe_calls::nest_rescans(gx, q, j, b)
 }
 
 /// Build `b`'s side (`b` and its feeders) holds code the side class does not read: a value of a user type or a
@@ -45,27 +48,53 @@ pub(crate) fn rescans(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize, lazy: bool)
 /// comparison).
 pub(crate) fn hidden(gx: &Gx<'_, '_>, b: usize) -> bool {
     let p = &gx.pipelines()[b];
-    let all = feed(gx, b, p.desc.consumes.iter().copied().chain(if let Source::Breaker { slot } = p.source { Some(slot) } else { None }));
+    let all = feed(
+        gx,
+        b,
+        p.desc
+            .consumes
+            .iter()
+            .copied()
+            .chain(if let Source::Breaker { slot } = p.source {
+                Some(slot)
+            } else {
+                None
+            }),
+    );
     let h = |n: types_nodes::Node<'_>| user_typed(gx, n) || input_fn(n);
     let op = |o: &Op<'_>| match o {
         Op::Filter(n) | Op::Gate(n) => h(*n),
         Op::Project(l) => l.iter().any(h),
         Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(h),
-        Op::Join(JoinDesc::Probe { clauses, keys, qual, .. }) => clauses.iter().chain(keys.iter()).chain(qual.iter()).any(h),
+        Op::Join(JoinDesc::Probe {
+            clauses,
+            keys,
+            qual,
+            ..
+        }) => clauses.iter().chain(keys.iter()).chain(qual.iter()).any(h),
         Op::Srf(d) => d.functions.iter().any(|f| h(f.node)),
         Op::SubPlan(d) => d.test.into_iter().chain(d.args.iter()).any(h),
         _ => false,
     };
     let src = |s: &Source<'_>| match s {
-        Source::Index { keys, recheck, .. } => keys.iter().map(|k| k.value).chain(recheck.iter()).any(h),
+        Source::Index { keys, recheck, .. } => {
+            keys.iter().map(|k| k.value).chain(recheck.iter()).any(h)
+        }
         Source::Bitmap { recheck, .. } => recheck.iter().any(h),
-        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(h),
+        Source::Values { lists, .. } => lists
+            .iter()
+            .filter_map(|l| l.as_list())
+            .flat_map(|l| l.iter())
+            .any(h),
         Source::Tid { quals, .. } => quals.iter().any(h),
         _ => false,
     };
     all.into_iter().chain(std::iter::once(b)).any(|x| {
         let p = &gx.pipelines()[x];
-        let group = gx.group_at(x).is_some_and(|g| g.keys.iter().any(|k| h(k.expr.node())) || g.aggs.iter().any(|a| h(a.node) || a.filter.is_some_and(h)));
+        let group = gx.group_at(x).is_some_and(|g| {
+            g.keys.iter().any(|k| h(k.expr.node()))
+                || g.aggs.iter().any(|a| h(a.node) || a.filter.is_some_and(h))
+        });
         p.ops.iter().any(op) || src(&p.source) || group
     })
 }
@@ -75,7 +104,9 @@ pub(crate) fn hidden(gx: &Gx<'_, '_>, b: usize) -> bool {
 fn input_fn(n: types_nodes::Node<'_>) -> bool {
     let mut any = false;
     gravity_decompose::expr::walk(n, &mut |x| {
-        any |= x.as_func_expr().is_some_and(|f| types_core::quiet::input_validator(f.funcid));
+        any |= x
+            .as_func_expr()
+            .is_some_and(|f| types_core::quiet::input_validator(f.funcid));
         !any
     });
     any

@@ -117,7 +117,11 @@ use types_error::PgResult;
 /// `coords` carries `dim` values for a point, `2*dim` otherwise.
 pub fn build_image(dim: usize, point: bool, coords: &[f64]) -> PgResult<Vec<u8>> {
     debug_assert_eq!(coords.len(), if point { dim } else { 2 * dim });
-    let size = if point { point_size(dim) } else { cube_size(dim) };
+    let size = if point {
+        point_size(dim)
+    } else {
+        cube_size(dim)
+    };
     let mut img = ::mcx::std_vec_with_capacity("cube", size)?;
     img.extend_from_slice(&datum::varlena::set_varsize_4b(size));
     let header = (dim as u32 & DIM_MASK) | if point { POINT_BIT } else { 0 };
@@ -164,10 +168,7 @@ mod tests {
         assert_eq!(v.ll(1), 2.0);
         assert_eq!(v.ur(1), 2.0);
         // varlena word: size << 2 on LE builds.
-        assert_eq!(
-            u32::from_ne_bytes(img[0..4].try_into().unwrap()) >> 2,
-            24
-        );
+        assert_eq!(u32::from_ne_bytes(img[0..4].try_into().unwrap()) >> 2, 24);
         assert_eq!(
             u32::from_ne_bytes(img[4..8].try_into().unwrap()),
             2 | POINT_BIT

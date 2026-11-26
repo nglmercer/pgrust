@@ -138,7 +138,11 @@ const EXCLUDES: &[&str] = &[
 fn gen_groups(g: &mut Gen) -> Vec<String> {
     let (start, end) = INT_PAIRS[g.rng.below_usize(INT_PAIRS.len())];
     let excl = EXCLUDES[g.rng.below_usize(EXCLUDES.len())];
-    let part = if g.rng.chance(2, 3) { "PARTITION BY k " } else { "" };
+    let part = if g.rng.chance(2, 3) {
+        "PARTITION BY k "
+    } else {
+        ""
+    };
     vec![format!(
         "SELECT pk, k, s, \
          count(*) OVER w AS c, sum(v) OVER w AS sm, dense_rank() OVER w AS dr \
@@ -188,7 +192,11 @@ fn gen_rangetyped(g: &mut Gen) -> Vec<String> {
         _ => format!("BETWEEN {prec} PRECEDING AND UNBOUNDED FOLLOWING"),
     };
     let excl = EXCLUDES[g.rng.below_usize(EXCLUDES.len())];
-    let part = if g.rng.chance(1, 2) { "PARTITION BY k " } else { "" };
+    let part = if g.rng.chance(1, 2) {
+        "PARTITION BY k "
+    } else {
+        ""
+    };
     vec![format!(
         "SELECT pk, {col}, count(*) OVER w AS c, sum(v) OVER w AS sm \
          FROM fz_aw \
@@ -324,7 +332,11 @@ mod tests {
     }
 
     fn flat(seed: u64, n: usize) -> Vec<String> {
-        groups(seed, n).into_iter().flatten().map(|k| k.to_sql()).collect()
+        groups(seed, n)
+            .into_iter()
+            .flatten()
+            .map(|k| k.to_sql())
+            .collect()
     }
 
     #[test]
@@ -351,7 +363,10 @@ mod tests {
             "GROUP BY GROUPING SETS ((a), (b), (a, b))",
             "SET work_mem = '64kB';",
         ] {
-            assert!(sql.contains(needle), "family fragment never generated: {needle}");
+            assert!(
+                sql.contains(needle),
+                "family fragment never generated: {needle}"
+            );
         }
     }
 
@@ -373,8 +388,18 @@ mod tests {
     #[test]
     fn no_float_aggregates() {
         let sql = flat(23, 600).join("\n");
-        for needle in ["float", "::real", "double precision", "stddev", "var_samp", "var_pop"] {
-            assert!(!sql.contains(needle), "float-family aggregate present: {needle}");
+        for needle in [
+            "float",
+            "::real",
+            "double precision",
+            "stddev",
+            "var_samp",
+            "var_pop",
+        ] {
+            assert!(
+                !sql.contains(needle),
+                "float-family aggregate present: {needle}"
+            );
         }
     }
 
@@ -404,7 +429,10 @@ mod tests {
     #[test]
     fn fixture_groups_drop_their_table() {
         for group in groups(31, 300) {
-            let creates = group.iter().filter(|k| k.to_sql().contains("CREATE TABLE fz_aw")).count();
+            let creates = group
+                .iter()
+                .filter(|k| k.to_sql().contains("CREATE TABLE fz_aw"))
+                .count();
             let drops = group
                 .iter()
                 .filter(|k| k.to_sql().starts_with("DROP TABLE fz_aw"))

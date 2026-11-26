@@ -1,11 +1,10 @@
+use crate::api::{SN_close_env, SN_create_env};
 use crate::types::{among, symbol, SN_env};
-use crate::api::{SN_create_env, SN_close_env};
 #[allow(unused_imports)]
 use crate::utilities::{
-    in_grouping, in_grouping_b, out_grouping, out_grouping_b,
-    in_grouping_U, in_grouping_b_U, out_grouping_U, out_grouping_b_U,
-    find_among, find_among_b, slice_from_s, slice_del, slice_to,
-    eq_s, eq_s_b, eq_v_b, insert_s, len_utf8, skip_utf8, skip_b_utf8,
+    eq_s, eq_s_b, eq_v_b, find_among, find_among_b, in_grouping, in_grouping_U, in_grouping_b,
+    in_grouping_b_U, insert_s, len_utf8, out_grouping, out_grouping_U, out_grouping_b,
+    out_grouping_b_U, skip_b_utf8, skip_utf8, slice_del, slice_from_s, slice_to,
 };
 
 static mut s_0_0: [symbol; 10] = [
@@ -1961,8 +1960,7 @@ unsafe fn r_mark_regions(mut z: *mut SN_env) -> ::core::ffi::c_int {
     return 1 as ::core::ffi::c_int;
 }
 unsafe fn r_R2(mut z: *mut SN_env) -> ::core::ffi::c_int {
-    return (*(*z).I.offset(0 as ::core::ffi::c_int as isize) <= (*z).c)
-        as ::core::ffi::c_int;
+    return (*(*z).I.offset(0 as ::core::ffi::c_int as isize) <= (*z).c) as ::core::ffi::c_int;
 }
 unsafe fn r_perfective_gerund(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
@@ -1977,9 +1975,7 @@ unsafe fn r_perfective_gerund(mut z: *mut SN_env) -> ::core::ffi::c_int {
             let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
             if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_0 as *const symbol) == 0 {
                 (*z).c = (*z).l - m1;
-                if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_1 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_1 as *const symbol) == 0 {
                     return 0 as ::core::ffi::c_int;
                 }
             }
@@ -2036,18 +2032,11 @@ unsafe fn r_adjectival(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_2 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_2 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m2;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_3 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_3 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m1;
                                 current_block = 11307063007268554308;
@@ -2080,18 +2069,11 @@ unsafe fn r_adjectival(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                     _ => {
                         let mut m2: ::core::ffi::c_int = (*z).l - (*z).c;
-                        if eq_s_b(
-                            z,
-                            2 as ::core::ffi::c_int,
-                            &raw const s_2 as *const symbol,
-                        ) == 0
+                        if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_2 as *const symbol) == 0
                         {
                             (*z).c = (*z).l - m2;
-                            if eq_s_b(
-                                z,
-                                2 as ::core::ffi::c_int,
-                                &raw const s_3 as *const symbol,
-                            ) == 0
+                            if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_3 as *const symbol)
+                                == 0
                             {
                                 (*z).c = (*z).l - m1;
                                 current_block = 11307063007268554308;
@@ -2121,10 +2103,10 @@ unsafe fn r_adjectival(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_reflexive(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 3 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 140 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 143 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 140 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 143 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2141,11 +2123,7 @@ unsafe fn r_reflexive(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
     let mut among_var: ::core::ffi::c_int = 0;
     (*z).ket = (*z).c;
-    among_var = find_among_b(
-        z,
-        &raw const a_4 as *const among,
-        46 as ::core::ffi::c_int,
-    );
+    among_var = find_among_b(z, &raw const a_4 as *const among, 46 as ::core::ffi::c_int);
     if among_var == 0 {
         return 0 as ::core::ffi::c_int;
     }
@@ -2155,9 +2133,7 @@ unsafe fn r_verb(mut z: *mut SN_env) -> ::core::ffi::c_int {
             let mut m1: ::core::ffi::c_int = (*z).l - (*z).c;
             if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_4 as *const symbol) == 0 {
                 (*z).c = (*z).l - m1;
-                if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_5 as *const symbol)
-                    == 0
-                {
+                if eq_s_b(z, 2 as ::core::ffi::c_int, &raw const s_5 as *const symbol) == 0 {
                     return 0 as ::core::ffi::c_int;
                 }
             }
@@ -2191,10 +2167,10 @@ unsafe fn r_noun(mut z: *mut SN_env) -> ::core::ffi::c_int {
 unsafe fn r_derivational(mut z: *mut SN_env) -> ::core::ffi::c_int {
     (*z).ket = (*z).c;
     if (*z).c - 5 as ::core::ffi::c_int <= (*z).lb
-        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-            as ::core::ffi::c_int != 130 as ::core::ffi::c_int
-            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize)
-                as ::core::ffi::c_int != 140 as ::core::ffi::c_int
+        || *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+            != 130 as ::core::ffi::c_int
+            && *(*z).p.offset(((*z).c - 1 as ::core::ffi::c_int) as isize) as ::core::ffi::c_int
+                != 140 as ::core::ffi::c_int
     {
         return 0 as ::core::ffi::c_int;
     }
@@ -2268,12 +2244,8 @@ pub unsafe fn russian_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
             (*z).bra = (*z).c;
             if eq_s(z, 2 as ::core::ffi::c_int, &raw const s_9 as *const symbol) == 0 {
                 (*z).c = c3;
-                let mut ret: ::core::ffi::c_int = skip_utf8(
-                    (*z).p,
-                    (*z).c,
-                    (*z).l,
-                    1 as ::core::ffi::c_int,
-                );
+                let mut ret: ::core::ffi::c_int =
+                    skip_utf8((*z).p, (*z).c, (*z).l, 1 as ::core::ffi::c_int);
                 if ret < 0 as ::core::ffi::c_int {
                     current_block_8 = 1308269956193026931;
                     break;
@@ -2288,11 +2260,8 @@ pub unsafe fn russian_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
         }
         match current_block_8 {
             13109137661213826276 => {
-                let mut ret_0: ::core::ffi::c_int = slice_from_s(
-                    z,
-                    2 as ::core::ffi::c_int,
-                    &raw const s_10 as *const symbol,
-                );
+                let mut ret_0: ::core::ffi::c_int =
+                    slice_from_s(z, 2 as ::core::ffi::c_int, &raw const s_10 as *const symbol);
                 if ret_0 < 0 as ::core::ffi::c_int {
                     return ret_0;
                 }
@@ -2326,7 +2295,7 @@ pub unsafe fn russian_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
         if ret_3 == 0 as ::core::ffi::c_int {
             (*z).c = (*z).l - m7;
         } else if ret_3 < 0 as ::core::ffi::c_int {
-            return ret_3
+            return ret_3;
         }
         let mut m8: ::core::ffi::c_int = (*z).l - (*z).c;
         let mut ret_4: ::core::ffi::c_int = r_adjectival(z);
@@ -2342,13 +2311,13 @@ pub unsafe fn russian_UTF_8_stem(mut z: *mut SN_env) -> ::core::ffi::c_int {
                     }
                 }
             } else if ret_5 < 0 as ::core::ffi::c_int {
-                return ret_5
+                return ret_5;
             }
         } else if ret_4 < 0 as ::core::ffi::c_int {
-            return ret_4
+            return ret_4;
         }
     } else if ret_2 < 0 as ::core::ffi::c_int {
-        return ret_2
+        return ret_2;
     }
     (*z).c = (*z).l - m5;
     let mut m9: ::core::ffi::c_int = (*z).l - (*z).c;

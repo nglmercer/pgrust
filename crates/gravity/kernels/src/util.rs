@@ -1,10 +1,12 @@
 //! The kernel helpers over the ABI accessors (docs/gravity/abi-v2.md §0): every function here
 //! is loads and stores at fixed offsets plus the seven calls, one to one with a lowerer emit.
-use gravity_abi::PtrWord;
 use gravity_abi::ctx::{arena_alloc, cancel_pending, site_ptr, RESUME_NONE};
 use gravity_abi::program;
 use gravity_abi::site as abi_site;
-use gravity_abi::status::{suspend, unsupported, CANCELLED, DONE, ERROR, OK, STOP, UNSUPPORTED_SCRATCH};
+use gravity_abi::status::{
+    suspend, unsupported, CANCELLED, DONE, ERROR, OK, STOP, UNSUPPORTED_SCRATCH,
+};
+use gravity_abi::PtrWord;
 use gravity_abi::{Ctx, Datum, Lane, Site};
 
 pub use gravity_abi::program::{consumed, partial};
@@ -46,7 +48,13 @@ pub unsafe fn site<'a>(ctx: *mut Ctx, i: usize) -> &'a mut Site {
 }
 
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn copy_row(dst_v: *mut Datum, dst_n: *mut u8, src_v: *const Datum, src_n: *const u8, n: usize) {
+pub unsafe fn copy_row(
+    dst_v: *mut Datum,
+    dst_n: *mut u8,
+    src_v: *const Datum,
+    src_n: *const u8,
+    n: usize,
+) {
     for k in 0..n {
         *dst_v.add(k) = *src_v.add(k);
         *dst_n.add(k) = *src_n.add(k);
@@ -199,8 +207,13 @@ pub unsafe fn advance(ctx: *mut Ctx, i: usize) -> i64 {
         }
         let n = window(ctx, i);
         if n < 0 {
-            if matches!(gravity_abi::status::Status::decode(n), gravity_abi::status::Status::Bad(_)) {
-                gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!("gravity: advance: site {i}'s window returned {n:#x}")))); // alloc: Cold
+            if matches!(
+                gravity_abi::status::Status::decode(n),
+                gravity_abi::status::Status::Bad(_)
+            ) {
+                gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!(
+                    "gravity: advance: site {i}'s window returned {n:#x}"
+                )))); // alloc: Cold
                 return ERROR;
             }
             return n;
@@ -275,7 +288,13 @@ pub unsafe fn emit(ctx: *mut Ctx, natts: usize, parts: &[(*const Datum, *const u
     let row = o.count as usize;
     let mut col = 0;
     for &(v, n, cnt) in parts {
-        copy_row(o.values.ptr().add(row * natts + col), o.isnull.ptr().add(row * natts + col), v, n, cnt);
+        copy_row(
+            o.values.ptr().add(row * natts + col),
+            o.isnull.ptr().add(row * natts + col),
+            v,
+            n,
+            cnt,
+        );
         col += cnt;
     }
     o.count += 1;
@@ -364,7 +383,11 @@ impl ScratchSet {
         if p.is_null() {
             return None;
         }
-        Some(ScratchSet { slots: p as *mut u32, cap, len: 0 })
+        Some(ScratchSet {
+            slots: p as *mut u32,
+            cap,
+            len: 0,
+        })
     }
 
     pub fn insert(&mut self, key: u32) -> Result<bool, i64> {

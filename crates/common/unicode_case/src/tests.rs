@@ -129,8 +129,16 @@ fn final_sigma_requires_a_preceding_cased_character() {
 // upstream 9021c8f3cabc (18.6): unicode_case.c: defend against truncated UTF8.
 #[test]
 fn invalid_utf8_stops_conversion() {
-    assert_eq!(unicode_strfold(&mut [], b"abc\xCE", false), 3, "case_test.c");
-    assert_eq!(unicode_strfold(&mut [], b"abc\xF8xyz", false), 3, "case_test.c");
+    assert_eq!(
+        unicode_strfold(&mut [], b"abc\xCE", false),
+        3,
+        "case_test.c"
+    );
+    assert_eq!(
+        unicode_strfold(&mut [], b"abc\xF8xyz", false),
+        3,
+        "case_test.c"
+    );
     let cases: [(&[u8], usize); 6] = [
         (b"abc\xCE", 3),
         (b"a\xE2\x82", 1),
@@ -141,16 +149,36 @@ fn invalid_utf8_stops_conversion() {
     ];
     for (src, want) in cases {
         for full in [false, true] {
-            assert_eq!(unicode_strlower(&mut [], src, full), want, "lower {src:?} full={full}");
-            assert_eq!(unicode_strupper(&mut [], src, full), want, "upper {src:?} full={full}");
-            assert_eq!(unicode_strfold(&mut [], src, full), want, "fold {src:?} full={full}");
+            assert_eq!(
+                unicode_strlower(&mut [], src, full),
+                want,
+                "lower {src:?} full={full}"
+            );
+            assert_eq!(
+                unicode_strupper(&mut [], src, full),
+                want,
+                "upper {src:?} full={full}"
+            );
+            assert_eq!(
+                unicode_strfold(&mut [], src, full),
+                want,
+                "fold {src:?} full={full}"
+            );
         }
     }
     let mut dst = [0xAAu8; 8];
     assert_eq!(unicode_strupper(&mut dst, b"abc\xCE", false), 3);
     assert_eq!(&dst[..5], b"ABC\0\xAA", "nothing past the cut is copied");
     assert_eq!(unicode_strupper(&mut dst, b"abc\xF8xyz", false), 3);
-    assert_eq!(&dst[..5], b"ABC\0\xAA", "nothing past the invalid byte is copied");
+    assert_eq!(
+        &dst[..5],
+        b"ABC\0\xAA",
+        "nothing past the invalid byte is copied"
+    );
     let n = unicode_strlower(&mut dst, b"\xCE\x91\xCE\xA3\xCE", true);
-    assert_eq!((n, &dst[..n]), (4, &b"\xCE\xB1\xCF\x83"[..]), "sigma before a cut is not final");
+    assert_eq!(
+        (n, &dst[..n]),
+        (4, &b"\xCE\xB1\xCF\x83"[..]),
+        "sigma before a cut is not final"
+    );
 }

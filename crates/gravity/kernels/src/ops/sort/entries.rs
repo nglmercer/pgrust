@@ -8,13 +8,25 @@
 //! exec v4/m3_sort.rs (the run layout is this crate's). Created by M3 (owner M3-HOSTS).
 use crate::host_abi::{RowCmp, SortSpec, VarShape};
 
+pub use crate::dict::strategies::front_light::{
+    front_light_bind, front_light_flush, LightWords, LD_NONE, LD_WAYS, LW_ALLOC, LW_BYTES, LW_CAP,
+    LW_CNT, LW_N, LW_NO_PART, LW_PART, LW_TOUCHED, LW_WAYS,
+};
 pub use crate::ops::sort::cut::{CUT_NATURAL, CUT_TIES};
-pub use crate::ops::sort::raw::{sort_cut_res, sort_cut_res_var, table_bytes, take_table};
-pub use crate::dict::strategies::front_light::{front_light_bind, front_light_flush, LightWords, LD_NONE, LD_WAYS, LW_ALLOC, LW_BYTES, LW_CAP, LW_CNT, LW_N, LW_NO_PART, LW_PART, LW_TOUCHED, LW_WAYS};
-pub use crate::ops::sort::raw::{BitsOrderWord, BytesOrderWord, NetOrderWord, NumOrderWord, SortFinish, SortHeapStep, SortStreamRearm, SortStreamRecycle, SpanCut, SpanSeen, SpoolLive, SpoolPoint, SPAN_DISTINCT};
-pub use crate::ops::sort::raw::cosplit::{sort_cosplit_begin, sort_cosplit_next, sort_cosplit_total, SORT_MODE_SLICES};
+pub use crate::ops::sort::raw::cosplit::{
+    sort_cosplit_begin, sort_cosplit_next, sort_cosplit_total, SORT_MODE_SLICES,
+};
 pub use crate::ops::sort::raw::place::sort_grow;
-pub use crate::ops::sort::runs::{describe, sort_full_res, sort_full_res_var, sort_last_res, sort_last_res_var, sort_open_res, sort_open_res_top, sort_open_res_var, sort_open_res_var_top, RESIDENT_MAX, RUN_CUT, RUN_KEYLANE, RUN_ORDERED, RUN_SEALED};
+pub use crate::ops::sort::raw::{sort_cut_res, sort_cut_res_var, table_bytes, take_table};
+pub use crate::ops::sort::raw::{
+    BitsOrderWord, BytesOrderWord, NetOrderWord, NumOrderWord, SortFinish, SortHeapStep,
+    SortStreamRearm, SortStreamRecycle, SpanCut, SpanSeen, SpoolLive, SpoolPoint, SPAN_DISTINCT,
+};
+pub use crate::ops::sort::runs::{
+    describe, sort_full_res, sort_full_res_var, sort_last_res, sort_last_res_var, sort_open_res,
+    sort_open_res_top, sort_open_res_var, sort_open_res_var_top, RESIDENT_MAX, RUN_CUT,
+    RUN_KEYLANE, RUN_ORDERED, RUN_SEALED,
+};
 pub use crate::ops::sort::runs::{RUN_HELD, RUN_HELD_AT};
 /// The last word of a var run's table copy (`sort_open_res_var`), at its rows' end: the merge reads its shape there.
 pub(crate) const DESCRIBED: u32 = 0x5e5a_7ab1;
@@ -31,6 +43,10 @@ pub struct RunShape {
 impl RunShape {
     /// A fixed row's shape: `nkey` key words and `spec` as `sort_open_res` takes them.
     pub fn fixed(row_bytes: u32, nkey: usize, spec: u64) -> RunShape {
-        RunShape { cmp: RowCmp::fixed(nkey / 2, SortSpec(spec)), rb: row_bytes as usize, var: None }
+        RunShape {
+            cmp: RowCmp::fixed(nkey / 2, SortSpec(spec)),
+            rb: row_bytes as usize,
+            var: None,
+        }
     }
 }

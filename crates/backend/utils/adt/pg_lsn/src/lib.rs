@@ -24,12 +24,12 @@ const MAXPG_LSNCOMPONENT: usize = 8;
 
 pub fn pg_lsn_in_internal(s: &[u8]) -> Option<XLogRecPtr> {
     let len1 = s.iter().take_while(|b| b.is_ascii_hexdigit()).count();
-    if !( 1..= MAXPG_LSNCOMPONENT).contains(&len1) || s.get(len1) != Some(&b'/') {
+    if !(1..=MAXPG_LSNCOMPONENT).contains(&len1) || s.get(len1) != Some(&b'/') {
         return None;
     }
     let rest = &s[len1 + 1..];
     let len2 = rest.iter().take_while(|b| b.is_ascii_hexdigit()).count();
-    if !( 1..= MAXPG_LSNCOMPONENT).contains(&len2) || len2 != rest.len() {
+    if !(1..=MAXPG_LSNCOMPONENT).contains(&len2) || len2 != rest.len() {
         return None;
     }
     let id = u32::from_str_radix(core::str::from_utf8(&s[..len1]).ok()?, 16).ok()?;
@@ -43,7 +43,10 @@ fn invalid_lsn(s: &[u8]) -> PgError {
         .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION)
 }
 
-pub fn pg_lsn_in(s: impl AsRef<[u8]>, escontext: Option<&mut SoftErrorContext>) -> PgResult<XLogRecPtr> {
+pub fn pg_lsn_in(
+    s: impl AsRef<[u8]>,
+    escontext: Option<&mut SoftErrorContext>,
+) -> PgResult<XLogRecPtr> {
     let s = s.as_ref();
     match pg_lsn_in_internal(s) {
         Some(lsn) => Ok(lsn),
@@ -129,8 +132,11 @@ pub fn pg_lsn_mi(lsn1: XLogRecPtr, lsn2: XLogRecPtr) -> PgResult<NumericImage> {
 #[cold]
 fn nan_arith(op: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("cannot {op} NaN {} pg_lsn", if op == "add" { "to" } else { "from" }))
-            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+        PgError::error(format!(
+            "cannot {op} NaN {} pg_lsn",
+            if op == "add" { "to" } else { "from" }
+        ))
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
     )
 }
 

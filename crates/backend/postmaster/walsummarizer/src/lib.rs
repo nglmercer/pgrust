@@ -6,10 +6,7 @@
 #![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
-use std::sync::atomic::{
-    AtomicBool, AtomicI32, AtomicU32, AtomicU64,
-    Ordering::Relaxed,
-};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::OnceLock;
 
 use condition_variable::{
@@ -19,23 +16,22 @@ use condition_variable::{
 use elog::{elog, ereport, PCT_M};
 use init_small::globals as g;
 use lwlock::{LWLockAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
-use mcx::{Mcx, MemoryContext};
 use mcx::vec_with_capacity_in;
 use mcx::PgVec;
+use mcx::{Mcx, MemoryContext};
 use transam_xlog::write::GetFlushRecPtr;
 use transam_xlog::{
-    wal_segment_size, GetRedoRecPtr, GetWALInsertionTimeLineIfSet,
-    RecoveryInProgress, XLogGetOldestSegno, XLogSegNoOffsetToRecPtr, RM_XLOG_ID,
-    WAL_LEVEL_MINIMAL, XLOGDIR, XLOG_CHECKPOINT_REDO, XLOG_CHECKPOINT_SHUTDOWN,
-    XLOG_END_OF_RECOVERY, XLOG_PARAMETER_CHANGE, XLR_INFO_MASK,
+    wal_segment_size, GetRedoRecPtr, GetWALInsertionTimeLineIfSet, RecoveryInProgress,
+    XLogGetOldestSegno, XLogSegNoOffsetToRecPtr, RM_XLOG_ID, WAL_LEVEL_MINIMAL, XLOGDIR,
+    XLOG_CHECKPOINT_REDO, XLOG_CHECKPOINT_SHUTDOWN, XLOG_END_OF_RECOVERY, XLOG_PARAMETER_CHANGE,
+    XLR_INFO_MASK,
 };
 use types_core::{
-    ForkNumber, RmgrIds, TimeLineID, TimestampTz, XLogRecPtr, XLogSegNo,
-    INVALID_PROC_NUMBER,
+    ForkNumber, RmgrIds, TimeLineID, TimestampTz, XLogRecPtr, XLogSegNo, INVALID_PROC_NUMBER,
 };
 use types_error::{
-    ErrorLocation, PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_INTERNAL_ERROR,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_OUT_OF_MEMORY, DEBUG1, DEBUG2, ERROR,
+    ErrorLocation, PgError, PgResult, DEBUG1, DEBUG2, ERRCODE_DATA_CORRUPTED,
+    ERRCODE_INTERNAL_ERROR, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_OUT_OF_MEMORY, ERROR,
     FATAL, WARNING,
 };
 use types_startup::StartupData;
@@ -44,9 +40,9 @@ use types_storage::{RelFileLocator, WAL_SUMMARIZER_LOCK};
 use xlogreader::{WALRead, XLogReaderRoutine, XLogReaderState, XLogSegmentRoutine};
 use xlogreader_seams::XLogReaderState as ReaderView;
 
+mod guards;
 #[cfg(test)]
 mod tests;
-mod guards;
 
 const MAX_SLEEP_QUANTA: i64 = 150;
 const MS_PER_SLEEP_QUANTUM: i64 = 200;
@@ -91,7 +87,9 @@ struct WalSummarizerData {
 static SHMEM: OnceLock<WalSummarizerData> = OnceLock::new();
 
 fn ctl() -> &'static WalSummarizerData {
-    SHMEM.get().expect("WalSummarizer shmem accessed before WalSummarizerShmemInit")
+    SHMEM
+        .get()
+        .expect("WalSummarizer shmem accessed before WalSummarizerShmemInit")
 }
 
 fn summarizer_lock() -> &'static lwlock::LWLock {
@@ -181,7 +179,10 @@ pub fn WalSummarizerMain(startup_data: &StartupData) -> ! {
 
     {
         use procsignal::ThreadSignalHandler::{Ignore, Simple};
-        procsignal::pqsignal_thread(procsignal::signums::SIGHUP, Simple(interrupt::SignalHandlerForConfigReload));
+        procsignal::pqsignal_thread(
+            procsignal::signums::SIGHUP,
+            Simple(interrupt::SignalHandlerForConfigReload),
+        );
         procsignal::pqsignal_thread(
             procsignal::signums::SIGINT,
             Simple(interrupt::SignalHandlerForShutdownRequest),
@@ -299,7 +300,11 @@ fn run_summarizer(context: &mut MemoryContext) -> PgResult<()> {
         }
 
         // upstream 1d299d6abfcd (18.6): walsummarizer: Guard against WAL files whose tail ends are not valid.
-        let maximum_lsn = if switch_lsn != InvalidXLogRecPtr { switch_lsn } else { latest_lsn };
+        let maximum_lsn = if switch_lsn != InvalidXLogRecPtr {
+            switch_lsn
+        } else {
+            latest_lsn
+        };
         let end_of_summary_lsn = SummarizeWAL(
             context.mcx(),
             current_tli,
@@ -355,7 +360,9 @@ pub fn GetWalSummarizerState() -> PgResult<WalSummarizerState> {
                 summarizer_pid: -1,
             }
         } else {
-            let mut pid = lmgr_proc::ProcGlobal().allProcs[pgprocno as usize].pid.load(Relaxed);
+            let mut pid = lmgr_proc::ProcGlobal().allProcs[pgprocno as usize]
+                .pid
+                .load(Relaxed);
             if pid <= 0 {
                 pid = -1;
             }
@@ -427,8 +434,12 @@ fn oldest_unsummarized_slow(
         }
     }
 
-    let existing =
-        GetWalSummaries(history_cx.mcx(), unsummarized_tli, InvalidXLogRecPtr, InvalidXLogRecPtr)?;
+    let existing = GetWalSummaries(
+        history_cx.mcx(),
+        unsummarized_tli,
+        InvalidXLogRecPtr,
+        InvalidXLogRecPtr,
+    )?;
     for ws in &existing {
         if ws.end_lsn > unsummarized_lsn {
             unsummarized_lsn = ws.end_lsn;
@@ -527,7 +538,11 @@ pub fn WaitForWalSummarization(lsn: XLogRecPtr) -> PgResult<()> {
             }
 
             let elapsed_seconds = diff_ms(initial_time, current_time) / 1000;
-            let plural = if elapsed_seconds == 1 { "second" } else { "seconds" };
+            let plural = if elapsed_seconds == 1 {
+                "second"
+            } else {
+                "seconds"
+            };
             ereport(WARNING)
                 .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                 .errmsg(format!(
@@ -577,7 +592,9 @@ fn wal_summarizer_shutdown(_code: i32, _arg: usize) {
     if let Err(e) = lock(LW_EXCLUSIVE) {
         fatal_exit(&e);
     }
-    ctl().summarizer_pgprocno.store(INVALID_PROC_NUMBER, Relaxed);
+    ctl()
+        .summarizer_pgprocno
+        .store(INVALID_PROC_NUMBER, Relaxed);
     let _ = unlock();
 }
 
@@ -643,13 +660,17 @@ fn WalSummarizerSwitchPoint(
 
     if switch_lsn == InvalidXLogRecPtr {
         ereport(ERROR)
-            .errmsg(format!("requested timeline {current_tli} is not in this server's history"))
+            .errmsg(format!(
+                "requested timeline {current_tli} is not in this server's history"
+            ))
             .finish(loc("WalSummarizerSwitchPoint"))?;
         unreachable!();
     }
     if count == 0 {
         ereport(ERROR)
-            .errmsg_internal(format!("cannot compute switch point for current TLI {current_tli}"))
+            .errmsg_internal(format!(
+                "cannot compute switch point for current TLI {current_tli}"
+            ))
             .finish(loc("WalSummarizerSwitchPoint"))?;
         unreachable!();
     }
@@ -749,7 +770,9 @@ fn summarizer_wal_segment_open(
     ereport(ERROR)
         .with_saved_errno(libc::ENOENT)
         .errcode_for_file_access()
-        .errmsg(format!("requested WAL segment {path} has already been removed"))
+        .errmsg(format!(
+            "requested WAL segment {path} has already been removed"
+        ))
         .finish(loc("summarizer_wal_segment_open"))?;
     unreachable!();
 }
@@ -787,8 +810,7 @@ impl XLogReaderRoutine for SummarizerPageRead<'_> {
                     let history_cx = MemoryContext::new("timeline history");
                     let tles =
                         timeline_seams::read_timeline_history::call(history_cx.mcx(), latest_tli)?;
-                    let (switchpoint, _) =
-                        timeline_seams::tli_switch_point::call(self.tli, &tles)?;
+                    let (switchpoint, _) = timeline_seams::tli_switch_point::call(self.tli, &tles)?;
 
                     self.historic = true;
                     self.read_upto = switchpoint;
@@ -865,12 +887,12 @@ fn SummarizeWAL(
                 switch_lsn = xlogreader.v.EndRecPtr;
             } else {
                 ereport(ERROR)
-                .errmsg(format!(
-                    "could not find a valid record after {}",
-                    lsn_fmt(start_lsn)
-                ))
-                .finish(loc("SummarizeWAL"))?;
-            unreachable!();
+                    .errmsg(format!(
+                        "could not find a valid record after {}",
+                        lsn_fmt(start_lsn)
+                    ))
+                    .finish(loc("SummarizeWAL"))?;
+                unreachable!();
             }
         } else {
             summary_start_lsn = found;
@@ -1074,7 +1096,11 @@ fn SummarizeDbaseRecord(
         require_record_len(data, 8, "XLOG_DBASE_CREATE", "SummarizeDbaseRecord")?;
         let db_id = u32::from_ne_bytes(data[0..4].try_into().unwrap());
         let tablespace_id = u32::from_ne_bytes(data[4..8].try_into().unwrap());
-        let rlocator = RelFileLocator { spcOid: tablespace_id, dbOid: db_id, relNumber: 0 };
+        let rlocator = RelFileLocator {
+            spcOid: tablespace_id,
+            dbOid: db_id,
+            relNumber: 0,
+        };
         brtab.set_limit_block(rlocator, MAIN_FORKNUM, 0);
     } else if info == XLOG_DBASE_DROP {
         // xl_dbase_drop_rec: db_id (4), ntablespaces (4), tablespace_ids[].
@@ -1082,11 +1108,20 @@ fn SummarizeDbaseRecord(
         let db_id = u32::from_ne_bytes(data[0..4].try_into().unwrap());
         let ntablespaces = i32::from_ne_bytes(data[4..8].try_into().unwrap()).max(0) as usize;
         // Do not trust the WAL-supplied count: the array must actually fit.
-        require_record_len(data, 8 + 4 * ntablespaces, "XLOG_DBASE_DROP", "SummarizeDbaseRecord")?;
+        require_record_len(
+            data,
+            8 + 4 * ntablespaces,
+            "XLOG_DBASE_DROP",
+            "SummarizeDbaseRecord",
+        )?;
         for i in 0..ntablespaces {
             let off = 8 + 4 * i;
             let spc = u32::from_ne_bytes(data[off..off + 4].try_into().unwrap());
-            let rlocator = RelFileLocator { spcOid: spc, dbOid: db_id, relNumber: 0 };
+            let rlocator = RelFileLocator {
+                spcOid: spc,
+                dbOid: db_id,
+                relNumber: 0,
+            };
             brtab.set_limit_block(rlocator, MAIN_FORKNUM, 0);
         }
     }
@@ -1469,7 +1504,10 @@ fn parse_wal_summary_filename(name: &str) -> Option<(TimeLineID, XLogRecPtr, XLo
         return None;
     }
     let hex = &name[..40];
-    if !hex.bytes().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase()) {
+    if !hex
+        .bytes()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase())
+    {
         return None;
     }
     let f = |r: core::ops::Range<usize>| u32::from_str_radix(&hex[r], 16).unwrap();
@@ -1535,7 +1573,10 @@ fn wal_summary_contents_rows_in(
             return ereport(ERROR)
                 .with_saved_errno(fd::get_errno())
                 .errcode_for_file_access()
-                .errmsg(format!("could not read file \"{}\": {PCT_M}", fd::FilePathName(file)))
+                .errmsg(format!(
+                    "could not read file \"{}\": {PCT_M}",
+                    fd::FilePathName(file)
+                ))
                 .finish(loc("ReadWalSummary"))
                 .map(|()| 0);
         }
@@ -1642,15 +1683,22 @@ pub fn init_seams() {
     });
     walsummarizer_seams::get_wal_summarizer_state::set(|| {
         let s = GetWalSummarizerState()?;
-        Ok((s.summarized_tli, s.summarized_lsn, s.pending_lsn, s.summarizer_pid))
+        Ok((
+            s.summarized_tli,
+            s.summarized_lsn,
+            s.pending_lsn,
+            s.summarizer_pid,
+        ))
     });
     walsummarizer_seams::get_available_wal_summaries::set(|| {
         // C: GetWalSummaries(0, InvalidXLogRecPtr, InvalidXLogRecPtr) —
         // every summary file, directory order, no sort.
         let scan_cx = MemoryContext::new("pg_available_wal_summaries");
-        let wslist =
-            GetWalSummaries(scan_cx.mcx(), 0, InvalidXLogRecPtr, InvalidXLogRecPtr)?;
-        Ok(wslist.iter().map(|ws| (ws.tli, ws.start_lsn, ws.end_lsn)).collect())
+        let wslist = GetWalSummaries(scan_cx.mcx(), 0, InvalidXLogRecPtr, InvalidXLogRecPtr)?;
+        Ok(wslist
+            .iter()
+            .map(|ws| (ws.tli, ws.start_lsn, ws.end_lsn))
+            .collect())
     });
     walsummarizer_seams::wal_summary_contents::set(WalSummaryContentsRows);
 }

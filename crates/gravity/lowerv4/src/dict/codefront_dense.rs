@@ -30,17 +30,20 @@ use gravity_ir::{IntBinOp, IntCond, Type, Value};
 use gravity_program::cost::dict_front;
 
 use crate::dict::codefront::FRONT;
-use crate::table::face::{DenseFront, TableDecl, TableImpl, TableMech};
-use crate::table::keyimg::{FrontIndex, ImageWords};
 use crate::frame::env::Env;
 use crate::frame::stop::Exits;
+use crate::table::face::{DenseFront, TableDecl, TableImpl, TableMech};
+use crate::table::keyimg::{FrontIndex, ImageWords};
 
 crate::strategies! {
     /// Dense code front, derived key per entry.
     CODE_FRONT_DENSE = 47, "code.front_dense", CodeKeyedPgrc;
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(CODE_FRONT_DENSE, &TableImpl(&DENSE))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(CODE_FRONT_DENSE, &TableImpl(&DENSE))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Dense;
 pub(crate) static DENSE: Dense = Dense;
@@ -51,18 +54,34 @@ impl Dense {
     /// carries no index or the end runs outside a site. Per row: one load a key and its compare, a multiply-add a key past
     /// the first; a pair's index is under the product of two `u32` sizes, so only three or more keys clamp their strides
     /// (at `dict_front::saturation`: a clamped stride times a code under its size stays under 2^47, so no sum wraps).
-    fn index(&self, b: &mut FunctionBuilder<'_>, env: &Env, t: &TableDecl, img: &ImageWords) -> Option<Value> {
+    fn index(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &Env,
+        t: &TableDecl,
+        img: &ImageWords,
+    ) -> Option<Value> {
         t.key.dense?;
         let codes = match img.index.as_ref()? {
             FrontIndex::Source(c) => return Some(*c),
             FrontIndex::Codes(codes) => codes,
         };
         let s = env.site?;
-        let lim = (codes.len() > 2).then(|| b.iconst(Type::I64, dict_front::saturation(crate::dict::codefront::cap(t)) as i64));
+        let lim = (codes.len() > 2).then(|| {
+            b.iconst(
+                Type::I64,
+                dict_front::saturation(crate::dict::codefront::cap(t)) as i64,
+            )
+        });
         let lanes = b.load(Type::Ptr, env.ctx, (site_off(s) + site::LANES) as i32);
-        let (mut at, mut stride, mut off): (Option<Value>, Option<Value>, Option<Value>) = (None, None, None);
+        let (mut at, mut stride, mut off): (Option<Value>, Option<Value>, Option<Value>) =
+            (None, None, None);
         for (i, &(c, l)) in codes.iter().enumerate() {
-            let n = b.load_zext(Type::I32, lanes, l as i32 * LANE_SIZE as i32 + lane::NCODES_OR_SCALE as i32);
+            let n = b.load_zext(
+                Type::I32,
+                lanes,
+                l as i32 * LANE_SIZE as i32 + lane::NCODES_OR_SCALE as i32,
+            );
             let past = b.icmp(IntCond::Uge, c, n);
             off = Some(match off {
                 Some(o) => b.int_bin(IntBinOp::Or, o, past),
@@ -99,9 +118,17 @@ impl TableMech for Dense {
     /// the estimate fits the capacity) or a key derived from one code lane (`KeyShape.dense`), no float slot, and never
     /// the one plain code key code.front_part takes.
     fn takes(&self, t: &TableDecl) -> bool {
-        let float = (0..t.layout.nslots()).any(|j| matches!(t.layout.slot_kind(j), SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum));
-        let keys = |d: DenseFront| d.n >= 2 && dict_front::takes(d.n, d.groups, crate::dict::codefront::cap(t));
-        let take = t.key.dense.is_some_and(|d| d.derived || keys(d)) && t.key.code.is_none() && !float;
+        let float = (0..t.layout.nslots()).any(|j| {
+            matches!(
+                t.layout.slot_kind(j),
+                SlotKind::SumF64 | SlotKind::SumF32 | SlotKind::F64Accum
+            )
+        });
+        let keys = |d: DenseFront| {
+            d.n >= 2 && dict_front::takes(d.n, d.groups, crate::dict::codefront::cap(t))
+        };
+        let take =
+            t.key.dense.is_some_and(|d| d.derived || keys(d)) && t.key.code.is_none() && !float;
         if take {
             fires::fire("dict.front_dense"); // shapecheck fire signal (REGISTRY KEYED-10, B3-10)
         }
@@ -116,14 +143,28 @@ impl TableMech for Dense {
         FRONT.open_front(b, env, t)
     }
 
-    fn upsert(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> (Value, Value) {
+    fn upsert(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> (Value, Value) {
         match self.index(b, env, t, img) {
             Some(i) => FRONT.upsert_at(b, env, t, img, i, false),
             None => crate::table::bypass::HASHED.upsert(b, env, t, img, h),
         }
     }
 
-    fn find(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, img: &ImageWords, h: Value) -> Value {
+    fn find(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        img: &ImageWords,
+        h: Value,
+    ) -> Value {
         match self.index(b, env, t, img) {
             Some(i) => FRONT.find_at(b, env, t, img, i),
             None => crate::table::bypass::HASHED.find(b, env, t, img, h),
@@ -131,7 +172,13 @@ impl TableMech for Dense {
     }
 
     /// D3224 A4: the probe at the codes' index (code.front_part's `probe_at`).
-    fn probe(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, t: &TableDecl, codes: &ImageWords) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
+    fn probe(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env,
+        t: &TableDecl,
+        codes: &ImageWords,
+    ) -> Option<(gravity_ir::Block, gravity_ir::Block)> {
         let i = self.index(b, env, t, codes)?;
         Some(FRONT.probe_at(b, env, t, i, false))
     }
@@ -150,10 +197,10 @@ mod tests {
     use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind};
     use gravity_abi::hash::Depth;
 
-    use crate::table::bypass::HASHED;
-    use crate::ops::agg::testkit::{fold, want, Case};
     use super::DENSE;
     use crate::cell::LaneId;
+    use crate::ops::agg::testkit::{fold, want, Case};
+    use crate::table::bypass::HASHED;
     use crate::table::face::{DenseFront, Domain, KeyShape, TableDecl, TableMech};
 
     fn small(i: i64) -> i64 {
@@ -176,13 +223,35 @@ mod tests {
     #[test]
     fn the_dense_front_folds_what_the_hashed_table_folds() {
         let n = 15 * 4096;
-        for (key, derived, value) in [(small as fn(i64) -> i64, false, small as fn(i64) -> i64), (big, false, big), (small, true, small3), (big, true, big3)] {
+        for (key, derived, value) in [
+            (small as fn(i64) -> i64, false, small as fn(i64) -> i64),
+            (big, false, big),
+            (small, true, small3),
+            (big, true, big3),
+        ] {
             for null in [0, 11] {
-                let case = |table: &'static dyn TableMech| Case { n, win: 4096, key, table, run: None, runs: None, code: true, null, dense: Some(derived) };
+                let case = |table: &'static dyn TableMech| Case {
+                    n,
+                    win: 4096,
+                    key,
+                    table,
+                    run: None,
+                    runs: None,
+                    code: true,
+                    null,
+                    dense: Some(derived),
+                };
                 let (front, _) = fold(case(&DENSE));
                 let (table, _) = fold(case(&HASHED));
-                assert_eq!(front, want(n, value, null), "front: derived {derived}, null {null}");
-                assert_eq!(front, table, "front against the hashed table: derived {derived}, null {null}");
+                assert_eq!(
+                    front,
+                    want(n, value, null),
+                    "front: derived {derived}, null {null}"
+                );
+                assert_eq!(
+                    front, table,
+                    "front against the hashed table: derived {derived}, null {null}"
+                );
             }
         }
     }
@@ -192,21 +261,64 @@ mod tests {
         let lane = (LaneId::col(1), 0);
         let t = |slot: SlotKind, code: bool, dense: Option<(u8, bool)>| {
             let layout = RecordLayout::with_sentinel(&[KeyKind::I64; 4], &[slot], false, None);
-            let key = KeyShape { code: code.then_some(lane), dense: dense.map(|(n, derived)| DenseFront { n, derived, groups: 100 }), domain: Domain::Unknown };
-            TableDecl { image_words: 4, record_bytes: 16, expect: None, depth: Depth::TOP, life: gravity_program::LifeId(0), layout, state_off: 0, key, facts: 0, copies: 0 }
+            let key = KeyShape {
+                code: code.then_some(lane),
+                dense: dense.map(|(n, derived)| DenseFront {
+                    n,
+                    derived,
+                    groups: 100,
+                }),
+                domain: Domain::Unknown,
+            };
+            TableDecl {
+                image_words: 4,
+                record_bytes: 16,
+                expect: None,
+                depth: Depth::TOP,
+                life: gravity_program::LifeId(0),
+                layout,
+                state_off: 0,
+                key,
+                facts: 0,
+                copies: 0,
+            }
         };
-        assert!(DENSE.takes(&t(SlotKind::SumI64, false, Some((2, false)))), "a pair");
-        assert!(DENSE.takes(&t(SlotKind::SumI64, false, Some((3, false)))), "three code keys estimated in the front");
+        assert!(
+            DENSE.takes(&t(SlotKind::SumI64, false, Some((2, false)))),
+            "a pair"
+        );
+        assert!(
+            DENSE.takes(&t(SlotKind::SumI64, false, Some((3, false)))),
+            "three code keys estimated in the front"
+        );
         let past = |n: u8| {
             let mut x = t(SlotKind::SumI64, false, Some((n, false)));
-            x.key.dense = x.key.dense.map(|d| DenseFront { groups: crate::dict::codefront::cap(&x) + 1, ..d });
+            x.key.dense = x.key.dense.map(|d| DenseFront {
+                groups: crate::dict::codefront::cap(&x) + 1,
+                ..d
+            });
             x
         };
-        assert!(!DENSE.takes(&past(3)), "three code keys estimated past the front: the hashed table");
+        assert!(
+            !DENSE.takes(&past(3)),
+            "three code keys estimated past the front: the hashed table"
+        );
         assert!(DENSE.takes(&past(2)), "a pair at any estimate");
-        assert!(DENSE.takes(&t(SlotKind::SumI64, false, Some((1, true)))), "a derived key");
-        assert!(!DENSE.takes(&t(SlotKind::SumI64, true, None)), "one plain code key: code.front_part's");
-        assert!(!DENSE.takes(&t(SlotKind::SumI64, false, None)), "no dense lanes");
-        assert!(!DENSE.takes(&t(SlotKind::SumF64, false, Some((2, false)))), "a float slot");
+        assert!(
+            DENSE.takes(&t(SlotKind::SumI64, false, Some((1, true)))),
+            "a derived key"
+        );
+        assert!(
+            !DENSE.takes(&t(SlotKind::SumI64, true, None)),
+            "one plain code key: code.front_part's"
+        );
+        assert!(
+            !DENSE.takes(&t(SlotKind::SumI64, false, None)),
+            "no dense lanes"
+        );
+        assert!(
+            !DENSE.takes(&t(SlotKind::SumF64, false, Some((2, false)))),
+            "a float slot"
+        );
     }
 }

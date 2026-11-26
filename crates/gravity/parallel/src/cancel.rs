@@ -21,7 +21,9 @@ impl Default for ErrorFunnel {
 
 impl ErrorFunnel {
     pub const fn new() -> ErrorFunnel {
-        ErrorFunnel { first: Mutex::new(None) }
+        ErrorFunnel {
+            first: Mutex::new(None),
+        }
     }
 
     pub fn offer(&self, claim_lo: u64, ordinal: u16, error: Error) {
@@ -31,7 +33,11 @@ impl ErrorFunnel {
             Some(f) => (claim_lo, ordinal) < (f.claim_lo, f.ordinal),
         };
         if better {
-            *g = Some(FirstError { claim_lo, ordinal, error });
+            *g = Some(FirstError {
+                claim_lo,
+                ordinal,
+                error,
+            });
         }
     }
 
@@ -40,6 +46,9 @@ impl ErrorFunnel {
     }
 
     pub fn is_set(&self) -> bool {
-        self.first.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+        self.first
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 }

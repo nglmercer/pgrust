@@ -58,7 +58,17 @@ impl LaneDesc {
     pub const NONE: LaneDesc = LaneDesc::value(LaneId::RowId, 0, 0, 0);
 
     pub(crate) const fn value(id: LaneId, kind: u8, width: u8, region: u8) -> LaneDesc {
-        LaneDesc { id, kind, width, region, num: NumTypmod::NONE, rep: Rep::Word { bytes: if width == 0 { 8 } else { width } }, life: LaneLife::VALUE }
+        LaneDesc {
+            id,
+            kind,
+            width,
+            region,
+            num: NumTypmod::NONE,
+            rep: Rep::Word {
+                bytes: if width == 0 { 8 } else { width },
+            },
+            life: LaneLife::VALUE,
+        }
     }
 
     pub const fn attr(attno: i16) -> LaneDesc {
@@ -75,6 +85,14 @@ impl LaneDesc {
 
     /// The site's `n`-th entry table, resident with the part's dictionary (`Site.lane(k)` fills it).
     pub const fn table(n: u16) -> LaneDesc {
-        LaneDesc { life: LaneLife::DICTIONARY, ..LaneDesc::value(LaneId::Table(n), lane::KIND_BYVAL, 8, lane::REGION_DICTIONARY) }
+        LaneDesc {
+            life: LaneLife::DICTIONARY,
+            ..LaneDesc::value(
+                LaneId::Table(n),
+                lane::KIND_BYVAL,
+                8,
+                lane::REGION_DICTIONARY,
+            )
+        }
     }
 }

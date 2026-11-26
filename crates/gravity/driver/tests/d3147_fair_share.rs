@@ -20,7 +20,9 @@ fn a_statement_queued_for_bytes_is_not_counted_admitted() {
     REGIONS.trim();
     POOL.arm(1 << 30);
     // live 1, width 1: a grant maps twice its bytes (leader + one worker, `regions_of`): 512 of 1024 MiB
-    let a = POOL.admit(Grant::of(256 * MIB), 1, 1, Duration::from_millis(10)).unwrap();
+    let a = POOL
+        .admit(Grant::of(256 * MIB), 1, 1, Duration::from_millis(10))
+        .unwrap();
     assert_eq!(a.grant, Grant::of(256 * MIB));
     assert!(a.holds_slot());
     assert_eq!(running(), 1);
@@ -29,7 +31,13 @@ fn a_statement_queued_for_bytes_is_not_counted_admitted() {
     let (got, go) = (mpsc::channel(), mpsc::channel::<()>());
     let t = std::thread::spawn(move || {
         let b = POOL.admit(Grant::of(384 * MIB), 1, 1, Duration::from_millis(10_000));
-        got.0.send(b.as_ref().map(|b| b.grant == Grant::of(384 * MIB)).unwrap_or(false)).unwrap();
+        got.0
+            .send(
+                b.as_ref()
+                    .map(|b| b.grant == Grant::of(384 * MIB))
+                    .unwrap_or(false),
+            )
+            .unwrap();
         go.1.recv().unwrap();
         drop(b);
     });
@@ -40,7 +48,10 @@ fn a_statement_queued_for_bytes_is_not_counted_admitted() {
     assert_eq!(POOL.inflight(), 2, "the waiter holds an in-flight slot");
     assert_eq!(running(), 1, "but is not admitted");
     drop(a);
-    assert!(got.1.recv().unwrap(), "the waiter is admitted whole once the bytes come back");
+    assert!(
+        got.1.recv().unwrap(),
+        "the waiter is admitted whole once the bytes come back"
+    );
     assert_eq!(running(), 1);
     go.0.send(()).unwrap();
     t.join().unwrap();

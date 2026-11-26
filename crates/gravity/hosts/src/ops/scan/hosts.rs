@@ -7,7 +7,6 @@ use gravity_program::SiteDesc;
 
 use crate::ops::Recipe;
 
-
 /// No recipe kind of M2's own yet: every M2 site derives through registry.rs's earlier rows.
 pub fn derive(_r: &Recipe, _i: usize, _desc: &SiteDesc, _a: ArenaRef) -> Option<SourceBox> {
     None

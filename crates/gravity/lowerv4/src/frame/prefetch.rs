@@ -16,12 +16,20 @@ crate::strategies! {
 
 /// The runtime gate: a table of `bytes` above the machine's L2.
 pub(crate) fn above_l2(b: &mut FunctionBuilder<'_>, bytes: Value) -> Value {
-    let l2 = b.iconst(Type::I64, gravity_driver::machine::profile().l2_bytes as i64);
+    let l2 = b.iconst(
+        Type::I64,
+        gravity_driver::machine::profile().l2_bytes as i64,
+    );
     b.icmp(IntCond::Ugt, bytes, l2)
 }
 
 /// Window row `j + ahead`, clamped to the window's last row; `None` outside a window.
-pub(crate) fn row_ahead(b: &mut FunctionBuilder<'_>, env: &Env, j: Value, ahead: i64) -> Option<Value> {
+pub(crate) fn row_ahead(
+    b: &mut FunctionBuilder<'_>,
+    env: &Env,
+    j: Value,
+    ahead: i64,
+) -> Option<Value> {
     let win = env.win?;
     let last = b.int_bin(IntBinOp::Sub, win.end, env.one);
     let k = b.iconst(Type::I64, ahead);
@@ -31,7 +39,12 @@ pub(crate) fn row_ahead(b: &mut FunctionBuilder<'_>, env: &Env, j: Value, ahead:
 }
 
 /// `f` under `gate` (none: always), in a block the rest of the row does not depend on.
-fn gated(b: &mut FunctionBuilder<'_>, env: &mut Env, gate: Option<Value>, f: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env)) {
+fn gated(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    gate: Option<Value>,
+    f: impl FnOnce(&mut FunctionBuilder<'_>, &mut Env),
+) {
     let Some(g) = gate else { return f(b, env) };
     let (l_hint, l_on) = (b.create_block(&[]), b.create_block(&[]));
     b.cond_br(g, (l_hint, &[]), (l_on, &[]));
@@ -44,7 +57,16 @@ fn gated(b: &mut FunctionBuilder<'_>, env: &mut Env, gate: Option<Value>, f: imp
 /// Hints the home slot of KeyHash word `h` and its neighbour (the probe's first two candidates) in `table`: 2^`cap_bits`
 /// slots of `rec` bytes whose rows consumed `used` route bits. `gate`: the table's size test, or `None` to hint always.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn home(b: &mut FunctionBuilder<'_>, env: &mut Env, h: Value, table: Value, cap_bits: Bits, used: Bits, rec: u32, gate: Option<Value>) {
+pub(crate) fn home(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    h: Value,
+    table: Value,
+    cap_bits: Bits,
+    used: Bits,
+    rec: u32,
+    gate: Option<Value>,
+) {
     gated(b, env, gate, |b, env| {
         let slot = emit_home(b, h, cap_bits, used);
         let p0 = slot_at(b, table, slot, rec);

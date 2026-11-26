@@ -6,14 +6,13 @@ use ::adt_network::{bitncmp, bitncommon, cidr_set_masklen_internal, InetRef, PGS
 use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::types_scan::scankey::ScanKeyData;
+use ::types_spgist::spgConfigOut;
 use ::types_spgist::state::{
     spgChooseIn, spgChooseOut, spgInnerConsistentIn, spgInnerConsistentOut, spgLeafConsistentIn,
     spgLeafConsistentOut, spgPickSplitIn, spgPickSplitOut,
 };
-use ::types_spgist::spgConfigOut;
 
 const CIDROID: Oid = 650;
 const VOIDOID: Oid = 2278;
@@ -33,8 +32,7 @@ const RTSuperEqualStrategyNumber: u16 = 27;
 // only the 1B/4B header forms can arrive (leaf storage repacks short).
 unsafe fn inet_at<'a>(d: Datum) -> InetRef<'a> {
     let pv = ::types_fmgr::PackedVarlena::from_ptr(d.as_usize() as *const u8);
-    let payload: &'a [u8] =
-        core::slice::from_raw_parts(pv.data().as_ptr(), pv.data().len());
+    let payload: &'a [u8] = core::slice::from_raw_parts(pv.data().as_ptr(), pv.data().len());
     InetRef::from_payload(payload)
 }
 
@@ -105,9 +103,7 @@ fn fc_inet_spg_choose(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
         return Ok(Datum::null());
     }
 
-    if (val.bits as i32) < commonbits
-        || bitncmp(prefix.addr, val.addr, commonbits) != 0
-    {
+    if (val.bits as i32) < commonbits || bitncmp(prefix.addr, val.addr, commonbits) != 0 {
         let commonbits = bitncommon(prefix.addr, val.addr, (val.bits as i32).min(commonbits));
         let new_prefix = cidr_set_masklen_internal(val, commonbits);
         *out = spgChooseOut::SplitTuple {
@@ -373,8 +369,7 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
         }
 
         if bitmap & ((1 << 2) | (1 << 3)) != 0 && commonbits < argbits {
-            let nextbit =
-                argument.addr[commonbits as usize / 8] & (1 << (7 - commonbits % 8)) != 0;
+            let nextbit = argument.addr[commonbits as usize / 8] & (1 << (7 - commonbits % 8)) != 0;
             match strategy {
                 RTLessStrategyNumber | RTLessEqualStrategyNumber => {
                     if !nextbit {
@@ -413,10 +408,9 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
                     bitmap = 0;
                 }
             }
-            RTGreaterEqualStrategyNumber | RTGreaterStrategyNumber
-                if commonbits < argbits => {
-                    bitmap &= (1 << 2) | (1 << 3);
-                }
+            RTGreaterEqualStrategyNumber | RTGreaterStrategyNumber if commonbits < argbits => {
+                bitmap &= (1 << 2) | (1 << 3);
+            }
             _ => {}
         }
         if bitmap == 0 {
@@ -427,12 +421,8 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
             continue;
         }
 
-        if !leaf
-            && bitmap & (1 | (1 << 1)) != 0
-            && commonbits < argument.maxbits() as i32
-        {
-            let nextbit =
-                argument.addr[commonbits as usize / 8] & (1 << (7 - commonbits % 8)) != 0;
+        if !leaf && bitmap & (1 | (1 << 1)) != 0 && commonbits < argument.maxbits() as i32 {
+            let nextbit = argument.addr[commonbits as usize / 8] & (1 << (7 - commonbits % 8)) != 0;
             match strategy {
                 RTLessStrategyNumber | RTLessEqualStrategyNumber => {
                     if !nextbit {
@@ -486,9 +476,8 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
                         bitmap = 0;
                     }
                 }
-                RTNotEqualStrategyNumber
-                    if order == 0 => {
-                        bitmap = 0;
+                RTNotEqualStrategyNumber if order == 0 => {
+                    bitmap = 0;
                 }
                 _ => {}
             }
@@ -507,8 +496,18 @@ pub const NETWORK_SPGIST_BUILTINS: &[FmgrBuiltin] = &[
     b(3795, "inet_spg_config", 2, fc_inet_spg_config),
     b(3796, "inet_spg_choose", 2, fc_inet_spg_choose),
     b(3797, "inet_spg_picksplit", 2, fc_inet_spg_picksplit),
-    b(3798, "inet_spg_inner_consistent", 2, fc_inet_spg_inner_consistent),
-    b(3799, "inet_spg_leaf_consistent", 2, fc_inet_spg_leaf_consistent),
+    b(
+        3798,
+        "inet_spg_inner_consistent",
+        2,
+        fc_inet_spg_inner_consistent,
+    ),
+    b(
+        3799,
+        "inet_spg_leaf_consistent",
+        2,
+        fc_inet_spg_leaf_consistent,
+    ),
 ];
 
 #[cfg(test)]

@@ -9,7 +9,10 @@ use gravity_abi::breaker::{SortRun, SORTRUN_HDR, TABLE_SORT};
 use gravity_driver::{install_spill_factory, Entry, Grant};
 use gravity_program::{Generation, Handle, PlanKey};
 
-const KEY: PlanKey = PlanKey { handle: Handle(11), generation: Generation(1) };
+const KEY: PlanKey = PlanKey {
+    handle: Handle(11),
+    generation: Generation(1),
+};
 
 /// A fixed sort run of `n` 16-byte rows in an 8-aligned buffer.
 fn run_of(n: u32) -> Vec<u64> {
@@ -40,15 +43,31 @@ fn a_held_run_put_by_the_leader_is_one_more_run_of_the_slots_stream() {
     let mut sink = LegSink::new();
     let params = [7u64, 3];
     let mut b = binding(&params, &[0, 0], &mut sink, &flag);
-    let mut exec = entry.start(Some(KEY), &program, &mut derive, &mut b, lease(Grant::of(64 << 20))).unwrap();
+    let mut exec = entry
+        .start(
+            Some(KEY),
+            &program,
+            &mut derive,
+            &mut b,
+            lease(Grant::of(64 << 20)),
+        )
+        .unwrap();
     let node = exec.node_mut();
     assert_eq!(node.sort_runs(0), 0);
     let mut a = run_of(5);
     let mut e = run_of(0);
     unsafe {
         assert_eq!(node.put_sort_run(0, a.as_mut_ptr() as *mut u8).unwrap(), 0);
-        assert_eq!(node.put_sort_run(0, e.as_mut_ptr() as *mut u8).unwrap(), 1, "an empty run is a run");
-        assert_eq!((*(a.as_ptr() as *const SortRun)).len, 0, "the put cleared the run");
+        assert_eq!(
+            node.put_sort_run(0, e.as_mut_ptr() as *mut u8).unwrap(),
+            1,
+            "an empty run is a run"
+        );
+        assert_eq!(
+            (*(a.as_ptr() as *const SortRun)).len,
+            0,
+            "the put cleared the run"
+        );
     }
     assert_eq!(node.sort_runs(0), 2);
     assert!(node.spilled());
@@ -71,9 +90,16 @@ fn a_stream_counts_its_runs_rows_across_owners_and_an_adoption_moves_them() {
         let mut held = run_of(11);
         t.run_put(0, 0, held.as_mut_ptr() as *mut u8).unwrap();
     }
-    assert_eq!((t.stream(0).total_runs(), t.stream(0).total_rows()), (5, 26));
+    assert_eq!(
+        (t.stream(0).total_runs(), t.stream(0).total_rows()),
+        (5, 26)
+    );
     assert_eq!(t.adopt_runs(0, 1).unwrap(), 5);
-    assert_eq!((t.stream(0).total_rows(), t.stream(1).total_rows()), (0, 26), "the rows moved with the runs");
+    assert_eq!(
+        (t.stream(0).total_rows(), t.stream(1).total_rows()),
+        (0, 26),
+        "the rows moved with the runs"
+    );
     t.begin_life(1);
     assert_eq!(t.stream(1).total_rows(), 0);
 }
@@ -91,15 +117,26 @@ fn a_reused_slots_second_sort_counts_only_its_own_runs() {
             t.run_put(0, owner, r.as_mut_ptr() as *mut u8).unwrap();
         }
     }
-    assert_eq!((t.stream(0).total_runs(), t.stream(0).total_rows()), (2, 9097));
+    assert_eq!(
+        (t.stream(0).total_runs(), t.stream(0).total_rows()),
+        (2, 9097)
+    );
     t.end_life(0);
     t.begin_life(0);
-    assert_eq!((t.stream(0).total_runs(), t.stream(0).total_rows()), (0, 0), "the second child: in memory, nothing put");
+    assert_eq!(
+        (t.stream(0).total_runs(), t.stream(0).total_rows()),
+        (0, 0),
+        "the second child: in memory, nothing put"
+    );
     unsafe {
         let mut r = run_of(6000);
         t.run_put(0, 3, r.as_mut_ptr() as *mut u8).unwrap();
     }
-    assert_eq!((t.stream(0).total_runs(), t.stream(0).total_rows()), (1, 6000), "spilled again: its own run only");
+    assert_eq!(
+        (t.stream(0).total_runs(), t.stream(0).total_rows()),
+        (1, 6000),
+        "spilled again: its own run only"
+    );
 }
 
 /// D2572-d: a run's raw-or-compact choice weighs every stream's put-run bytes (`put_raw_bytes`), counted at each put
@@ -135,16 +172,28 @@ fn d2572d_put_raw_bytes_count_every_owners_runs_put_at_once() {
                 for n in lens(owner) {
                     let mut r = run_of(n);
                     // SAFETY: as the section's workers: each owner puts into its own runs of the shared table
-                    unsafe { (*(tp as *mut gravity_driver::SpillTable)).run_put(0, owner, r.as_mut_ptr() as *mut u8).unwrap() };
+                    unsafe {
+                        (*(tp as *mut gravity_driver::SpillTable))
+                            .run_put(0, owner, r.as_mut_ptr() as *mut u8)
+                            .unwrap()
+                    };
                 }
             });
         }
     });
     let total = serial.put_raw_bytes();
     assert!(total > 0);
-    assert_eq!(t.put_raw_bytes(), total, "no put lost between owners putting at once");
+    assert_eq!(
+        t.put_raw_bytes(),
+        total,
+        "no put lost between owners putting at once"
+    );
     assert_eq!(t.adopt_runs(0, 1).unwrap(), 161);
-    assert_eq!(t.put_raw_bytes(), total, "an adoption moves the bytes with the runs");
+    assert_eq!(
+        t.put_raw_bytes(),
+        total,
+        "an adoption moves the bytes with the runs"
+    );
     t.begin_life(1);
     assert_eq!(t.put_raw_bytes(), 0, "a new life starts from none");
 }

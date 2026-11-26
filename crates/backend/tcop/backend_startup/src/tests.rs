@@ -134,7 +134,10 @@ fn startup_packet_fills_port() {
             ]
         );
     });
-    assert_eq!(miscinit::GetMyBackendType(), types_core::BackendType::Backend);
+    assert_eq!(
+        miscinit::GetMyBackendType(),
+        types_core::BackendType::Backend
+    );
     assert_eq!(init_small::globals::FrontendProtocol(), pg_protocol(3, 0));
 }
 
@@ -196,7 +199,10 @@ fn replication_false_after_true_is_plain_backend() {
     ));
     assert_eq!(run_startup_packet().unwrap(), STATUS_OK);
     assert!(!walsender_seams::am_walsender());
-    assert_eq!(miscinit::GetMyBackendType(), types_core::BackendType::Backend);
+    assert_eq!(
+        miscinit::GetMyBackendType(),
+        types_core::BackendType::Backend
+    );
     init_small::globals::WithMyProcPort(|p| {
         assert_eq!(p.database_name.as_deref(), Some("db1"));
     });
@@ -220,7 +226,10 @@ fn replication_zero_after_database_is_plain_backend() {
     assert_eq!(run_startup_packet().unwrap(), STATUS_OK);
     assert!(!walsender_seams::am_walsender());
     assert!(walsender_seams::am_db_walsender());
-    assert_eq!(miscinit::GetMyBackendType(), types_core::BackendType::Backend);
+    assert_eq!(
+        miscinit::GetMyBackendType(),
+        types_core::BackendType::Backend
+    );
     init_small::globals::WithMyProcPort(|p| {
         assert_eq!(p.database_name.as_deref(), Some("db1"));
     });
@@ -233,12 +242,19 @@ fn replication_true_is_physical_walsender() {
     setup();
     feed(packet(
         pg_protocol(3, 0),
-        &[("user", "alice"), ("database", "db1"), ("replication", "true")],
+        &[
+            ("user", "alice"),
+            ("database", "db1"),
+            ("replication", "true"),
+        ],
     ));
     assert_eq!(run_startup_packet().unwrap(), STATUS_OK);
     assert!(walsender_seams::am_walsender());
     assert!(!walsender_seams::am_db_walsender());
-    assert_eq!(miscinit::GetMyBackendType(), types_core::BackendType::WalSender);
+    assert_eq!(
+        miscinit::GetMyBackendType(),
+        types_core::BackendType::WalSender
+    );
     init_small::globals::WithMyProcPort(|p| {
         assert_eq!(p.database_name.as_deref(), Some(""));
     });
@@ -357,9 +373,11 @@ fn validate_log_connections_options_matrix() {
         validate_log_connections_options(&["ALL".into()]),
         Ok(LOG_CONNECTION_ALL)
     );
-    assert!(validate_log_connections_options(&["on".into(), "receipt".into()])
-        .unwrap_err()
-        .contains("in a list with other options"));
+    assert!(
+        validate_log_connections_options(&["on".into(), "receipt".into()])
+            .unwrap_err()
+            .contains("in a list with other options")
+    );
     assert!(validate_log_connections_options(&["bogus".into()])
         .unwrap_err()
         .contains("Invalid option"));
@@ -418,14 +436,20 @@ fn application_name_control_bytes_stay_raw_in_guc_options() {
     setup();
     let mut raw = vec![b'a'; 62];
     raw.push(0x01);
-    feed(packet_bytes(pg_protocol(3, 0), &[(b"user", b"alice"), (b"application_name", &raw)]));
+    feed(packet_bytes(
+        pg_protocol(3, 0),
+        &[(b"user", b"alice"), (b"application_name", &raw)],
+    ));
     assert_eq!(run_startup_packet().unwrap(), STATUS_OK);
     let raw_str = String::from_utf8(raw).unwrap();
     let mut cleaned = "a".repeat(62);
     cleaned.push_str("\\x01");
     init_small::globals::WithMyProcPort(|p| {
         assert_eq!(p.application_name.as_deref(), Some(cleaned.as_str()));
-        assert_eq!(p.guc_options, vec!["application_name".to_string(), raw_str.clone()]);
+        assert_eq!(
+            p.guc_options,
+            vec!["application_name".to_string(), raw_str.clone()]
+        );
     });
 }
 
@@ -458,10 +482,17 @@ fn startup_names_are_cut_at_namedatalen_bytes() {
     db.push('é');
     let mut user = "u".repeat(63);
     user.push_str("tail");
-    feed(packet_bytes(pg_protocol(3, 0), &[(b"user", user.as_bytes()), (b"database", db.as_bytes())]));
+    feed(packet_bytes(
+        pg_protocol(3, 0),
+        &[(b"user", user.as_bytes()), (b"database", db.as_bytes())],
+    ));
     assert_eq!(run_startup_packet().unwrap(), STATUS_OK);
-    let (dbname, username) = init_small::globals::WithMyProcPort(|p| (p.database_name.clone(), p.user_name.clone()));
-    assert_eq!(dbname.as_deref(), Some(format!("{}\u{FFFD}", "a".repeat(62)).as_str()));
+    let (dbname, username) =
+        init_small::globals::WithMyProcPort(|p| (p.database_name.clone(), p.user_name.clone()));
+    assert_eq!(
+        dbname.as_deref(),
+        Some(format!("{}\u{FFFD}", "a".repeat(62)).as_str())
+    );
     assert_eq!(username.as_deref(), Some("u".repeat(63).as_str()));
 }
 

@@ -11,14 +11,20 @@ use std::sync::{Arc, Mutex};
 use granule_fixtures::*;
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::dict::text_hosts::{fp_cache_drop_all, fp_seed, fp_tables_resident, reuse, TableFn, TableSpec};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_hosts::dict::text_hosts::{
+    fp_cache_drop_all, fp_seed, fp_tables_resident, reuse, TableFn, TableSpec,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{BuiltFixture, Fixture, OracleVal};
 use pgrc_qa::text_col;
 use pgrc_read::{MemPartIo, OpenPart, PartExpect, PartRegistry};
 use pgrc_write::dict::TextSemantics;
-use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates};
+use pgrc_write::elect::{
+    CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates,
+};
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::WriteVfs;
 
@@ -71,9 +77,19 @@ fn fixture() -> BuiltFixture {
         schema: vec![text_col(1)],
         oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(word(i)))).collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
     };
-    let posture = ColumnPosture { dict: Some(DictPolicy { ndv_cap: 100_000, exec_ok: true, sem: TextSemantics::BytesOnly }), ..ColumnPosture::default() };
+    let posture = ColumnPosture {
+        dict: Some(DictPolicy {
+            ndv_cap: 100_000,
+            exec_ok: true,
+            sem: TextSemantics::BytesOnly,
+        }),
+        ..ColumnPosture::default()
+    };
     let cands = CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, posture);
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
     let mut vfs = pgrc_qa::simvfs::SimVfs::new();
@@ -87,18 +103,36 @@ fn fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
     assert_eq!(manifest.parts.len(), 1, "one part");
-    BuiltFixture { fx, files, manifest }
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// The part in memory, held open by the list for the test's length.
 fn mem_list(bf: &BuiltFixture) -> Arc<PartList> {
     let rec = &bf.manifest.parts[0];
-    let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-    let part = OpenPart::open(Box::new(MemPartIo::new(bytes.clone(), DEV, INO)), &PartExpect::none()).expect("open");
+    let bytes = bf
+        .files
+        .get(&part_file_name(rec.part_no))
+        .expect("part file")
+        .clone();
+    let part = OpenPart::open(
+        Box::new(MemPartIo::new(bytes.clone(), DEV, INO)),
+        &PartExpect::none(),
+    )
+    .expect("open");
     Arc::new(PartList::new(vec![PartSpec {
-        io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: DEV, ino: INO },
+        io: PartIoSpec::Mem {
+            bytes: Arc::from(bytes.as_slice()),
+            dev: DEV,
+            ino: INO,
+        },
         expect: PartExpect::none(),
         rows: ROWS,
         granules: rec.granule_count,
@@ -109,7 +143,12 @@ fn mem_list(bf: &BuiltFixture) -> Arc<PartList> {
 
 /// One statement's pass over the part's `Fp128` lane (its resident fingerprint table: built on a miss). The rows read.
 fn pass(list: &Arc<PartList>, rel: u32) -> u64 {
-    let recipe = GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20))).with_tables(vec![TableSpec { over: 0, func: TableFn::Fingerprint }]);
+    let recipe =
+        GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)))
+            .with_tables(vec![TableSpec {
+                over: 0,
+                func: TableFn::Fingerprint,
+            }]);
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).unwrap();
@@ -124,7 +163,11 @@ fn pass(list: &Arc<PartList>, rel: u32) -> u64 {
             break;
         }
         let mut t = Lane::NONE;
-        assert_eq!(src.lane(2, &[], &mut t).unwrap(), 1, "the fingerprint lane fills");
+        assert_eq!(
+            src.lane(2, &[], &mut t).unwrap(),
+            1,
+            "the fingerprint lane fills"
+        );
         rows += n as u64;
     }
     rows
@@ -140,15 +183,26 @@ fn a_rebuilt_resident_table_takes_back_the_buffer_its_drop_gave() {
     let w0 = reuse::held().1;
     let built0 = fp_tables_resident().1;
     assert_eq!(pass(&list, REL_TEXT + 70), ROWS);
-    assert_eq!(fp_tables_resident().1 - built0, 1, "the part's fingerprint table built");
+    assert_eq!(
+        fp_tables_resident().1 - built0,
+        1,
+        "the part's fingerprint table built"
+    );
     // the fp cache off (or an eviction): the table goes, its buffer kept for a later build
     fp_cache_drop_all();
     let w1 = reuse::held().1;
-    assert!(w1 > w0, "the dropped table's buffer kept ({w0} -> {w1} words)");
+    assert!(
+        w1 > w0,
+        "the dropped table's buffer kept ({w0} -> {w1} words)"
+    );
     for k in 0..3u32 {
         let built = fp_tables_resident().1;
         assert_eq!(pass(&list, REL_TEXT + 71 + k), ROWS);
-        assert_eq!(fp_tables_resident().1 - built, 1, "repeat {k}: the table rebuilt");
+        assert_eq!(
+            fp_tables_resident().1 - built,
+            1,
+            "repeat {k}: the table rebuilt"
+        );
         fp_cache_drop_all();
         assert_eq!(reuse::held().1, w1, "repeat {k}: the rebuild took the kept buffer back, so the pool keeps no more than after the first drop");
     }

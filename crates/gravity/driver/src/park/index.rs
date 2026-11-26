@@ -72,9 +72,15 @@ pub(crate) struct RelsRead {
 impl RelsRead {
     const ANY_N: u8 = u8::MAX;
     /// No source keeps state on a relation of its own.
-    pub(crate) const NONE: RelsRead = RelsRead { n: 0, rels: [0; PARK_RELS_READ] };
+    pub(crate) const NONE: RelsRead = RelsRead {
+        n: 0,
+        rels: [0; PARK_RELS_READ],
+    };
     /// Any relation: a release record always reaches the Node.
-    pub(crate) const ANY: RelsRead = RelsRead { n: RelsRead::ANY_N, rels: [0; PARK_RELS_READ] };
+    pub(crate) const ANY: RelsRead = RelsRead {
+        n: RelsRead::ANY_N,
+        rels: [0; PARK_RELS_READ],
+    };
 
     /// `rel` (0: none of its own) added.
     pub(crate) fn add(&mut self, rel: u32) {
@@ -124,15 +130,25 @@ pub(super) struct Index {
 }
 
 /// W1: the index's two vectors are the backend level's, as its fixed tables are (exec `BACKEND_OWNER`).
-const INDEX_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
+const INDEX_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PerBackend));
 
 impl Index {
     pub(super) const fn new() -> Index {
-        Index { on: false, refused: false, oldest: NIL, newest: NIL, used: memledger::ChargedVec::none(), table: memledger::ChargedVec::none(), keys: 0 }
+        Index {
+            on: false,
+            refused: false,
+            oldest: NIL,
+            newest: NIL,
+            used: memledger::ChargedVec::none(),
+            table: memledger::ChargedVec::none(),
+            keys: 0,
+        }
     }
 
     pub(super) fn bytes(&self) -> usize {
-        self.used.capacity() * core::mem::size_of::<u64>() + self.table.capacity() * core::mem::size_of::<Bucket>()
+        self.used.capacity() * core::mem::size_of::<u64>()
+            + self.table.capacity() * core::mem::size_of::<Bucket>()
     }
 }
 
@@ -163,14 +179,17 @@ impl Park {
         let mut got = None;
         for (w, &bits) in self.ix.used.as_slice().iter().enumerate() {
             if bits != u64::MAX {
-                got = Some(w * 64 + (!bits).trailing_zeros() as usize).filter(|&i| i < self.slots.len());
+                got = Some(w * 64 + (!bits).trailing_zeros() as usize)
+                    .filter(|&i| i < self.slots.len());
                 break;
             }
         }
         if index_check() {
             let want = self.slots.iter().position(Option::is_none);
             if got != want {
-                index_mismatch(format_args!("put: index free slot {got:?}, walk free slot {want:?}"));
+                index_mismatch(format_args!(
+                    "put: index free slot {got:?}, walk free slot {want:?}"
+                ));
                 return want;
             }
         }
@@ -179,7 +198,11 @@ impl Park {
 
     /// The entry put least recently (every slot is full): the count cap's victim.
     pub(super) fn lru_victim(&self) -> usize {
-        let walked = || (0..self.slots.len()).min_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.stamp)).expect("non-empty park");
+        let walked = || {
+            (0..self.slots.len())
+                .min_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.stamp))
+                .expect("non-empty park")
+        };
         if !self.ix.on {
             return walked();
         }
@@ -187,7 +210,9 @@ impl Park {
         if index_check() {
             let want = walked();
             if got != want {
-                index_mismatch(format_args!("evict: index victim slot {got}, walk victim slot {want}"));
+                index_mismatch(format_args!(
+                    "evict: index victim slot {got}, walk victim slot {want}"
+                ));
                 return want;
             }
         }
@@ -195,11 +220,15 @@ impl Park {
     }
 
     fn at(&self, i: u32) -> &Entry {
-        self.slots[i as usize].as_ref().expect("an indexed slot holds its entry")
+        self.slots[i as usize]
+            .as_ref()
+            .expect("an indexed slot holds its entry")
     }
 
     fn at_mut(&mut self, i: u32) -> &mut Entry {
-        self.slots[i as usize].as_mut().expect("an indexed slot holds its entry")
+        self.slots[i as usize]
+            .as_mut()
+            .expect("an indexed slot holds its entry")
     }
 
     /// The switch read: an index built when it turns on (from the slots) and the park has grown `PARK_INDEX_FROM` slots,
@@ -240,7 +269,10 @@ impl Park {
         // linked in put order (by stamp): each link appends to the LRU and heads its key's chain, as its put did; a walk
         // per entry, once per switch, and no buffer
         let mut last = 0;
-        while let Some(i) = (0..self.slots.len()).filter(|&i| self.slots[i].as_ref().is_some_and(|e| e.stamp > last)).min_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.stamp)) {
+        while let Some(i) = (0..self.slots.len())
+            .filter(|&i| self.slots[i].as_ref().is_some_and(|e| e.stamp > last))
+            .min_by_key(|&i| self.slots[i].as_ref().map_or(0, |e| e.stamp))
+        {
             last = self.slots[i].as_ref().map_or(0, |e| e.stamp);
             self.ix_link(i);
             if !self.ix.on {
@@ -253,7 +285,8 @@ impl Park {
     /// The slot of `key`'s newest entry, through its bucket.
     #[inline]
     pub(super) fn ix_newest(&self, key: PlanKey) -> Option<usize> {
-        self.ix_find(key, key_hash(key)).map(|b| self.ix.table.as_slice()[b].slot as usize)
+        self.ix_find(key, key_hash(key))
+            .map(|b| self.ix.table.as_slice()[b].slot as usize)
     }
 
     /// Every slot emptied (`Park::clear`): an empty index, its room kept.
@@ -279,7 +312,11 @@ impl Park {
             if x.slot == NIL {
                 return None;
             }
-            if x.tag == tag && self.slots[x.slot as usize].as_ref().is_some_and(|e| e.key == key) {
+            if x.tag == tag
+                && self.slots[x.slot as usize]
+                    .as_ref()
+                    .is_some_and(|e| e.key == key)
+            {
                 return Some(b);
             }
             b = (b + 1) & mask;
@@ -317,14 +354,17 @@ impl Park {
                 let n = (self.ix.table.len() * 2).max(16);
                 self.ix.table.clear();
                 if self.ix.table.capacity() == 0 {
-                    self.ix.table = memledger::ChargedVec::new(Some(INDEX_OWNER), memledger::Kind::Region);
+                    self.ix.table =
+                        memledger::ChargedVec::new(Some(INDEX_OWNER), memledger::Kind::Region);
                 }
                 if self.ix.table.resize(n, EMPTY).is_err() {
                     return self.ix_refuse();
                 }
                 self.ix.keys = 0;
                 for j in 0..self.slots.len() {
-                    if let Some(e) = self.slots[j].as_ref().filter(|e| e.knewer == NIL && (self.ix.used.as_slice()[j / 64] >> (j % 64)) & 1 == 1) {
+                    if let Some(e) = self.slots[j].as_ref().filter(|e| {
+                        e.knewer == NIL && (self.ix.used.as_slice()[j / 64] >> (j % 64)) & 1 == 1
+                    }) {
                         let h = key_hash(e.key);
                         self.ix_insert(h, j as u32);
                     }
@@ -342,7 +382,10 @@ impl Park {
         while t[b].slot != NIL {
             b = (b + 1) & mask;
         }
-        t[b] = Bucket { tag: h.stored(), slot };
+        t[b] = Bucket {
+            tag: h.stored(),
+            slot,
+        };
         self.ix.keys += 1;
     }
 
@@ -364,7 +407,9 @@ impl Park {
         if knewer != NIL {
             self.at_mut(knewer).kolder = kolder;
         } else {
-            let b = self.ix_find(key, key_hash(key)).expect("an indexed key's newest entry has its bucket");
+            let b = self
+                .ix_find(key, key_hash(key))
+                .expect("an indexed key's newest entry has its bucket");
             match kolder {
                 NIL => self.ix_remove_bucket(b),
                 k => self.ix.table.as_mut_slice()[b].slot = k,
@@ -419,43 +464,83 @@ impl Park {
     fn ix_sound(&self) -> Result<(), String> {
         let ix = &self.ix;
         for (i, s) in self.slots.iter().enumerate() {
-            let bit = ix.used.as_slice().get(i / 64).is_some_and(|w| (w >> (i % 64)) & 1 == 1);
+            let bit = ix
+                .used
+                .as_slice()
+                .get(i / 64)
+                .is_some_and(|w| (w >> (i % 64)) & 1 == 1);
             if bit != s.is_some() {
-                return Err(format!("slot {i}: bit {bit}, entry {}", s.is_some())); // alloc: Cold
+                return Err(format!("slot {i}: bit {bit}, entry {}", s.is_some()));
+                // alloc: Cold
             }
         }
         let (mut n, mut at, mut prev, mut stamp) = (0, ix.oldest, NIL, 0);
         while at != NIL {
-            let e = self.slots.get(at as usize).and_then(Option::as_ref).ok_or_else(|| format!("LRU names empty slot {at}"))?; // alloc: Cold
+            let e = self
+                .slots
+                .get(at as usize)
+                .and_then(Option::as_ref)
+                .ok_or_else(|| format!("LRU names empty slot {at}"))?; // alloc: Cold
             if e.older != prev || e.stamp <= stamp {
-                return Err(format!("LRU at slot {at}: older {} want {prev}, stamp {} after {stamp}", e.older, e.stamp)); // alloc: Cold
+                return Err(format!(
+                    "LRU at slot {at}: older {} want {prev}, stamp {} after {stamp}",
+                    e.older, e.stamp
+                )); // alloc: Cold
             }
             (n, prev, stamp, at) = (n + 1, at, e.stamp, e.newer);
             if n > self.live {
-                return Err(format!("LRU longer than the {} entries", self.live)); // alloc: Cold
+                return Err(format!("LRU longer than the {} entries", self.live));
+                // alloc: Cold
             }
         }
         if n != self.live || ix.newest != prev {
-            return Err(format!("LRU holds {n} of {} entries, newest {} want {prev}", self.live, ix.newest)); // alloc: Cold
+            return Err(format!(
+                "LRU holds {n} of {} entries, newest {} want {prev}",
+                self.live, ix.newest
+            )); // alloc: Cold
         }
         let mut heads = 0;
         for (i, e) in self.slots.iter().enumerate() {
             let Some(e) = e else { continue };
             if e.knewer == NIL {
                 heads += 1;
-                let b = self.ix_find(e.key, key_hash(e.key)).ok_or_else(|| format!("slot {i}: key {:?} has no bucket", e.key))?; // alloc: Cold
+                let b = self
+                    .ix_find(e.key, key_hash(e.key))
+                    .ok_or_else(|| format!("slot {i}: key {:?} has no bucket", e.key))?; // alloc: Cold
                 if ix.table.as_slice()[b].slot != i as u32 {
-                    return Err(format!("slot {i}: key {:?}'s bucket names slot {}", e.key, ix.table.as_slice()[b].slot)); // alloc: Cold
+                    return Err(format!(
+                        "slot {i}: key {:?}'s bucket names slot {}",
+                        e.key,
+                        ix.table.as_slice()[b].slot
+                    )); // alloc: Cold
                 }
-            } else if self.slots.get(e.knewer as usize).and_then(Option::as_ref).is_none_or(|x| x.key != e.key || x.kolder != i as u32 || x.stamp <= e.stamp) {
-                return Err(format!("slot {i}: key chain broken at knewer {}", e.knewer)); // alloc: Cold
+            } else if self
+                .slots
+                .get(e.knewer as usize)
+                .and_then(Option::as_ref)
+                .is_none_or(|x| x.key != e.key || x.kolder != i as u32 || x.stamp <= e.stamp)
+            {
+                return Err(format!("slot {i}: key chain broken at knewer {}", e.knewer));
+                // alloc: Cold
             }
-            if e.kolder != NIL && self.slots.get(e.kolder as usize).and_then(Option::as_ref).is_none_or(|x| x.key != e.key || x.knewer != i as u32 || x.stamp >= e.stamp) {
-                return Err(format!("slot {i}: key chain broken at kolder {}", e.kolder)); // alloc: Cold
+            if e.kolder != NIL
+                && self
+                    .slots
+                    .get(e.kolder as usize)
+                    .and_then(Option::as_ref)
+                    .is_none_or(|x| x.key != e.key || x.knewer != i as u32 || x.stamp >= e.stamp)
+            {
+                return Err(format!("slot {i}: key chain broken at kolder {}", e.kolder));
+                // alloc: Cold
             }
         }
-        if heads != ix.keys || ix.table.as_slice().iter().filter(|b| b.slot != NIL).count() != heads {
-            return Err(format!("{heads} keys, the table counts {} and holds {}", ix.keys, ix.table.as_slice().iter().filter(|b| b.slot != NIL).count())); // alloc: Cold
+        if heads != ix.keys || ix.table.as_slice().iter().filter(|b| b.slot != NIL).count() != heads
+        {
+            return Err(format!(
+                "{heads} keys, the table counts {} and holds {}",
+                ix.keys,
+                ix.table.as_slice().iter().filter(|b| b.slot != NIL).count()
+            )); // alloc: Cold
         }
         Ok(())
     }

@@ -30,12 +30,27 @@ pub(crate) fn embedded_feeds(gx: &Gx<'_, '_>, ik: usize, emit: usize) -> Option<
 pub(crate) fn covers(gx: &Gx<'_, '_>, arm: &PipelineNode<'_>) -> bool {
     let ps = gx.pipelines();
     let at = arm as *const PipelineNode<'_> as *const u8;
-    let Some(a) = (0..ps.len()).find(|&q| core::ptr::eq(&ps[q] as *const PipelineNode<'_> as *const u8, at)) else { return false };
-    let mut writers = (0..ps.len()).filter(|&q| crate::rerun::inner_arms_index::writes(&ps[q]) && !locks_only(&ps[q]));
-    let (Some(k), None) = (writers.next(), writers.next()) else { return false };
-    let mut ws = ps[k].ops.iter().filter_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
-    let (Some(w), None) = (ws.next(), ws.next()) else { return false };
-    matches!(w.cmd, Cmd::Update | Cmd::Delete) && ps[k].ops.iter().all(|o| !matches!(o, Op::Lock(_))) && !super::super::update_built::copied_union(gx, k, w) && super::super::update_built::nest_union(gx, k, w).is_some_and(|f| f.contains(&a))
+    let Some(a) =
+        (0..ps.len()).find(|&q| core::ptr::eq(&ps[q] as *const PipelineNode<'_> as *const u8, at))
+    else {
+        return false;
+    };
+    let mut writers = (0..ps.len())
+        .filter(|&q| crate::rerun::inner_arms_index::writes(&ps[q]) && !locks_only(&ps[q]));
+    let (Some(k), None) = (writers.next(), writers.next()) else {
+        return false;
+    };
+    let mut ws = ps[k]
+        .ops
+        .iter()
+        .filter_map(|o| if let Op::Write(w) = o { Some(w) } else { None });
+    let (Some(w), None) = (ws.next(), ws.next()) else {
+        return false;
+    };
+    matches!(w.cmd, Cmd::Update | Cmd::Delete)
+        && ps[k].ops.iter().all(|o| !matches!(o, Op::Lock(_)))
+        && !super::super::update_built::copied_union(gx, k, w)
+        && super::super::update_built::nest_union(gx, k, w).is_some_and(|f| f.contains(&a))
 }
 
 /// Pipeline `p` writes no row: its ops and its nests' inners hold row locks only (a SubPlan step counts as a writer).

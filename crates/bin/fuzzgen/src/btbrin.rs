@@ -227,12 +227,10 @@ fn gen_uniq(g: &mut Gen) -> Vec<StmtKind> {
          INSERT INTO fz_bb_u VALUES (910000 + i, 802, i); \
          END LOOP; END $$;"
     )));
-    v.push(raw(
-        "DO $$ BEGIN FOR i IN 1..80 LOOP \
+    v.push(raw("DO $$ BEGIN FOR i IN 1..80 LOOP \
          UPDATE fz_bb_u SET v = -v WHERE v = 804; \
          UPDATE fz_bb_u SET v = -v WHERE v = -804; \
-         END LOOP; END $$;",
-    ));
+         END LOOP; END $$;"));
     v.extend(raws(&[
         // Rollback-superseded insert then reinsert: dead never-committed
         // duplicate in the index.
@@ -292,10 +290,8 @@ fn gen_scan(g: &mut Gen) -> Vec<StmtKind> {
             raw("SELECT count(*)::int8 FROM fz_bb_s WHERE a > 400 AND a <= 460 AND b > 50;"),
             // Scroll cursor: forward/backward/absolute over a real scan.
             raw("BEGIN;"),
-            raw(
-                "DECLARE fz_bb_cur SCROLL CURSOR FOR \
-                 SELECT a, b, pk FROM fz_bb_s WHERE a BETWEEN 100 AND 300 ORDER BY a, b, pk;",
-            ),
+            raw("DECLARE fz_bb_cur SCROLL CURSOR FOR \
+                 SELECT a, b, pk FROM fz_bb_s WHERE a BETWEEN 100 AND 300 ORDER BY a, b, pk;"),
             raw("FETCH FORWARD 120 FROM fz_bb_cur;"),
             raw("FETCH BACKWARD 60 FROM fz_bb_cur;"),
             raw("FETCH ABSOLUTE 200 FROM fz_bb_cur;"),
@@ -351,8 +347,10 @@ fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
     let mut v = vec![
         // Duplicate-heavy: 40 distinct keys -> deep posting lists; the
         // 'many' fillfactor keeps leaves splitting during dedup churn.
-        raw("CREATE TABLE fz_bb_d (pk int4 PRIMARY KEY, k int4, t text) \
-             WITH (autovacuum_enabled = off);"),
+        raw(
+            "CREATE TABLE fz_bb_d (pk int4 PRIMARY KEY, k int4, t text) \
+             WITH (autovacuum_enabled = off);",
+        ),
         raw(format!(
             "INSERT INTO fz_bb_d SELECT i, i % 40, \
              'pfx_common_prefix_shared_' || lpad((i % 900)::text, 6, '0') \
@@ -389,10 +387,8 @@ fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
         vec![
             raw("SELECT count(*)::int8, sum(pk)::int8 FROM fz_bb_d WHERE k = 13;"),
             raw("SELECT count(*)::int8 FROM fz_bb_d WHERE k > 70;"),
-            raw(
-                "SELECT count(*)::int8 FROM fz_bb_d \
-                 WHERE t > 'pfx_common_prefix_shared_000500';",
-            ),
+            raw("SELECT count(*)::int8 FROM fz_bb_d \
+                 WHERE t > 'pfx_common_prefix_shared_000500';"),
             raw("SELECT count(*)::int8 FROM fz_bb_d WHERE k < -2500;"),
         ],
     ));
@@ -422,10 +418,8 @@ fn gen_pagedel(g: &mut Gen) -> Vec<StmtKind> {
     };
     let mut v = vec![
         raw("CREATE TABLE fz_bb_p (pk int4, filler text) WITH (autovacuum_enabled = off);"),
-        raw(
-            "INSERT INTO fz_bb_p SELECT i, 'f' || (i % 10) \
-             FROM generate_series(1, 20000) i;",
-        ),
+        raw("INSERT INTO fz_bb_p SELECT i, 'f' || (i % 10) \
+             FROM generate_series(1, 20000) i;"),
         raw("CREATE INDEX fz_bb_p_pk ON fz_bb_p (pk) WITH (fillfactor = 10);"),
         raw("ANALYZE fz_bb_p;"),
         raw(format!(
@@ -464,8 +458,10 @@ fn gen_pagedel(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_build(g: &mut Gen) -> Vec<StmtKind> {
     let rows = 8000 + 4000 * g.rng.below_usize(2) as i64; // 8k/12k
     let mut v = vec![
-        raw("CREATE TABLE fz_bb_b (pk int4 PRIMARY KEY, a int4, b int4, t text) \
-             WITH (autovacuum_enabled = off);"),
+        raw(
+            "CREATE TABLE fz_bb_b (pk int4 PRIMARY KEY, a int4, b int4, t text) \
+             WITH (autovacuum_enabled = off);",
+        ),
         raw(format!(
             "INSERT INTO fz_bb_b SELECT i, (i * 31) % 5000, \
              CASE WHEN i % 13 = 0 THEN NULL ELSE (i * 7) % 400 END, \
@@ -526,8 +522,10 @@ fn gen_brinup(g: &mut Gen) -> Vec<StmtKind> {
     let pages = 200 + 50 * g.rng.below_usize(3) as i64; // ~200..300 heap pages
     let rows = pages * 9;
     let mut v = vec![
-        raw("CREATE TABLE fz_bb_bu (pk int4 PRIMARY KEY, t text, pad text) \
-             WITH (autovacuum_enabled = off, fillfactor = 100);"),
+        raw(
+            "CREATE TABLE fz_bb_bu (pk int4 PRIMARY KEY, t text, pad text) \
+             WITH (autovacuum_enabled = off, fillfactor = 100);",
+        ),
         raw(format!(
             "INSERT INTO fz_bb_bu SELECT i, 'm' || (i % 50), repeat('x', 800) \
              FROM generate_series(1, {rows}) i;"
@@ -538,15 +536,21 @@ fn gen_brinup(g: &mut Gen) -> Vec<StmtKind> {
         // Widen many summaries: non-HOT updates (t is indexed) relocate
         // rows and re-summarize target ranges with much longer strings;
         // each grown summary re-lands via brin_doupdate.
-        raw("UPDATE fz_bb_bu SET t = md5(pk::text) || md5((pk * 3)::text) \
-             WHERE pk % 4 = 0;"),
-        raw("UPDATE fz_bb_bu SET t = 'zzz_' || md5(pk::text) || md5((pk * 7)::text) \
-             || md5((pk * 11)::text) WHERE pk % 10 = 0;"),
+        raw(
+            "UPDATE fz_bb_bu SET t = md5(pk::text) || md5((pk * 3)::text) \
+             WHERE pk % 4 = 0;",
+        ),
+        raw(
+            "UPDATE fz_bb_bu SET t = 'zzz_' || md5(pk::text) || md5((pk * 7)::text) \
+             || md5((pk * 11)::text) WHERE pk % 10 = 0;",
+        ),
         raw("SELECT brin_summarize_new_values('fz_bb_bu_brin')::int8 >= 0;"),
         // Second churn wave over now-summarized ranges: doupdate under
         // fuller regular pages (move updates + page extension).
-        raw("UPDATE fz_bb_bu SET t = 'aaa_' || md5((pk * 13)::text) || md5((pk * 17)::text) \
-             WHERE pk % 6 = 1;"),
+        raw(
+            "UPDATE fz_bb_bu SET t = 'aaa_' || md5((pk * 13)::text) || md5((pk * 17)::text) \
+             WHERE pk % 6 = 1;",
+        ),
         raw(format!(
             "INSERT INTO fz_bb_bu SELECT {rows} + i, 'AA_' || md5(i::text), repeat('y', 800) \
              FROM generate_series(1, 200) i;"
@@ -683,19 +687,19 @@ fn gen_brininc(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_brinmm(g: &mut Gen) -> Vec<StmtKind> {
     let vpr = [8usize, 16, 32][g.rng.below_usize(3)];
     let mut v = vec![
-        raw("CREATE TABLE fz_bb_m (pk int4 PRIMARY KEY, n int4, q numeric, d date, pad text) \
-             WITH (autovacuum_enabled = off);"),
+        raw(
+            "CREATE TABLE fz_bb_m (pk int4 PRIMARY KEY, n int4, q numeric, d date, pad text) \
+             WITH (autovacuum_enabled = off);",
+        ),
         // Three value clusters plus scattered outliers per page-run: the
         // summaries must merge intervals under the values_per_range cap.
-        raw(
-            "INSERT INTO fz_bb_m SELECT i, \
+        raw("INSERT INTO fz_bb_m SELECT i, \
              CASE WHEN i % 17 = 0 THEN 1000000 + i \
                   WHEN i % 3 = 0 THEN 500000 + (i * 7) % 1000 \
                   ELSE (i * 11) % 5000 END, \
              (((i * 13) % 90000)::numeric) / 100, \
              date '2001-01-01' + ((i * 37) % 9000), \
-             repeat('w', 700) FROM generate_series(1, 2700) i;",
-        ),
+             repeat('w', 700) FROM generate_series(1, 2700) i;"),
         raw(format!(
             "CREATE INDEX fz_bb_m_n ON fz_bb_m USING brin (n int4_minmax_multi_ops) \
              WITH (pages_per_range = 2, values_per_range = {vpr});"
@@ -704,8 +708,10 @@ fn gen_brinmm(g: &mut Gen) -> Vec<StmtKind> {
             "CREATE INDEX fz_bb_m_q ON fz_bb_m USING brin (q numeric_minmax_multi_ops) \
              WITH (pages_per_range = 2, values_per_range = {vpr});"
         )),
-        raw("CREATE INDEX fz_bb_m_d ON fz_bb_m USING brin (d date_minmax_multi_ops) \
-             WITH (pages_per_range = 4);"),
+        raw(
+            "CREATE INDEX fz_bb_m_d ON fz_bb_m USING brin (d date_minmax_multi_ops) \
+             WITH (pages_per_range = 4);",
+        ),
         raw("ANALYZE fz_bb_m;"),
     ];
     v.extend(bracket(
@@ -973,8 +979,9 @@ mod tests {
                     saw_arm = true;
                     let before = &group[..i];
                     assert!(
-                        before.iter().any(|s| s
-                            .contains("brin_summarize_new_values('fz_bb_ov_brin')")),
+                        before
+                            .iter()
+                            .any(|s| s.contains("brin_summarize_new_values('fz_bb_ov_brin')")),
                         "oversized insert not preceded by fz_bb_ov summarize"
                     );
                     assert!(

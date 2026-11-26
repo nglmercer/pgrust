@@ -13,9 +13,9 @@ use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_program::SiteDesc;
 use mcx::{GrowIn, Mcx, PgVec};
 
-use crate::ops::scan::pgrc::verdict_cond_key::{put, Shape};
 use crate::face::source::{VerdictImpl, VerdictMech};
 use crate::frame::px::{ExId, Px};
+use crate::ops::scan::pgrc::verdict_cond_key::{put, Shape};
 use crate::ops::Table;
 
 crate::strategies! {
@@ -26,7 +26,10 @@ crate::strategies! {
     VERDICT_COND = 16, "verdict.cond", PgrcFilter;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(VERDICT_COND, &VerdictImpl(&Cond))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(VERDICT_COND, &VerdictImpl(&Cond))],
+    ..crate::ops::NONE
+};
 
 pub(crate) struct Cond;
 
@@ -42,7 +45,11 @@ pub(crate) type Run = (u16, u16, u16);
 
 /// The bit of `mask` that word `i` of a run reads: its own for the first 16 words, bit 15 for every later one.
 const fn bit(i: usize) -> usize {
-    if i < 15 { i } else { 15 }
+    if i < 15 {
+        i
+    } else {
+        15
+    }
 }
 
 /// The covered words in need order (any number, any order, repeats kept) as runs: a run grows while the next word is
@@ -72,24 +79,46 @@ fn runs<'m>(words: impl IntoIterator<Item = (u16, bool)>, mcx: Mcx<'m>) -> PgVec
 /// (gravity_deps `committed_stamp`: a moved function or type row is another key) and the quals' producers
 /// (verdict_cond_key.rs `producer`: their per-code tables, a fill expression's fingerprint among them), so an entry is
 /// served only to a statement whose quals are made as its own were. `None` only before the process seed.
-pub(crate) fn finish<'m>(shapes: &[Shape<'_>], relid: u32, site: &SiteDesc, wzone: &[(u64, u16)], made: (u128, &[u8]), mcx: Mcx<'m>) -> Option<(PgVec<'m, Run>, [u64; 2])> {
+pub(crate) fn finish<'m>(
+    shapes: &[Shape<'_>],
+    relid: u32,
+    site: &SiteDesc,
+    wzone: &[(u64, u16)],
+    made: (u128, &[u8]),
+    mcx: Mcx<'m>,
+) -> Option<(PgVec<'m, Run>, [u64; 2])> {
     let mut b = mcx::to_vec_in(&b"gravity.v4.cond.4"[..], mcx); // V4R-33: .3 = entries carry survivor counts; D3938: .4 = keyed by what made them
     put(&mut b, b'r', &[relid as u64, shapes.len() as u64]);
-    put(&mut b, b'd', &[made.0 as u64, (made.0 >> 64) as u64, made.1.len() as u64]);
+    put(
+        &mut b,
+        b'd',
+        &[made.0 as u64, (made.0 >> 64) as u64, made.1.len() as u64],
+    );
     b.extend_from_slice_in(made.1);
     for s in shapes {
         b.extend_from_slice_in(&(s.bytes.len() as u32).to_le_bytes());
         b.extend_from_slice_in(&s.bytes);
     }
     for z in site.zone_preds() {
-        put(&mut b, b'z', &[z.lane as u64, z.op as u64 | (z.prefix as u64) << 8, z.value as u64]);
+        put(
+            &mut b,
+            b'z',
+            &[
+                z.lane as u64,
+                z.op as u64 | (z.prefix as u64) << 8,
+                z.value as u64,
+            ],
+        );
     }
     // D289: the word-valued zone predicates by lane, op, length and word (their values are the bound words hashed above)
     for &(arg, w) in wzone {
         put(&mut b, b'w', &[arg, w as u64]);
     }
     let fp = gravity_dict::fp::fp128(&b)?;
-    Some((runs(shapes.iter().flat_map(|s| s.words.iter().copied()), mcx), if fp == [0, 0] { [1, 0] } else { fp }))
+    Some((
+        runs(shapes.iter().flat_map(|s| s.words.iter().copied()), mcx),
+        if fp == [0, 0] { [1, 0] } else { fp },
+    ))
 }
 
 fn lane_ptr(b: &mut FunctionBuilder<'_>, lanes: Value, k: usize) -> (Value, Value) {
@@ -187,12 +216,19 @@ mod tests {
     use gravity_program::{Arena, ArenaRef, ZoneOp, ZonePred};
 
     fn shape<'g>(mcx: mcx::Mcx<'g>, bytes: &[u8], words: &[(u16, bool)]) -> Shape<'g> {
-        Shape { bytes: mcx::to_vec_in(bytes, mcx), words: mcx::to_vec_in(words, mcx) }
+        Shape {
+            bytes: mcx::to_vec_in(bytes, mcx),
+            words: mcx::to_vec_in(words, mcx),
+        }
     }
 
     /// The words a run list reads back in order, each with its varlena bit (exec `Verdicts`' reading of the rule).
     fn read_back(runs: &[Run]) -> Vec<(u16, bool)> {
-        runs.iter().flat_map(|&(base, n, mask)| (0..n).map(move |i| (base + i, mask >> bit(i as usize) & 1 != 0))).collect()
+        runs.iter()
+            .flat_map(|&(base, n, mask)| {
+                (0..n).map(move |i| (base + i, mask >> bit(i as usize) & 1 != 0))
+            })
+            .collect()
     }
 
     #[test]
@@ -204,7 +240,10 @@ mod tests {
         // one ascending run of at most 16 is the one run slot 0 carried before: its mask bit i is word i's
         let a = shape(m, b"a", &[(7, false), (8, true)]);
         let b2 = shape(m, b"b", &[(9, false)]);
-        assert_eq!(finish(&[a, b2], 1, &site, &[], (0, &[]), m).expect("fp").0, [(7, 3, 0b010)]);
+        assert_eq!(
+            finish(&[a, b2], 1, &site, &[], (0, &[]), m).expect("fp").0,
+            [(7, 3, 0b010)]
+        );
         let cases: [Vec<(u16, bool)>; 8] = [
             Default::default(),
             [(7, false), (9, false)].to_vec(),
@@ -212,17 +251,33 @@ mod tests {
             (0..17).map(|i| (i, false)).collect(),
             (0..40).map(|i| (i, true)).collect(),
             // a by-value word after 15 varlena ones, and a varlena one after 20 by-value ones: a run cuts where bit 15 differs
-            (0..15).map(|i| (i, true)).chain([(15, false), (16, true)]).collect(),
-            (0..20).map(|i| (i + 3, false)).chain([(23, true), (24, true)]).collect(),
+            (0..15)
+                .map(|i| (i, true))
+                .chain([(15, false), (16, true)])
+                .collect(),
+            (0..20)
+                .map(|i| (i + 3, false))
+                .chain([(23, true), (24, true)])
+                .collect(),
             (0..70).map(|i| (100 - i, i % 3 == 0)).collect(),
         ];
         for words in cases {
-            let (runs, _) = finish(&[shape(m, b"a", &words)], 1, &site, &[], (0, &[]), m).expect("every word list keys");
+            let (runs, _) = finish(&[shape(m, b"a", &words)], 1, &site, &[], (0, &[]), m)
+                .expect("every word list keys");
             assert_eq!(read_back(&runs), words, "runs {runs:?}");
         }
         let long: Vec<(u16, bool)> = (0..1000).map(|i| (i, true)).collect();
-        assert_eq!(finish(&[shape(m, b"a", &long)], 1, &site, &[], (0, &[]), m).unwrap().0, [(0, 1000, 0xffff)], "a long uniform list is one run");
-        let cut: Vec<(u16, bool)> = (0..15).map(|i| (i, true)).chain([(15, false), (16, true)]).collect();
+        assert_eq!(
+            finish(&[shape(m, b"a", &long)], 1, &site, &[], (0, &[]), m)
+                .unwrap()
+                .0,
+            [(0, 1000, 0xffff)],
+            "a long uniform list is one run"
+        );
+        let cut: Vec<(u16, bool)> = (0..15)
+            .map(|i| (i, true))
+            .chain([(15, false), (16, true)])
+            .collect();
         assert_eq!(runs(cut, m), [(0, 16, 0x7fff), (16, 1, 1)]);
     }
 
@@ -232,7 +287,18 @@ mod tests {
         let ctx = mcx::MemoryContext::new("verdict-cond-fp");
         let m = ctx.mcx();
         let site = SiteDesc::none_in(ArenaRef::EMPTY);
-        let fp = |bytes: &[u8], relid: u32, site: &SiteDesc| finish(&[shape(m, bytes, &[(3, false)])], relid, site, &[], (0, &[]), m).unwrap().1;
+        let fp = |bytes: &[u8], relid: u32, site: &SiteDesc| {
+            finish(
+                &[shape(m, bytes, &[(3, false)])],
+                relid,
+                site,
+                &[],
+                (0, &[]),
+                m,
+            )
+            .unwrap()
+            .1
+        };
         // a constant of another type / typmod / collation serializes differently (walk's `C` record), so its shape differs
         let int4 = [b'C', 23, 0, 0, 0];
         let int8 = [b'C', 20, 0, 0, 0];
@@ -246,7 +312,18 @@ mod tests {
         assert_eq!(fp(&int4, 1, &site), fp(&int4, 1, &site));
         // D3938: one shape made under other catalog reads (a moved function row) or by another producer (other per-code
         // tables, another fill expression) is another key; the same making is the same key
-        let made = |stamp: u128, producer: &[u8]| finish(&[shape(m, &int4, &[(3, false)])], 1, &site, &[], (stamp, producer), m).unwrap().1;
+        let made = |stamp: u128, producer: &[u8]| {
+            finish(
+                &[shape(m, &int4, &[(3, false)])],
+                1,
+                &site,
+                &[],
+                (stamp, producer),
+                m,
+            )
+            .unwrap()
+            .1
+        };
         assert_ne!(made(7, b""), made(8, b""));
         assert_ne!(made(1 << 64, b""), made(2 << 64, b""));
         assert_ne!(made(7, b"p\x01"), made(7, b"p\x02"));

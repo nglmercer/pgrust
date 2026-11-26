@@ -1,4 +1,5 @@
-#![allow(clippy::missing_transmute_annotations)]//! dlopen/dlsym binding to the system libicu (i18n + common), resolved once
+#![allow(clippy::missing_transmute_annotations)]
+//! dlopen/dlsym binding to the system libicu (i18n + common), resolved once
 //! per process. No build-time ICU dependency: PGDG images ship version-
 //! suffixed symbols (ucol_open_72), so each symbol is probed bare then with
 //! the soname's major suffix, dfmgr-style.
@@ -239,8 +240,10 @@ fn load() -> Result<&'static IcuApi, String> {
         return Err("libicu disabled by PGRUST_TEST_NO_ICU".to_string());
     }
     let (handle, major_hint) = open_lib()?;
-    let suffix = find_suffix(handle, major_hint)
-        .ok_or_else(|| "libicui18n loaded but no ucol_open symbol found (probed bare and _50.._90 suffixes)".to_string())?;
+    let suffix = find_suffix(handle, major_hint).ok_or_else(|| {
+        "libicui18n loaded but no ucol_open symbol found (probed bare and _50.._90 suffixes)"
+            .to_string()
+    })?;
     let api = resolve_all(handle, suffix)?;
     Ok(Box::leak(Box::new(api)))
 }
@@ -334,7 +337,9 @@ fn find_suffix(handle: *mut c_void, major_hint: Option<i32>) -> Option<i32> {
             return Some(m);
         }
     }
-    (MAJOR_MIN..=MAJOR_MAX).rev().find(|&m| !sym(handle, "ucol_open", m).is_null())
+    (MAJOR_MIN..=MAJOR_MAX)
+        .rev()
+        .find(|&m| !sym(handle, "ucol_open", m).is_null())
 }
 
 fn resolve_all(handle: *mut c_void, suffix: i32) -> Result<IcuApi, String> {

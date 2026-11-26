@@ -45,14 +45,21 @@ impl Host for M6RaiseElems {
 /// no bitmap or a set bit among the first `nitems` (array.h `ARR_NULLBITMAP`: a set bit is a non-NULL item). A payload too
 /// short for its own header answers true, so the caller raises rather than reads past it.
 pub fn any_element(p: &[u8]) -> bool {
-    let word = |at: usize| p.get(at..at + 4).map(|b| i32::from_ne_bytes([b[0], b[1], b[2], b[3]]));
-    let (Some(ndim), Some(dataoffset)) = (word(0), word(4)) else { return true };
+    let word = |at: usize| {
+        p.get(at..at + 4)
+            .map(|b| i32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    let (Some(ndim), Some(dataoffset)) = (word(0), word(4)) else {
+        return true;
+    };
     if ndim <= 0 {
         return false;
     }
     let mut n: u64 = 1;
     for d in 0..ndim as usize {
-        let Some(dim) = word(12 + 4 * d) else { return true };
+        let Some(dim) = word(12 + 4 * d) else {
+            return true;
+        };
         n = n.saturating_mul(dim.max(0) as u64);
     }
     if n == 0 {
@@ -63,16 +70,27 @@ pub fn any_element(p: &[u8]) -> bool {
     }
     let at = 12 + 8 * ndim as usize;
     let full = (n / 8) as usize;
-    let Some(bits) = p.get(at..at + full + usize::from(!n.is_multiple_of( 8))) else { return true };
-    bits[..full].iter().any(|&b| b != 0) || (!n.is_multiple_of( 8) && bits[full] & ((1u8 << (n % 8)) - 1) != 0)
+    let Some(bits) = p.get(at..at + full + usize::from(!n.is_multiple_of(8))) else {
+        return true;
+    };
+    bits[..full].iter().any(|&b| b != 0)
+        || (!n.is_multiple_of(8) && bits[full] & ((1u8 << (n % 8)) - 1) != 0)
 }
 
 #[cold]
 #[inline(never)]
 fn raise(code: u64) -> i64 {
     let (msg, hint, state) = match code {
-        RAISE_INDETERMINATE_COLL => ("could not determine which collation to use for string comparison", "Use the COLLATE clause to set the collation explicitly.", *b"42P22"),
-        RAISE_INDETERMINATE_HASH => ("could not determine which collation to use for string hashing", "Use the COLLATE clause to set the collation explicitly.", *b"42P22"),
+        RAISE_INDETERMINATE_COLL => (
+            "could not determine which collation to use for string comparison",
+            "Use the COLLATE clause to set the collation explicitly.",
+            *b"42P22",
+        ),
+        RAISE_INDETERMINATE_HASH => (
+            "could not determine which collation to use for string hashing",
+            "Use the COLLATE clause to set the collation explicitly.",
+            *b"42P22",
+        ),
         _ => return crate::host_abi::bare(&format!("m6_raise: no error for code {code}")), // alloc: Cold
     };
     crate::contract::raise(msg, Some(hint), state)
@@ -86,15 +104,30 @@ mod tests {
 
     #[test]
     fn the_indeterminate_collation_raise_is_pgs_42p22_with_its_hint() {
-        assert_eq!(unsafe { entry1::<M6Raise>(0, RAISE_INDETERMINATE_COLL) } as i64, ERROR);
+        assert_eq!(
+            unsafe { entry1::<M6Raise>(0, RAISE_INDETERMINATE_COLL) } as i64,
+            ERROR
+        );
         let e = gravity_fn::take_error().expect("m6_raise stashes the error");
         assert_eq!(e.sqlstate().0, sqlstate(*b"42P22"));
-        assert_eq!(e.message(), "could not determine which collation to use for string comparison");
-        assert_eq!(e.hint(), Some("Use the COLLATE clause to set the collation explicitly."));
-        assert_eq!(unsafe { entry1::<M6Raise>(0, RAISE_INDETERMINATE_HASH) } as i64, ERROR);
+        assert_eq!(
+            e.message(),
+            "could not determine which collation to use for string comparison"
+        );
+        assert_eq!(
+            e.hint(),
+            Some("Use the COLLATE clause to set the collation explicitly.")
+        );
+        assert_eq!(
+            unsafe { entry1::<M6Raise>(0, RAISE_INDETERMINATE_HASH) } as i64,
+            ERROR
+        );
         let e = gravity_fn::take_error().expect("m6_raise stashes the error");
         assert_eq!(e.sqlstate().0, sqlstate(*b"42P22"));
-        assert_eq!(e.message(), "could not determine which collation to use for string hashing");
+        assert_eq!(
+            e.message(),
+            "could not determine which collation to use for string hashing"
+        );
     }
 
     /// An array payload (past the varlena header) of `dims`, with a null bitmap `bits` when given.
@@ -118,17 +151,47 @@ mod tests {
 
     #[test]
     fn an_array_raises_only_at_a_non_null_element() {
-        assert!(!any_element(&payload(&[], None)), "an empty array: no element");
-        assert!(!any_element(&payload(&[0], None)), "a zero-length dimension: no element");
-        assert!(any_element(&payload(&[1], None)), "one element, no bitmap: every element non-NULL");
+        assert!(
+            !any_element(&payload(&[], None)),
+            "an empty array: no element"
+        );
+        assert!(
+            !any_element(&payload(&[0], None)),
+            "a zero-length dimension: no element"
+        );
+        assert!(
+            any_element(&payload(&[1], None)),
+            "one element, no bitmap: every element non-NULL"
+        );
         assert!(!any_element(&payload(&[1], Some(&[0]))), "ARRAY[NULL]");
-        assert!(!any_element(&payload(&[3], Some(&[0b1111_1000]))), "three NULLs: bits past nitems do not count");
-        assert!(any_element(&payload(&[3], Some(&[0b0000_0100]))), "NULL, NULL, then a non-NULL element");
-        assert!(!any_element(&payload(&[9], Some(&[0, 0]))), "nine NULLs over two bitmap bytes");
-        assert!(any_element(&payload(&[9], Some(&[0, 1]))), "the ninth element non-NULL");
-        assert!(any_element(&payload(&[2, 2], Some(&[0b1000]))), "a 2x2 array whose last element is non-NULL");
-        assert!(!any_element(&payload(&[2, 2], Some(&[0b1_0000]))), "a 2x2 array of NULLs (bit 4 is past its 4 items)");
-        assert!(any_element(&[1, 0]), "a payload too short for its header raises");
+        assert!(
+            !any_element(&payload(&[3], Some(&[0b1111_1000]))),
+            "three NULLs: bits past nitems do not count"
+        );
+        assert!(
+            any_element(&payload(&[3], Some(&[0b0000_0100]))),
+            "NULL, NULL, then a non-NULL element"
+        );
+        assert!(
+            !any_element(&payload(&[9], Some(&[0, 0]))),
+            "nine NULLs over two bitmap bytes"
+        );
+        assert!(
+            any_element(&payload(&[9], Some(&[0, 1]))),
+            "the ninth element non-NULL"
+        );
+        assert!(
+            any_element(&payload(&[2, 2], Some(&[0b1000]))),
+            "a 2x2 array whose last element is non-NULL"
+        );
+        assert!(
+            !any_element(&payload(&[2, 2], Some(&[0b1_0000]))),
+            "a 2x2 array of NULLs (bit 4 is past its 4 items)"
+        );
+        assert!(
+            any_element(&[1, 0]),
+            "a payload too short for its header raises"
+        );
     }
 
     #[test]
@@ -137,14 +200,23 @@ mod tests {
         quiet.extend_from_slice(&payload(&[2], Some(&[0])));
         let len = (quiet.len() as u32) << 2;
         quiet[..4].copy_from_slice(&len.to_ne_bytes());
-        assert_eq!(unsafe { entry1::<M6RaiseElems>(0, quiet.as_ptr() as u64) }, 0);
+        assert_eq!(
+            unsafe { entry1::<M6RaiseElems>(0, quiet.as_ptr() as u64) },
+            0
+        );
         let mut loud = vec![0u8; 4]; // alloc: Cold
         loud.extend_from_slice(&payload(&[2], Some(&[0b10])));
         let len = (loud.len() as u32) << 2;
         loud[..4].copy_from_slice(&len.to_ne_bytes());
-        assert_eq!(unsafe { entry1::<M6RaiseElems>(0, loud.as_ptr() as u64) } as i64, ERROR);
+        assert_eq!(
+            unsafe { entry1::<M6RaiseElems>(0, loud.as_ptr() as u64) } as i64,
+            ERROR
+        );
         let e = gravity_fn::take_error().expect("m6_raise_elems stashes the error");
         assert_eq!(e.sqlstate().0, sqlstate(*b"42P22"));
-        assert_eq!(e.message(), "could not determine which collation to use for string hashing");
+        assert_eq!(
+            e.message(),
+            "could not determine which collation to use for string hashing"
+        );
     }
 }

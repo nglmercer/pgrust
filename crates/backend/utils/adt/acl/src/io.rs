@@ -249,10 +249,7 @@ fn err_loc() -> types_error::ErrorLocation {
     types_error::ErrorLocation::new(file!(), line!() as i32, "aclparse")
 }
 
-pub fn aclitemin(
-    s: &[u8],
-    mut escontext: Option<&mut ErrorSaveNode>,
-) -> PgResult<Option<AclItem>> {
+pub fn aclitemin(s: &[u8], mut escontext: Option<&mut ErrorSaveNode>) -> PgResult<Option<AclItem>> {
     let mut aip = AclItem {
         ai_grantee: 0,
         ai_grantor: 0,
@@ -348,28 +345,8 @@ mod tests {
     #[test]
     fn push_oid_decimal_matches_to_string() {
         let cases: &[u32] = &[
-            0,
-            1,
-            9,
-            10,
-            99,
-            100,
-            999,
-            1000,
-            9999,
-            10000,
-            99999,
-            100000,
-            999999,
-            1000000,
-            9999999,
-            10000000,
-            99999999,
-            100000000,
-            999999999,
-            1000000000,
-            305419896,
-            4294967294,
+            0, 1, 9, 10, 99, 100, 999, 1000, 9999, 10000, 99999, 100000, 999999, 1000000, 9999999,
+            10000000, 99999999, 100000000, 999999999, 1000000000, 305419896, 4294967294,
             4294967295,
         ];
         for &v in cases {

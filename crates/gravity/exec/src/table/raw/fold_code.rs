@@ -8,7 +8,9 @@ pub fn compile(f: &Fold) -> Made {
         return Made::Later;
     }
     let mut pb = gravity_backend::gravity_ir::builder::ProgramBuilder::new();
-    let Some(e) = gravity_lowerv4::table::owner_fold::emit(&mut pb, f) else { return Made::Refused };
+    let Some(e) = gravity_lowerv4::table::owner_fold::emit(&mut pb, f) else {
+        return Made::Refused;
+    };
     let p = pb.finish();
     match gravity_backend::compiled(&p, e) {
         Ok(_) if gravity_backend::cache::budget_bytes() == 0 => Made::Later,
@@ -21,8 +23,17 @@ pub fn compile(f: &Fold) -> Made {
         }
         Err(e) => {
             let class = types_error::error::errcode_to_category(e.sqlstate());
-            let transient = [types_error::error::ERRCODE_OUT_OF_MEMORY, types_error::error::ERRCODE_QUERY_CANCELED].iter().any(|&c| types_error::error::errcode_to_category(c) == class);
-            if transient || e.message() == gravity_backend::cache::INTERRUPTED { Made::Later } else { Made::Refused }
+            let transient = [
+                types_error::error::ERRCODE_OUT_OF_MEMORY,
+                types_error::error::ERRCODE_QUERY_CANCELED,
+            ]
+            .iter()
+            .any(|&c| types_error::error::errcode_to_category(c) == class);
+            if transient || e.message() == gravity_backend::cache::INTERRUPTED {
+                Made::Later
+            } else {
+                Made::Refused
+            }
         }
     }
 }

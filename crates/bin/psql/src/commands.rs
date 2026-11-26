@@ -13,7 +13,10 @@ use crate::{describe, do_connect, help, print, ConnParams, PsqlState};
 /// One parsed option token, with psql's OT_NORMAL quoting: single quotes
 /// stripped (with escape processing), double quotes KEPT (patterns need
 /// them), :var expanded outside quotes.
-fn scan_option(rest: &mut &str, vars: &std::collections::HashMap<String, String>) -> Option<String> {
+fn scan_option(
+    rest: &mut &str,
+    vars: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     let s = rest.trim_start();
     if s.is_empty() || s.starts_with('\\') {
         *rest = s;
@@ -280,7 +283,11 @@ fn dispatch(
             }
         },
         "?" => {
-            let db = if st.conn.is_some() { Some(st.cparams.dbname.as_str()) } else { None };
+            let db = if st.conn.is_some() {
+                Some(st.cparams.dbname.as_str())
+            } else {
+                None
+            };
             print!("{}", help::slash_usage(db));
             let _ = std::io::Write::flush(&mut std::io::stdout());
         }
@@ -297,8 +304,8 @@ fn dispatch(
                 st.last_error = true;
             }
         }
-        "d" | "d+" | "dt" | "dt+" | "di" | "di+" | "dv" | "dv+" | "ds" | "ds+" | "dn"
-        | "dn+" | "df" | "df+" => {
+        "d" | "d+" | "dt" | "dt+" | "di" | "di+" | "dv" | "dv+" | "ds" | "ds+" | "dn" | "dn+"
+        | "df" | "df+" => {
             let plus = cmd.ends_with('+');
             let base = cmd.trim_end_matches('+');
             let pattern = opts.first().map(|s| s.as_str());
@@ -318,8 +325,8 @@ fn dispatch(
         }
         // Deliberately-unsupported psql features (documented in README):
         // clean message, no half implementation.
-        "copy" | "crosstabview" | "gexec" | "gx" | "h" | "help" | "lo_import"
-        | "lo_export" | "lo_list" | "lo_unlink" => {
+        "copy" | "crosstabview" | "gexec" | "gx" | "h" | "help" | "lo_import" | "lo_export"
+        | "lo_list" | "lo_unlink" => {
             eprintln!("\\{cmd}: not supported by this psql port yet");
             st.last_error = true;
         }

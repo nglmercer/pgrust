@@ -95,11 +95,15 @@ pub(crate) const POSTGRES_FDW_OPTIONS: &[(&str, Oid, bool)] = &[
 ];
 
 fn is_valid_option(keyword: &str, context: Oid) -> bool {
-    POSTGRES_FDW_OPTIONS.iter().any(|&(k, ctx, _)| ctx == context && k == keyword)
+    POSTGRES_FDW_OPTIONS
+        .iter()
+        .any(|&(k, ctx, _)| ctx == context && k == keyword)
 }
 
 pub(crate) fn is_libpq_option(keyword: &str) -> bool {
-    POSTGRES_FDW_OPTIONS.iter().any(|&(k, _, is_libpq)| is_libpq && k == keyword)
+    POSTGRES_FDW_OPTIONS
+        .iter()
+        .any(|&(k, _, is_libpq)| is_libpq && k == keyword)
 }
 
 const MAX_LEVENSHTEIN_STRLEN: usize = 255;
@@ -114,7 +118,9 @@ fn invalid_option_error(mcx: Mcx<'_>, name: &str, catalog: Oid) -> PgResult<Box<
             continue;
         }
         has_valid_options = true;
-        if name.is_empty() || name.len() > MAX_LEVENSHTEIN_STRLEN || k.len() > MAX_LEVENSHTEIN_STRLEN
+        if name.is_empty()
+            || name.len() > MAX_LEVENSHTEIN_STRLEN
+            || k.len() > MAX_LEVENSHTEIN_STRLEN
         {
             continue;
         }
@@ -156,7 +162,9 @@ fn mk_def_elem<'mcx>(
     Ok(DefElem {
         defnamespace: None,
         defname: Some(name),
-        arg: value.map(|v| Node::mk(mcx, types_nodes::String { sval: v })).transpose()?,
+        arg: value
+            .map(|v| Node::mk(mcx, types_nodes::String { sval: v }))
+            .transpose()?,
         defaction: DefElemAction::DEFELEM_UNSPEC,
         location: -1,
     })
@@ -185,8 +193,10 @@ pub(crate) fn def_get_boolean(name: &str, value: Option<&str>) -> PgResult<bool>
 #[cold]
 fn invalid_numeric_value(kind: &str, name: &str, value: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("invalid value for {kind} option \"{name}\": {value}"))
-            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+        PgError::error(format!(
+            "invalid value for {kind} option \"{name}\": {value}"
+        ))
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
     )
 }
 
@@ -205,8 +215,13 @@ pub(crate) fn fc_postgres_fdw_validator(
 
         match opt.name {
             // upstream e5d019fbdc12 (18.6): postgres_fdw, dblink: Validate use_scram_passthrough values
-            "use_remote_estimate" | "updatable" | "truncatable" | "async_capable"
-            | "parallel_commit" | "parallel_abort" | "keep_connections"
+            "use_remote_estimate"
+            | "updatable"
+            | "truncatable"
+            | "async_capable"
+            | "parallel_commit"
+            | "parallel_abort"
+            | "keep_connections"
             | "use_scram_passthrough" => {
                 commands_define::defGetBoolean(&mk_def_elem(mcx, opt.name, opt.value)?)?;
             }
@@ -357,10 +372,8 @@ pub(crate) fn process_pgfdw_appname(appname: &str) -> PgResult<String> {
             Some('c') => {
                 let start = init_small::globals::MyStartTime();
                 let pid = init_small::globals::MyProcPid();
-                let _ = core::fmt::Write::write_fmt(
-                    &mut out,
-                    format_args!("{:x}.{:x}", start, pid),
-                );
+                let _ =
+                    core::fmt::Write::write_fmt(&mut out, format_args!("{:x}.{:x}", start, pid));
             }
             Some('C') => {
                 if let Ok(Some(v)) = guc::GetConfigOption("cluster_name", true, false) {
@@ -404,7 +417,10 @@ mod tests {
     // (the connect-time identity), not the live database / session user.
     #[test]
     fn appname_d_and_u_expand_the_connect_time_identity() {
-        let sock = types_startup::ClientSocket { sock: -1, raddr: ip::SockAddr::zeroed() };
+        let sock = types_startup::ClientSocket {
+            sock: -1,
+            raddr: ip::SockAddr::zeroed(),
+        };
         let mut port = types_startup::Port::new(&sock);
         port.database_name = Some("db1".to_string());
         port.user_name = Some("alice".to_string());
@@ -423,7 +439,9 @@ mod tests {
         assert!(is_valid_option("sslpassword", MAPPING));
         assert!(is_valid_option("sslcert", SERVER) && is_valid_option("sslcert", MAPPING));
         assert!(is_valid_option("sslkey", SERVER) && is_valid_option("sslkey", MAPPING));
-        assert!(is_valid_option("gssdelegation", SERVER) && is_valid_option("gssdelegation", MAPPING));
+        assert!(
+            is_valid_option("gssdelegation", SERVER) && is_valid_option("gssdelegation", MAPPING)
+        );
         assert!(is_valid_option("use_remote_estimate", SERVER));
         assert!(is_valid_option("use_remote_estimate", TABLE));
         assert!(is_valid_option("fdw_startup_cost", SERVER));
@@ -432,9 +450,18 @@ mod tests {
         assert!(!is_valid_option("column_name", TABLE));
         assert!(is_valid_option("password_required", MAPPING));
         // C's InitPgFdwOptions filters: hidden/overridden libpq entries.
-        for gone in ["client_encoding", "fallback_application_name", "replication",
-                     "scram_client_key", "scram_server_key", "sslkeylogfile",
-                     "oauth_issuer", "oauth_client_id", "oauth_client_secret", "oauth_scope"] {
+        for gone in [
+            "client_encoding",
+            "fallback_application_name",
+            "replication",
+            "scram_client_key",
+            "scram_server_key",
+            "sslkeylogfile",
+            "oauth_issuer",
+            "oauth_client_id",
+            "oauth_client_secret",
+            "oauth_scope",
+        ] {
             assert!(
                 !is_valid_option(gone, SERVER) && !is_valid_option(gone, MAPPING),
                 "{gone} must be filtered"

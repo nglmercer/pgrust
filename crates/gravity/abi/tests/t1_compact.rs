@@ -10,7 +10,10 @@ use gravity_abi::hash::KeyHash;
 
 const L: RecordLayout = RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]);
 /// A text key's image (two words: rep.varlena.hash's Fp128) and two slots: the 32-byte record of the W8 text cells.
-const L2: RecordLayout = RecordLayout::new_nn(&[KeyKind::I64, KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
+const L2: RecordLayout = RecordLayout::new_nn(
+    &[KeyKind::I64, KeyKind::I64],
+    &[SlotKind::Count, SlotKind::SumI64],
+);
 
 fn region(bytes: usize) -> Vec<u64> {
     vec![0u64; bytes / 8]
@@ -47,7 +50,11 @@ impl Fold {
 
     fn flush(&mut self, t: *mut T1) {
         for (part, k, c) in self.records(t) {
-            assert_eq!(KeyHash::of(&k).part(unsafe { (*t).pbits } as u32), part, "key {k:?} in its partition");
+            assert_eq!(
+                KeyHash::of(&k).part(unsafe { (*t).pbits } as u32),
+                part,
+                "key {k:?} in its partition"
+            );
             *self.got.entry(k).or_default() += c;
         }
         unsafe { (*t).reset_pool() };
@@ -57,12 +64,25 @@ impl Fold {
     fn compact(&mut self, t: *mut T1) {
         let l = self.l;
         let before = self.records(t).iter().map(|r| r.2).sum::<i64>();
-        let mut index = vec![0u32; (2 * unsafe { (*t).longest_chain() }).max(2).next_power_of_two()];
+        let mut index = vec![
+            0u32;
+            (2 * unsafe { (*t).longest_chain() })
+                .max(2)
+                .next_power_of_two()
+        ];
         let mut map = vec![0u32; unsafe { (*t).nblocks } as usize];
-        let held = unsafe { T1::compact(t, &mut index, &mut map, &mut |into, from| Rec::at(into, l).fold(&Rec::at(from as *mut u8, l)).is_ok()) };
+        let held = unsafe {
+            T1::compact(t, &mut index, &mut map, &mut |into, from| {
+                Rec::at(into, l).fold(&Rec::at(from as *mut u8, l)).is_ok()
+            })
+        };
         let recs = self.records(t);
         assert_eq!(held as usize, recs.len(), "the records held");
-        assert_eq!(recs.iter().map(|r| r.2).sum::<i64>(), before, "no row lost or doubled");
+        assert_eq!(
+            recs.iter().map(|r| r.2).sum::<i64>(),
+            before,
+            "no row lost or doubled"
+        );
         self.compactions += 1;
     }
 
@@ -141,11 +161,32 @@ fn run(limit: usize, groups: u64, n: u64, fold: bool) -> (Fold, BTreeMap<Vec<u64
     run_at(&L, 4, limit, groups, n, fold, false)
 }
 
-fn run_at(l: &'static RecordLayout, pbits: u8, limit: usize, groups: u64, n: u64, fold: bool, draining: bool) -> (Fold, BTreeMap<Vec<u64>, i64>) {
+fn run_at(
+    l: &'static RecordLayout,
+    pbits: u8,
+    limit: usize,
+    groups: u64,
+    n: u64,
+    fold: bool,
+    draining: bool,
+) -> (Fold, BTreeMap<Vec<u64>, i64>) {
     let mut buf = region(limit);
     buf[..T1_HDR / 8].fill(0);
-    let t = unsafe { T1::at(buf.as_mut_ptr() as *mut u8, l, pbits, 512 << 10, limit as u32) } as *mut T1;
-    let mut f = Fold { l, got: BTreeMap::new(), flushes: 0, compactions: 0 };
+    let t = unsafe {
+        T1::at(
+            buf.as_mut_ptr() as *mut u8,
+            l,
+            pbits,
+            512 << 10,
+            limit as u32,
+        )
+    } as *mut T1;
+    let mut f = Fold {
+        l,
+        got: BTreeMap::new(),
+        flushes: 0,
+        compactions: 0,
+    };
     let mut want = BTreeMap::new();
     for i in 0..n {
         let g = i % groups;
@@ -166,7 +207,11 @@ fn groups_that_fit_the_region_never_flush_cyclic_rows() {
         assert_eq!(plain.got, want, "{groups} groups without the fold");
         let (f, want) = run(64 << 10, groups, 94_000, true);
         assert_eq!(f.got, want, "{groups} groups");
-        assert_eq!(f.flushes, 0, "{groups} groups fit 64 KiB: no flush ({} compactions; {} flushes without the fold)", f.compactions, plain.flushes);
+        assert_eq!(
+            f.flushes, 0,
+            "{groups} groups fit 64 KiB: no flush ({} compactions; {} flushes without the fold)",
+            f.compactions, plain.flushes
+        );
     }
 }
 
@@ -175,7 +220,10 @@ fn groups_past_the_region_flush_as_before_and_count_every_row() {
     let (f, want) = run(64 << 10, 20_000, 120_000, true);
     assert_eq!(f.got, want);
     assert!(f.flushes > 0, "20000 groups do not fit 64 KiB");
-    assert!(f.compactions >= f.flushes, "every spent pool tries the fold first in this harness");
+    assert!(
+        f.compactions >= f.flushes,
+        "every spent pool tries the fold first in this harness"
+    );
 }
 
 /// D2609: the W8 shape of agg_d2587_hashagg_hash_mem's text cells (64 partitions, a 256 KiB share, a two-word key image)
@@ -183,10 +231,22 @@ fn groups_past_the_region_flush_as_before_and_count_every_row() {
 /// the fold of the others (it did: the pool spilled, 53400 under temp_file_limit 0 where PostgreSQL answers).
 #[test]
 fn a_chain_of_distinct_keys_does_not_stop_the_fold_at_64_partitions() {
-    for (groups, n) in [(1_000u64, 47_000u64), (1_000, 94_000), (600, 47_000), (1_500, 47_000)] {
+    for (groups, n) in [
+        (1_000u64, 47_000u64),
+        (1_000, 94_000),
+        (600, 47_000),
+        (1_500, 47_000),
+    ] {
         let (f, want) = run_at(&L2, 6, 256 << 10, groups, n, true, true);
         assert_eq!(f.got, want, "{groups} groups over {n} rows");
-        assert!(groups != 1_000 || f.compactions > 0, "{groups} groups over {n} rows: the pool was spent and folded");
-        assert_eq!(f.flushes, 0, "{groups} groups fit a 256 KiB share at 64 partitions: no flush ({} compactions)", f.compactions);
+        assert!(
+            groups != 1_000 || f.compactions > 0,
+            "{groups} groups over {n} rows: the pool was spent and folded"
+        );
+        assert_eq!(
+            f.flushes, 0,
+            "{groups} groups fit a 256 KiB share at 64 partitions: no flush ({} compactions)",
+            f.compactions
+        );
     }
 }

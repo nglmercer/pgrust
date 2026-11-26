@@ -33,17 +33,17 @@
 //! several result relations (write/update.rs) is the same road: the write site carries the SET cells alone, in the plan's
 //! `updateColnos` order (the root's attnos ascending), and the host forms each target's new row as ExecUpdate does over
 //! the old version it fetches by the position (hosts `MultiTargetHost`).
+use gravity_decompose::catalog::LeafFact;
 use gravity_decompose::ops::modifytable::route_leaves::unservable;
 use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_INSERT};
 use gravity_decompose::ops::shared::modifytable::{Member, WriteDesc};
-use gravity_decompose::catalog::LeafFact;
 use gravity_decompose::Source;
 use gravity_program::{limits, ArenaRef, Cmd, RouteLeaf, WritePlan};
 use mcx::{GrowIn, PgVec};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::end::TargetsRoad;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
 
 crate::strategies! {
@@ -51,7 +51,10 @@ crate::strategies! {
     WRITE_ROUTE = 120, "write.route", Insert;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(WRITE_ROUTE, &Route), (WRITE_ROUTE, &TargetsRoad(target))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(WRITE_ROUTE, &Route), (WRITE_ROUTE, &TargetsRoad(target))],
+    ..crate::ops::NONE
+};
 
 /// Road `write.route`'s face (`RowOpRoad::Route`).
 pub(crate) struct Route;
@@ -59,12 +62,36 @@ pub(crate) struct Route;
 impl Route {
     /// Write `w`'s frozen plan `plan` (copied into `a`) as the host writes it, routed through its partitioned root; a
     /// refusal by name at `node` otherwise.
-    pub(crate) fn plan(&self, gx: &Gx<'_, '_>, node: i32, w: &WriteDesc<'_>, plan: WritePlan, a: ArenaRef) -> WritePlan {
-        let Some(r) = w.route.as_ref() else { crate::refuse!(node, Reason::Bug { payload: "write.route over a write without a routing root" }) };
+    pub(crate) fn plan(
+        &self,
+        gx: &Gx<'_, '_>,
+        node: i32,
+        w: &WriteDesc<'_>,
+        plan: WritePlan,
+        a: ArenaRef,
+    ) -> WritePlan {
+        let Some(r) = w.route.as_ref() else {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "write.route over a write without a routing root"
+                }
+            )
+        };
         // R2 (several result relations) and R3 (the cross-partition move) are this road's other forms; V4R-498: a MERGE whose
         // writes are its NOT MATCHED INSERTs routes them as an INSERT (write/merge_admit.rs admits only that MERGE)
-        if !matches!(w.cmd, Cmd::Insert | Cmd::Merge) || !w.members.has(Member::Route) || w.members.has(Member::Targets) || w.members.has(Member::CrossPartition) || r.cross_partition {
-            crate::refuse!(node, Reason::Bug { payload: "write.route's INSERT plan over a write that is not a routed INSERT" });
+        if !matches!(w.cmd, Cmd::Insert | Cmd::Merge)
+            || !w.members.has(Member::Route)
+            || w.members.has(Member::Targets)
+            || w.members.has(Member::CrossPartition)
+            || r.cross_partition
+        {
+            crate::refuse!(
+                node,
+                Reason::Bug {
+                    payload: "write.route's INSERT plan over a write that is not a routed INSERT"
+                }
+            );
         }
         let leaves = admit(gx, node, w, r.root_relid, plan.target_rel);
         plan.with_route(a, r.root_relid, &leaves[..])
@@ -84,13 +111,23 @@ fn target(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, a: ArenaRef) -> (u32, u3
         crate::refuse!(node, Reason::Bug { payload: "write.route's several targets over a write that is not an UPDATE / DELETE / MERGE" });
     }
     if w.targets.len() > limits::ROUTE_LEAVES {
-        shape(node, "a write over more result relations than the route host's bound");
+        shape(
+            node,
+            "a write over more result relations than the route host's bound",
+        );
     }
     let arm = match &p.source {
-        Source::Range { scanrelid, .. } | Source::Index { scanrelid, .. } | Source::Bitmap { scanrelid, .. } | Source::Tid { scanrelid, .. } => Some(u32::from(*scanrelid)),
+        Source::Range { scanrelid, .. }
+        | Source::Index { scanrelid, .. }
+        | Source::Bitmap { scanrelid, .. }
+        | Source::Tid { scanrelid, .. } => Some(u32::from(*scanrelid)),
         _ => None,
     };
-    let t = w.targets.iter().find(|t| Some(t.rti) == arm).unwrap_or(&w.targets[0]);
+    let t = w
+        .targets
+        .iter()
+        .find(|t| Some(t.rti) == arm)
+        .unwrap_or(&w.targets[0]);
     let root = w.route.map_or(w.targets[0].relid, |r| r.root_relid);
     (t.rti, t.relid, w.plan.copy_in(a).with_route(a, root, &[]))
 }
@@ -102,7 +139,12 @@ pub(crate) fn leaves<'g>(gx: &Gx<'g, '_>, w: &WriteDesc<'_>) -> PgVec<'g, RouteL
     for t in w.targets.iter() {
         // decompose refuses a target that is not a heap by contract; write/delete.rs checks each arm's
         let natts = gx.facts.rel(t.relid).map_or(0, |r| r.natts.max(0) as u16);
-        out.push_in(RouteLeaf { relid: t.relid, natts, nindexes: t.plan.indexes.len() as u16, before_row: false });
+        out.push_in(RouteLeaf {
+            relid: t.relid,
+            natts,
+            nindexes: t.plan.indexes.len() as u16,
+            before_row: false,
+        });
     }
     out
 }
@@ -111,9 +153,18 @@ impl Route {
     /// R3 (H-e (c)): a cross-partition UPDATE's destinations = every partition of its root (ExecCrossPartitionUpdate's
     /// ExecInsert through the root may take any), each written by the move host (hosts `write_move.rs`); a source leaf's DELETE
     /// and a destination's INSERT row triggers fire there (write.transition's, as R1's leaves). A refusal by name otherwise.
-    pub(crate) fn moves<'g>(&self, gx: &Gx<'g, '_>, node: i32, w: &WriteDesc<'_>) -> PgVec<'g, RouteLeaf> {
+    pub(crate) fn moves<'g>(
+        &self,
+        gx: &Gx<'g, '_>,
+        node: i32,
+        w: &WriteDesc<'_>,
+    ) -> PgVec<'g, RouteLeaf> {
         // MOVE: or a MERGE's UPDATE action through the root (merge/route.rs `plan`)
-        let Some(r) = w.route.as_ref().filter(|_| matches!(w.cmd, Cmd::Update | Cmd::Merge) && w.members.has(Member::Route)) else {
+        let Some(r) = w
+            .route
+            .as_ref()
+            .filter(|_| matches!(w.cmd, Cmd::Update | Cmd::Merge) && w.members.has(Member::Route))
+        else {
             crate::refuse!(node, Reason::Bug { payload: "write.route's move over a write that is not an UPDATE or MERGE through a partitioned root" })
         };
         // V4R-329: check options (WITH CHECK OPTION / RLS) are the move host's: each destination takes the first result
@@ -122,18 +173,27 @@ impl Route {
         // meets a newer version answers Recheck, the leader's EvalPlanQual rebuilds the join from the marks and re-projects
         // the SET, and the write runs again (it may move or not: ExecCrossPartitionUpdate's EvalPlanQual, then lreplace)
         if gx.facts.rel_ext(r.root_relid).has_rules {
-            shape(node, "a cross-partition UPDATE whose partitioned root has rules");
+            shape(
+                node,
+                "a cross-partition UPDATE whose partitioned root has rules",
+            );
         }
         if !w.leaves_known {
             shape(node, "a cross-partition UPDATE whose partition leaves the facts source does not know (the corpus fixtures carry none)");
         }
         if w.leaves.is_empty() || w.leaves.len() > limits::ROUTE_LEAVES {
-            shape(node, "a cross-partition UPDATE over no partitions or more than the route host's bound");
+            shape(
+                node,
+                "a cross-partition UPDATE over no partitions or more than the route host's bound",
+            );
         }
         let mut out = mcx::reserved_in(w.leaves.len(), gx.mcx);
         for l in w.leaves.iter() {
             // the source leaf deletes (ExecDelete with changingPart): its DELETE row triggers fire as a DELETE's
-            if let Some(why) = crate::ops::modifytable::triggers::refusal(l.trig, Cmd::Delete, false, false).filter(|_| l.has_triggers) {
+            if let Some(why) =
+                crate::ops::modifytable::triggers::refusal(l.trig, Cmd::Delete, false, false)
+                    .filter(|_| l.has_triggers)
+            {
                 shape(node, why);
             }
             out.push_in(leaf(node, l, false, true));
@@ -148,10 +208,21 @@ fn shape(node: i32, why: &'static str) -> ! {
 
 /// The ladder's `write_route::admit` (and `write::unwritable` / `check_write` for a routed root): every leaf the facts
 /// source read at admission, each writable by the route host, as the host re-checks them at their first row.
-fn admit<'g>(gx: &Gx<'g, '_>, node: i32, w: &WriteDesc<'_>, root: u32, target: u32) -> PgVec<'g, RouteLeaf> {
+fn admit<'g>(
+    gx: &Gx<'g, '_>,
+    node: i32,
+    w: &WriteDesc<'_>,
+    root: u32,
+    target: u32,
+) -> PgVec<'g, RouteLeaf> {
     // V4R-498: a MERGE's result relations are the leaves the planner kept (its INSERTs route through `root`)
-    if w.cmd != Cmd::Merge && (w.targets.len() != 1 || w.targets[0].relid != target || root != target) {
-        shape(node, "a routed INSERT whose result relation is not its routing root");
+    if w.cmd != Cmd::Merge
+        && (w.targets.len() != 1 || w.targets[0].relid != target || root != target)
+    {
+        shape(
+            node,
+            "a routed INSERT whose result relation is not its routing root",
+        );
     }
     // D636: a check option (WITH CHECK OPTION / RLS) through a partitioned root is the leaf host's, mapped to the leaf's
     // layout as ExecInitPartitionInfo maps it (hosts/src/write_route.rs `leaf_checks`); write.checks refuses what it cannot
@@ -164,7 +235,10 @@ fn admit<'g>(gx: &Gx<'g, '_>, node: i32, w: &WriteDesc<'_>, root: u32, target: u
     // a tree without partitions serves: the host's ExecFindPartition raises PG's "no partition of relation ... found for
     // row" (23514) at the first row, a sub-partitioned leaf's name when the tree below it has none; no row, no error
     if w.leaves.len() > limits::ROUTE_LEAVES {
-        shape(node, "a routed INSERT over more partitions than the route host's bound");
+        shape(
+            node,
+            "a routed INSERT over more partitions than the route host's bound",
+        );
     }
     let conflict_update = w.on_conflict.as_ref().is_some_and(|c| c.update);
     let mut out = mcx::reserved_in(w.leaves.len(), gx.mcx);
@@ -181,7 +255,10 @@ pub const ROUTED_TRIGGER_LINES: &str = "EXPLAIN ANALYZE of a routed write whose 
 /// One leaf as the route host writes it, or a refusal by name.
 /// PGRCSERVE M1: a routed INSERT (`closed`) writes a pgrcolumnar leaf through its table AM (M3: a move too); a MERGE refuses it.
 fn leaf(node: i32, l: &LeafFact, conflict_update: bool, closed: bool) -> RouteLeaf {
-    if let Some(what) = unservable(&LeafFact { heap: l.heap || closed && l.pgrc, ..*l }) {
+    if let Some(what) = unservable(&LeafFact {
+        heap: l.heap || closed && l.pgrc,
+        ..*l
+    }) {
         shape(node, what);
     }
     let before_row = l.has_triggers && l.trig.fires_before(Cmd::Insert);
@@ -196,7 +273,12 @@ fn leaf(node: i32, l: &LeafFact, conflict_update: bool, closed: bool) -> RouteLe
             shape(node, ROUTED_TRIGGER_LINES);
         }
     }
-    RouteLeaf { relid: l.relid, natts: l.natts.max(0) as u16, nindexes: l.nindexes, before_row }
+    RouteLeaf {
+        relid: l.relid,
+        natts: l.natts.max(0) as u16,
+        nindexes: l.nindexes,
+        before_row,
+    }
 }
 
 /// A leaf trigger a routed INSERT fires: its BEFORE / AFTER / INSTEAD OF row triggers (a referencing partition's RI checks
@@ -209,29 +291,58 @@ fn leaf_fires(t: TrigExt) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{leaf, leaf_fires};
-    use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE};
     use gravity_decompose::catalog::LeafFact;
+    use gravity_decompose::ops::modifytable::trig_facts::{
+        TrigExt, TRIG_DELETE, TRIG_INSERT, TRIG_UPDATE,
+    };
 
     fn plain(relid: u32) -> LeafFact {
-        LeafFact { relid, natts: 3, heap: true, foreign: false, pgrc: false, same_layout: true, has_triggers: false, trig: TrigExt::NONE, has_rules: false, has_generated: false, nindexes: 1, indexes_plain: true }
+        LeafFact {
+            relid,
+            natts: 3,
+            heap: true,
+            foreign: false,
+            pgrc: false,
+            same_layout: true,
+            has_triggers: false,
+            trig: TrigExt::NONE,
+            has_rules: false,
+            has_generated: false,
+            nindexes: 1,
+            indexes_plain: true,
+        }
     }
 
     /// A plain heap leaf routes as admitted: its relid, width and index count frozen, no BEFORE ROW turn.
     #[test]
     fn a_plain_leaf_is_frozen_as_read() {
         let l = leaf(1, &plain(77), false, false);
-        assert_eq!((l.relid, l.natts, l.nindexes, l.before_row), (77, 3, 1, false));
+        assert_eq!(
+            (l.relid, l.natts, l.nindexes, l.before_row),
+            (77, 3, 1, false)
+        );
     }
 
     /// PGRCSERVE M1: a routed INSERT (M3: a move) freezes a pgrcolumnar leaf (written through its table AM); a MERGE's
     /// leaves, and another table AM's, keep the refusal.
     #[test]
     fn a_pgrc_leaf_routes_only_for_an_insert() {
-        let c = LeafFact { heap: false, pgrc: true, ..plain(78) };
+        let c = LeafFact {
+            heap: false,
+            pgrc: true,
+            ..plain(78)
+        };
         assert_eq!(leaf(1, &c, false, true).relid, 78);
-        let refused = |l: LeafFact, closed: bool| crate::catch(1, || leaf(1, &l, false, closed)).is_err();
+        let refused =
+            |l: LeafFact, closed: bool| crate::catch(1, || leaf(1, &l, false, closed)).is_err();
         assert!(refused(c, false));
-        assert!(refused(LeafFact { heap: false, ..plain(79) }, true));
+        assert!(refused(
+            LeafFact {
+                heap: false,
+                ..plain(79)
+            },
+            true
+        ));
     }
 
     /// Row triggers on INSERT fire for a routed row (RI checks included); UPDATE / DELETE-only row triggers and the
@@ -240,13 +351,21 @@ mod tests {
     fn leaf_triggers_fire_by_command() {
         assert!(!leaf_fires(TrigExt::NONE));
         assert!(leaf_fires(TrigExt::UNKNOWN));
-        let fire: [fn(&mut TrigExt); 3] = [|t| t.before_row = TRIG_INSERT, |t| t.after_row = TRIG_INSERT | TRIG_UPDATE, |t| t.instead_row = TRIG_INSERT];
+        let fire: [fn(&mut TrigExt); 3] = [
+            |t| t.before_row = TRIG_INSERT,
+            |t| t.after_row = TRIG_INSERT | TRIG_UPDATE,
+            |t| t.instead_row = TRIG_INSERT,
+        ];
         for set in fire {
             let mut t = TrigExt::NONE;
             set(&mut t);
             assert!(leaf_fires(t));
         }
-        let quiet: [fn(&mut TrigExt); 3] = [|t| t.after_row = TRIG_DELETE | TRIG_UPDATE, |t| t.statement = TRIG_INSERT, |t| t.transition = TRIG_INSERT];
+        let quiet: [fn(&mut TrigExt); 3] = [
+            |t| t.after_row = TRIG_DELETE | TRIG_UPDATE,
+            |t| t.statement = TRIG_INSERT,
+            |t| t.transition = TRIG_INSERT,
+        ];
         for set in quiet {
             let mut t = TrigExt::NONE;
             set(&mut t);

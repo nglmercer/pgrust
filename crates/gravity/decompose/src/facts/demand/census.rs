@@ -52,7 +52,8 @@ pub const UNREAD: &str = "demand: a column facts::demand calls unread that a nod
 /// A column this home reads only inside a window's grouped entries that the census finds read as a key or by value.
 pub const GROUPED: &str = "demand: a column facts::demand reads only in a window's grouped entries that a node above reads as a key or by value (C5)";
 /// A column this home reads only as a key that the census finds read by value.
-pub const KEY_ONLY: &str = "demand: a column facts::demand reads only as a key that a node above reads by value (C5)";
+pub const KEY_ONLY: &str =
+    "demand: a column facts::demand reads only as a key that a node above reads by value (C5)";
 
 /// Which answer a logged column rests on: how the nodes above read it (`reads_above`, `entries_read`), or whether a CTE's
 /// store keeps it (`cte::cte_cols`: only the CteScans read the store).
@@ -139,13 +140,21 @@ fn addr(p: &Plan<'_>) -> usize {
 
 /// `p`'s target entry for output column `attno`.
 fn entry<'p>(p: &'p Plan<'p>, attno: i16) -> Option<&'p TargetEntry<'p>> {
-    p.targetlist.iter().filter_map(|n| n.as_target_entry()).find(|t| t.resno == attno)
+    p.targetlist
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .find(|t| t.resno == attno)
 }
 
 impl<'p> Census<'p> {
     /// The parent index of every tree of `stmt` (its plan tree and each of `stmt.subplans`).
     fn of(stmt: &'p PlannedStmt<'p>, arena: ArenaRef) -> Census<'p> {
-        let mut c = Census { stmt, up: ArenaVec::new_in(arena), scans: ArenaVec::new_in(arena), arena }; // alloc: Cold
+        let mut c = Census {
+            stmt,
+            up: ArenaVec::new_in(arena),
+            scans: ArenaVec::new_in(arena),
+            arena,
+        }; // alloc: Cold
         let mut work: ArenaVec<(Node<'p>, Up<'p>)> = ArenaVec::new_in(arena); // alloc: Cold
         if let Some(t) = stmt.planTree {
             work.push((t, Up::Top)); // alloc: Cold
@@ -171,7 +180,10 @@ impl<'p> Census<'p> {
             if let Some(s) = n.as_subquery_scan() {
                 kid(s.subplan, Edge::Sub(s.scan.scanrelid as i32));
             }
-            let members = n.as_append().map(|a| &a.appendplans).or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
+            let members = n
+                .as_append()
+                .map(|a| &a.appendplans)
+                .or_else(|| n.as_merge_append().map(|m| &m.mergeplans));
             for m in members.into_iter().flat_map(|l| l.iter()) {
                 kid(Some(m), Edge::Member);
             }
@@ -184,12 +196,17 @@ impl<'p> Census<'p> {
     fn places(&self, p: &Plan<'_>) -> impl Iterator<Item = Up<'p>> + '_ {
         let a = addr(p);
         let i = self.up.partition_point(|e| e.0 < a);
-        self.up[i..].iter().take_while(move |e| e.0 == a).map(|e| e.1)
+        self.up[i..]
+            .iter()
+            .take_while(move |e| e.0 == a)
+            .map(|e| e.1)
     }
 
     /// Whether `stmt.subplans[id - 1]` is a CTE's plan (a CteScan reads it).
     fn is_cte(&self, id: i32) -> bool {
-        self.scans.iter().any(|n| n.as_cte_scan().is_some_and(|s| s.ctePlanId == id))
+        self.scans
+            .iter()
+            .any(|n| n.as_cte_scan().is_some_and(|s| s.ctePlanId == id))
     }
 
     /// How the nodes above read `plan`'s column `attno`: the strongest read over every path up (module doc).
@@ -215,7 +232,9 @@ impl<'p> Census<'p> {
                 placed = true;
                 match up {
                     Up::Top => out = out.max(top(te)),
-                    Up::Root(id) if self.is_cte(id) => self.cte(id, a, te, site, &mut work, &mut out),
+                    Up::Root(id) if self.is_cte(id) => {
+                        self.cte(id, a, te, site, &mut work, &mut out)
+                    }
                     Up::Root(_) => out = out.max(top(te)),
                     Up::Parent(q, e) => self.parent(q, e, a, te, &mut work, &mut out),
                 }
@@ -229,9 +248,23 @@ impl<'p> Census<'p> {
 
     /// C: CTE `id`'s root, column `a`: as each CteScan of it reads its relation's column `a`; a recursive union's root
     /// also as its WorkTableScans do (not for the store).
-    fn cte(&self, id: i32, a: i16, te: &TargetEntry<'p>, site: Site, work: &mut ArenaVec<(&'p Plan<'p>, i16)>, out: &mut Seen) {
-        let root = (id as usize).checked_sub(1).and_then(|i| self.stmt.subplans.nth(i));
-        let wt = if site == Site::Above { root.and_then(|n| n.as_recursive_union()).map(|r| r.wtParam) } else { None };
+    fn cte(
+        &self,
+        id: i32,
+        a: i16,
+        te: &TargetEntry<'p>,
+        site: Site,
+        work: &mut ArenaVec<(&'p Plan<'p>, i16)>,
+        out: &mut Seen,
+    ) {
+        let root = (id as usize)
+            .checked_sub(1)
+            .and_then(|i| self.stmt.subplans.nth(i));
+        let wt = if site == Site::Above {
+            root.and_then(|n| n.as_recursive_union()).map(|r| r.wtParam)
+        } else {
+            None
+        };
         for n in self.scans.iter().copied() {
             let scan = match (n.as_cte_scan(), n.as_work_table_scan()) {
                 (Some(s), _) if s.ctePlanId == id => &s.scan,
@@ -244,7 +277,15 @@ impl<'p> Census<'p> {
     }
 
     /// Parent `q` (holding the column's node by `e`) reads that node's column `a` (entry `te`).
-    fn parent(&self, q: Node<'p>, e: Edge, a: i16, te: &TargetEntry<'p>, work: &mut ArenaVec<(&'p Plan<'p>, i16)>, out: &mut Seen) {
+    fn parent(
+        &self,
+        q: Node<'p>,
+        e: Edge,
+        a: i16,
+        te: &TargetEntry<'p>,
+        work: &mut ArenaVec<(&'p Plan<'p>, i16)>,
+        out: &mut Seen,
+    ) {
         let Some(qp) = q.as_plan() else {
             *out = Seen::Value;
             return;
@@ -252,8 +293,14 @@ impl<'p> Census<'p> {
         let tag = q.node_tag();
         // M, L
         if tag == NodeTag::T_ModifyTable {
-            let insert = q.as_modify_table().is_some_and(|m| m.operation == CmdType::CMD_INSERT);
-            *out = (*out).max(if insert && te.resjunk { Seen::No } else { Seen::Value });
+            let insert = q
+                .as_modify_table()
+                .is_some_and(|m| m.operation == CmdType::CMD_INSERT);
+            *out = (*out).max(if insert && te.resjunk {
+                Seen::No
+            } else {
+                Seen::Value
+            });
             return;
         }
         if tag == NodeTag::T_LockRows {
@@ -286,7 +333,7 @@ impl<'p> Census<'p> {
             Edge::Sub(r) => r,
         };
         let whole = !(matches!(e, Edge::Sub(_)) && te.resjunk); // R
-        // X: every expression the parent names besides its target list
+                                                                // X: every expression the parent names besides its target list
         let mut named = false;
         each_expr(q, &mut |n| named |= names(n, side, a, whole));
         if named {
@@ -296,9 +343,13 @@ impl<'p> Census<'p> {
         // H, W, X: the target list
         for up in qp.targetlist.iter().filter_map(|n| n.as_target_entry()) {
             match up.expr.as_var() {
-                Some(v) if v.varno == side && v.varlevelsup == 0 && v.varattno == a => work.push((qp, up.resno)), // alloc: Cold
+                Some(v) if v.varno == side && v.varlevelsup == 0 && v.varattno == a => {
+                    work.push((qp, up.resno))
+                } // alloc: Cold
                 _ if !names(up.expr, side, a, whole) => {}
-                _ if tag == NodeTag::T_WindowAgg && up.ressortgroupref != 0 && grouped(up.expr) => *out = (*out).max(Seen::Grouped),
+                _ if tag == NodeTag::T_WindowAgg && up.ressortgroupref != 0 && grouped(up.expr) => {
+                    *out = (*out).max(Seen::Grouped)
+                }
                 _ => {
                     *out = Seen::Value;
                     return;
@@ -314,28 +365,60 @@ impl<'p> Census<'p> {
 
 /// The parent kinds the census reads (module doc, H to X); any other is J.
 const LISTED: &[NodeTag] = &[
-    NodeTag::T_Sort, NodeTag::T_IncrementalSort, NodeTag::T_Unique, NodeTag::T_GatherMerge, NodeTag::T_Gather,
-    NodeTag::T_Limit, NodeTag::T_WindowAgg, NodeTag::T_Agg, NodeTag::T_Group, NodeTag::T_Result, NodeTag::T_ProjectSet,
-    NodeTag::T_NestLoop, NodeTag::T_HashJoin, NodeTag::T_MergeJoin, NodeTag::T_Hash, NodeTag::T_Material,
-    NodeTag::T_Memoize, NodeTag::T_Append, NodeTag::T_MergeAppend, NodeTag::T_SetOp, NodeTag::T_RecursiveUnion,
-    NodeTag::T_SubqueryScan, NodeTag::T_LockRows, NodeTag::T_ModifyTable,
+    NodeTag::T_Sort,
+    NodeTag::T_IncrementalSort,
+    NodeTag::T_Unique,
+    NodeTag::T_GatherMerge,
+    NodeTag::T_Gather,
+    NodeTag::T_Limit,
+    NodeTag::T_WindowAgg,
+    NodeTag::T_Agg,
+    NodeTag::T_Group,
+    NodeTag::T_Result,
+    NodeTag::T_ProjectSet,
+    NodeTag::T_NestLoop,
+    NodeTag::T_HashJoin,
+    NodeTag::T_MergeJoin,
+    NodeTag::T_Hash,
+    NodeTag::T_Material,
+    NodeTag::T_Memoize,
+    NodeTag::T_Append,
+    NodeTag::T_MergeAppend,
+    NodeTag::T_SetOp,
+    NodeTag::T_RecursiveUnion,
+    NodeTag::T_SubqueryScan,
+    NodeTag::T_LockRows,
+    NodeTag::T_ModifyTable,
 ];
 
 /// T / S: a tree's top reads its non-junk columns.
 fn top(te: &TargetEntry<'_>) -> Seen {
-    if te.resjunk { Seen::No } else { Seen::Value }
+    if te.resjunk {
+        Seen::No
+    } else {
+        Seen::Value
+    }
 }
 
 /// C: a scan of a CTE or worktable (`scan`, its relation `r`) reads the relation's column `a`: by value where its qual or
 /// a computing entry names it, as its own column above where a bare entry hands it on (`whole`: R).
-fn relation<'p>(scan: &'p Plan<'p>, r: i32, a: i16, whole: bool, work: &mut ArenaVec<(&'p Plan<'p>, i16)>, out: &mut Seen) {
+fn relation<'p>(
+    scan: &'p Plan<'p>,
+    r: i32,
+    a: i16,
+    whole: bool,
+    work: &mut ArenaVec<(&'p Plan<'p>, i16)>,
+    out: &mut Seen,
+) {
     if scan.qual.iter().any(|n| names(n, r, a, whole)) {
         *out = Seen::Value;
         return;
     }
     for t in scan.targetlist.iter().filter_map(|n| n.as_target_entry()) {
         match t.expr.as_var() {
-            Some(v) if v.varno == r && v.varlevelsup == 0 && v.varattno == a => work.push((scan, t.resno)), // alloc: Cold
+            Some(v) if v.varno == r && v.varlevelsup == 0 && v.varattno == a => {
+                work.push((scan, t.resno))
+            } // alloc: Cold
             _ if names(t.expr, r, a, whole) => *out = Seen::Value,
             _ => {}
         }
@@ -346,31 +429,46 @@ fn relation<'p>(scan: &'p Plan<'p>, r: i32, a: i16, whole: bool, work: &mut Aren
 fn keys<'p>(q: Node<'p>, e: Edge) -> impl Iterator<Item = i16> + 'p {
     let one: &'p [i16] = match q.node_tag() {
         NodeTag::T_Sort => q.as_sort().map_or(&[][..], |s| s.sortColIdx),
-        NodeTag::T_IncrementalSort => q.as_incremental_sort().map_or(&[][..], |s| s.sort.sortColIdx),
+        NodeTag::T_IncrementalSort => q
+            .as_incremental_sort()
+            .map_or(&[][..], |s| s.sort.sortColIdx),
         NodeTag::T_Unique => q.as_unique().map_or(&[][..], |u| u.uniqColIdx),
         NodeTag::T_GatherMerge => q.as_gather_merge().map_or(&[][..], |g| g.sortColIdx),
         NodeTag::T_Limit => q.as_limit().map_or(&[][..], |l| l.uniqColIdx),
         NodeTag::T_Group => q.as_group().map_or(&[][..], |g| g.grpColIdx),
         NodeTag::T_Agg => q.as_agg().map_or(&[][..], |a| a.grpColIdx),
-        NodeTag::T_MergeAppend if e == Edge::Member => q.as_merge_append().map_or(&[][..], |m| m.sortColIdx),
+        NodeTag::T_MergeAppend if e == Edge::Member => {
+            q.as_merge_append().map_or(&[][..], |m| m.sortColIdx)
+        }
         NodeTag::T_SetOp if e == Edge::Outer => q.as_set_op().map_or(&[][..], |s| s.cmpColIdx),
-        NodeTag::T_RecursiveUnion if e == Edge::Outer => q.as_recursive_union().map_or(&[][..], |r| r.dupColIdx),
+        NodeTag::T_RecursiveUnion if e == Edge::Outer => {
+            q.as_recursive_union().map_or(&[][..], |r| r.dupColIdx)
+        }
         NodeTag::T_WindowAgg => q.as_window_agg().map_or(&[][..], |w| w.partColIdx),
         _ => &[][..],
     };
     let two: &'p [i16] = q.as_window_agg().map_or(&[][..], |w| w.ordColIdx);
-    let chain = q.as_agg().into_iter().flat_map(|a| a.chain.iter()).filter_map(|n| n.as_agg()).flat_map(|a| a.grpColIdx.iter().copied());
+    let chain = q
+        .as_agg()
+        .into_iter()
+        .flat_map(|a| a.chain.iter())
+        .filter_map(|n| n.as_agg())
+        .flat_map(|a| a.grpColIdx.iter().copied());
     one.iter().copied().chain(two.iter().copied()).chain(chain)
 }
 
 /// X: each expression parent `q` names besides its target list.
 fn each_expr<'p>(q: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     let Some(p) = q.as_plan() else { return };
-    let list = |l: &types_nodes::list::NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut * f);
+    let list = |l: &types_nodes::list::NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| {
+        l.iter().for_each(&mut *f)
+    };
     list(&p.qual, f);
     if let Some(j) = q.as_nest_loop() {
         list(&j.join.joinqual, f);
-        j.nestParams.iter().for_each(|n| f(n.as_nest_loop_param().map_or(n, |p| p.paramval)));
+        j.nestParams
+            .iter()
+            .for_each(|n| f(n.as_nest_loop_param().map_or(n, |p| p.paramval)));
     } else if let Some(j) = q.as_hash_join() {
         list(&j.join.joinqual, f);
         list(&j.hashclauses, f);
@@ -381,11 +479,17 @@ fn each_expr<'p>(q: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     } else if let Some(h) = q.as_hash() {
         list(&h.hashkeys, f);
     } else if let Some(r) = q.as_result() {
-        r.resconstantqual.into_iter().for_each(&mut * f);
+        r.resconstantqual.into_iter().for_each(&mut *f);
     } else if let Some(l) = q.as_limit() {
-        l.limitOffset.into_iter().chain(l.limitCount).for_each(&mut * f);
+        l.limitOffset
+            .into_iter()
+            .chain(l.limitCount)
+            .for_each(&mut *f);
     } else if let Some(w) = q.as_window_agg() {
-        w.startOffset.into_iter().chain(w.endOffset).for_each(&mut * f);
+        w.startOffset
+            .into_iter()
+            .chain(w.endOffset)
+            .for_each(&mut *f);
         list(&w.runCondition, f);
     } else if let Some(m) = q.as_memoize() {
         list(&m.param_exprs, f);
@@ -398,7 +502,9 @@ fn each_expr<'p>(q: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
 fn names(n: Node<'_>, side: i32, a: i16, whole: bool) -> bool {
     crate::walk::stack_check(); // D3748
     if let Some(v) = n.as_var() {
-        return v.varno == side && v.varlevelsup == 0 && (v.varattno == a || (v.varattno == 0 && whole));
+        return v.varno == side
+            && v.varlevelsup == 0
+            && (v.varattno == a || (v.varattno == 0 && whole));
     }
     if n.node_tag() == NodeTag::T_SortGroupClause {
         return false;
@@ -410,5 +516,13 @@ fn names(n: Node<'_>, side: i32, a: i16, whole: bool) -> bool {
 
 /// W: an entry with no window call, aggregate or SubPlan in it.
 fn grouped(n: Node<'_>) -> bool {
-    crate::expr::walk(n, &mut |x| !matches!(x.node_tag(), NodeTag::T_WindowFunc | NodeTag::T_Aggref | NodeTag::T_SubPlan | NodeTag::T_AlternativeSubPlan))
+    crate::expr::walk(n, &mut |x| {
+        !matches!(
+            x.node_tag(),
+            NodeTag::T_WindowFunc
+                | NodeTag::T_Aggref
+                | NodeTag::T_SubPlan
+                | NodeTag::T_AlternativeSubPlan
+        )
+    })
 }

@@ -82,9 +82,16 @@ fn raw(sql: String) -> Vec<StmtKind> {
 fn gen_netord(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tio:netord");
     let a: &[&str] = &[
-        "10.0.0.1/8", "10.0.0.5/8", "10.1.2.3/32", "192.168.1.1/24",
-        "192.168.1.0/24", "0.0.0.0/0", "255.255.255.255/32", "::1",
-        "2001:db8::1/64", "fe80::1/64",
+        "10.0.0.1/8",
+        "10.0.0.5/8",
+        "10.1.2.3/32",
+        "192.168.1.1/24",
+        "192.168.1.0/24",
+        "0.0.0.0/0",
+        "255.255.255.255/32",
+        "::1",
+        "2001:db8::1/64",
+        "fe80::1/64",
     ];
     let x = g.rng.pick(a);
     let y = g.rng.pick(a);
@@ -118,8 +125,12 @@ fn gen_netord(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_mac(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tio:mac");
     let m: &[&str] = &[
-        "08:00:2b:01:02:03", "01:02:03:04:05:06", "ff:ff:ff:ff:ff:ff",
-        "00:00:00:00:00:00", "12:34:56:78:9a:bc", "de:ad:be:ef:00:11",
+        "08:00:2b:01:02:03",
+        "01:02:03:04:05:06",
+        "ff:ff:ff:ff:ff:ff",
+        "00:00:00:00:00:00",
+        "12:34:56:78:9a:bc",
+        "de:ad:be:ef:00:11",
     ];
     let a = g.rng.pick(m);
     let b = g.rng.pick(m);
@@ -150,8 +161,10 @@ fn gen_mac(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_mac8(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tio:mac8");
     let m: &[&str] = &[
-        "08:00:2b:01:02:03:04:05", "01:02:03:04:05:06:07:08",
-        "ff:ff:ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00:00:00",
+        "08:00:2b:01:02:03:04:05",
+        "01:02:03:04:05:06:07:08",
+        "ff:ff:ff:ff:ff:ff:ff:ff",
+        "00:00:00:00:00:00:00:00",
         "12:34:56:78:9a:bc:de:f0",
     ];
     let a = g.rng.pick(m);
@@ -212,8 +225,16 @@ fn gen_varbit(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_fmtf4(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("tio:fmtf4");
     let v: &[&str] = &[
-        "1234.5678", "-42.5", "0.00123", "42", "9.99e9", "0.5",
-        "-1.5", "1000000", "3.25e-4", "1234",
+        "1234.5678",
+        "-42.5",
+        "0.00123",
+        "42",
+        "9.99e9",
+        "0.5",
+        "-1.5",
+        "1000000",
+        "3.25e-4",
+        "1234",
     ];
     let n = g.rng.pick(v);
     let sql = match g.rng.below(5) {

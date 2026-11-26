@@ -17,13 +17,16 @@ use gravity_decompose::ops::shared::agg::{GroupForm, Register};
 use gravity_expr::Compiled;
 use gravity_program::protos::{Proto, ProtoKind};
 
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::face::kinds::KindId;
 use crate::face::step::{Held, VolatileImpl, VolatileMech};
 use crate::frame::px::{ExId, Px};
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::ExprVolatile, &VolatileImpl(&VOL))], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    kinds: &[(KindId::ExprVolatile, &VolatileImpl(&VOL))],
+    ..crate::ops::NONE
+};
 
 struct Vol;
 static VOL: Vol = Vol;
@@ -31,15 +34,27 @@ static VOL: Vol = Vol;
 /// A group twopass.having may split (keyed/twopass.rs `having_split`: a hashed or sorted group, no two-pass or set
 /// declaration, a min / max over codes): its producer's scan runs twice.
 fn twopass_candidate(gx: &Gx<'_, '_>) -> bool {
-    (0..gx.pipelines().len()).filter_map(|q| gx.group_at(q)).any(|g| {
-        matches!(g.form, GroupForm::Hashed | GroupForm::Sorted) && g.two_pass.is_none() && g.set.is_none() && g.aggs.iter().any(|a| matches!(a.reg, Register::MinCode | Register::MaxCode))
-    })
+    (0..gx.pipelines().len())
+        .filter_map(|q| gx.group_at(q))
+        .any(|g| {
+            matches!(g.form, GroupForm::Hashed | GroupForm::Sorted)
+                && g.two_pass.is_none()
+                && g.set.is_none()
+                && g.aggs
+                    .iter()
+                    .any(|a| matches!(a.reg, Register::MinCode | Register::MaxCode))
+        })
 }
 
 /// The plan node of step `j` of pipeline `k` (the pipeline's node outside a step).
 fn node_at(gx: &Gx<'_, '_>, k: usize, j: usize) -> i32 {
     match gx.pipelines().get(k) {
-        Some(p) => p.node_ops.iter().rev().find(|n| n.first_op as usize <= j).map_or(p.node_id, |n| n.node_id),
+        Some(p) => p
+            .node_ops
+            .iter()
+            .rev()
+            .find(|n| n.first_op as usize <= j)
+            .map_or(p.node_id, |n| n.node_id),
         None => gx.root_node(),
     }
 }
@@ -50,7 +65,13 @@ fn refuse(node: i32, why: &'static str) -> ! {
 
 impl VolatileMech for Vol {
     /// The expression's result is held (step/expr.rs emit3, frame/stop.rs `held`): a row a stop re-enters reads it.
-    fn plan(&self, px: &mut Px<'_, '_>, (k, j): (usize, usize), _c: &Compiled<'_>, _ex: ExId) -> Held {
+    fn plan(
+        &self,
+        px: &mut Px<'_, '_>,
+        (k, j): (usize, usize),
+        _c: &Compiled<'_>,
+        _ex: ExId,
+    ) -> Held {
         let gx = px.gx;
         let node = node_at(gx, k, j);
         // join.mult (join/multiplicity.rs) hands a probe row on once with its match count only to a group's fold, and

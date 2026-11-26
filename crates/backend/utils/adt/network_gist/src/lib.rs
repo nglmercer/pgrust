@@ -5,8 +5,7 @@
 use ::adt_network::{bitncmp, bitncommon, InetRef, InetValue, PGSQL_AF_INET6};
 use ::datum::Datum;
 use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
-use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::types_gist::{GistEntryVector, GistSplitVec, GISTENTRY};
 
 const INETSTRAT_OVERLAPS: u16 = 3;
@@ -138,7 +137,7 @@ pub fn gk_image(family: u8, minbits: i32, commonbits: i32, addr: &[u8]) -> ([u8;
     img[GK_HDR] = family;
     img[GK_HDR + 1] = minbits as u8;
     img[GK_HDR + 2] = commonbits as u8;
-    let nbytes = (commonbits as usize).div_ceil( 8);
+    let nbytes = (commonbits as usize).div_ceil(8);
     img[GK_ADDR_OFF..GK_ADDR_OFF + nbytes].copy_from_slice(&addr[..nbytes]);
     if commonbits % 8 != 0 {
         img[GK_ADDR_OFF + commonbits as usize / 8] &= !(0xFFu8 >> (commonbits % 8));
@@ -184,7 +183,9 @@ fn fc_inet_gist_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
 #[cold]
 #[inline(never)]
 fn unknown_strategy() -> Box<::types_error::PgError> {
-    Box::new(::types_error::PgError::error("unknown strategy for inet GiST"))
+    Box::new(::types_error::PgError::error(
+        "unknown strategy for inet GiST",
+    ))
 }
 
 // inet_gist_consistent body; `None` is C's trailing
@@ -227,10 +228,9 @@ pub fn consistent_checked(
                 return Some(false);
             }
         }
-        INETSTRAT_SUP
-            if key.minbits() >= qbits => {
-                return Some(false);
-            }
+        INETSTRAT_SUP if key.minbits() >= qbits => {
+            return Some(false);
+        }
         _ => {}
     }
 
@@ -238,8 +238,9 @@ pub fn consistent_checked(
     let order = bitncmp(key.addr(), query.addr, minbits);
 
     match strategy {
-        INETSTRAT_SUB | INETSTRAT_SUBEQ | INETSTRAT_OVERLAPS | INETSTRAT_SUPEQ
-        | INETSTRAT_SUP => return Some(order == 0),
+        INETSTRAT_SUB | INETSTRAT_SUBEQ | INETSTRAT_OVERLAPS | INETSTRAT_SUPEQ | INETSTRAT_SUP => {
+            return Some(order == 0)
+        }
         INETSTRAT_LT | INETSTRAT_LE => {
             if order > 0 {
                 return Some(false);
@@ -264,10 +265,9 @@ pub fn consistent_checked(
                 return Some(true);
             }
         }
-        INETSTRAT_NE
-            if ( order != 0 || !leaf) => {
-                return Some(true);
-            }
+        INETSTRAT_NE if (order != 0 || !leaf) => {
+            return Some(true);
+        }
         _ => {}
     }
 
@@ -295,9 +295,8 @@ pub fn consistent_checked(
                 return Some(false);
             }
         }
-        INETSTRAT_NE
-            if key.minbits() != qbits => {
-                return Some(true);
+        INETSTRAT_NE if key.minbits() != qbits => {
+            return Some(true);
         }
         _ => {}
     }
@@ -321,7 +320,6 @@ pub fn consistent_internal(key: GkRef<'_>, query: InetRef<'_>, strategy: u16, le
     consistent_checked(key, query, strategy, leaf)
         .unwrap_or_else(|| panic!("unknown strategy for inet GiST"))
 }
-
 
 // pub for proofs/network-gist (Kani C-equivalence harnesses); behavior unchanged.
 pub struct UnionParams {
@@ -391,7 +389,8 @@ fn fc_inet_gist_compress(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     }
     let key = if entry.key.as_usize() != 0 {
         // SAFETY: non-null leaf key is an inet varlena (never external).
-        let pv = unsafe { ::types_fmgr::PackedVarlena::from_ptr(entry.key.as_usize() as *const u8) };
+        let pv =
+            unsafe { ::types_fmgr::PackedVarlena::from_ptr(entry.key.as_usize() as *const u8) };
         let ip = InetRef::from_payload(pv.data());
         let mut img = [0u8; 20];
         let len = GK_ADDR_OFF + ip.addrsize();
@@ -399,8 +398,7 @@ fn fc_inet_gist_compress(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
         img[GK_HDR] = ip.family;
         img[GK_HDR + 1] = ip.bits;
         img[GK_HDR + 2] = ip.maxbits();
-        img[GK_ADDR_OFF..GK_ADDR_OFF + ip.addrsize()]
-            .copy_from_slice(&ip.addr[..ip.addrsize()]);
+        img[GK_ADDR_OFF..GK_ADDR_OFF + ip.addrsize()].copy_from_slice(&ip.addr[..ip.addrsize()]);
         byref_result(fcinfo.result_mcx(), &img[..len])?
     } else {
         Datum::null()

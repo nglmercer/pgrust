@@ -15,13 +15,21 @@ use crate::ops::Table;
 use crate::rep::varlena::hash::{fp_image, ptr};
 use crate::rep::{CellRef, HashArm, Lx, Scope, StoredRef, Words};
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepPackedHash, &ARM)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::RepPackedHash, &ARM)],
+    ..crate::ops::NONE
+};
 
 pub(crate) const ARM: HashArm = HashArm { image, eq };
 
 fn image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _scope: Scope) -> Words {
     if !matches!(c.cell.rep, Rep::PackedNum { .. }) || !tf.image.is_num_form() {
-        crate::refuse!(lx, Reason::Bug { payload: "a packed hash image over a cell that is not a packed numeric" });
+        crate::refuse!(
+            lx,
+            Reason::Bug {
+                payload: "a packed hash image over a cell that is not a packed numeric"
+            }
+        );
     }
     fp_image(lx, c, tf)
 }
@@ -29,10 +37,23 @@ fn image(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _scope: Scope)
 /// Equality against a stored image: the two Fp128 words.
 fn eq(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, stored: StoredRef, tf: &TypeFacts) -> Value {
     let w = image(lx, c, tf, Scope::Program);
-    let (Some(lo), Some(hi)) = (w.w[0], w.w[1]) else { crate::refuse!(lx, Reason::Bug { payload: "a packed key image that is not two words" }) };
+    let (Some(lo), Some(hi)) = (w.w[0], w.w[1]) else {
+        crate::refuse!(
+            lx,
+            Reason::Bug {
+                payload: "a packed key image that is not two words"
+            }
+        )
+    };
     let p = ptr(lx.b, stored.ptr);
-    let (slo, shi) = (lx.b.load(Type::I64, p, stored.off), lx.b.load(Type::I64, p, stored.off + 8));
-    let (a, b) = (lx.b.int_bin(IntBinOp::Xor, lo, slo), lx.b.int_bin(IntBinOp::Xor, hi, shi));
+    let (slo, shi) = (
+        lx.b.load(Type::I64, p, stored.off),
+        lx.b.load(Type::I64, p, stored.off + 8),
+    );
+    let (a, b) = (
+        lx.b.int_bin(IntBinOp::Xor, lo, slo),
+        lx.b.int_bin(IntBinOp::Xor, hi, shi),
+    );
     let d = lx.b.int_bin(IntBinOp::Or, a, b);
     let zero = lx.b.iconst(Type::I64, 0);
     lx.b.icmp(IntCond::Eq, d, zero)

@@ -9,7 +9,9 @@
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, PipelineGraph, Source};
-use gravity_lower::inputs::key::{class_keyed_lists, key, key_and_nodes, literal_table, lowering_reads_lists, values_node};
+use gravity_lower::inputs::key::{
+    class_keyed_lists, key, key_and_nodes, literal_table, lowering_reads_lists, values_node,
+};
 use gravity_program::Arena;
 use mcx::MemoryContext;
 use types_nodes::Node;
@@ -31,19 +33,34 @@ fn fixture() -> String {
 /// prints it).
 fn cell(class: &str, loc: u32, s: &str) -> String {
     let len = s.len() + 4;
-    let bytes: Vec<String> = ((len as u32) << 2).to_le_bytes().iter().map(u8::to_string).chain(s.bytes().map(|b| b.to_string())).collect();
-    format!("{{CONST {class} :location {loc} :constvalue {len} [ {} ]}}", bytes.join(" "))
+    let bytes: Vec<String> = ((len as u32) << 2)
+        .to_le_bytes()
+        .iter()
+        .map(u8::to_string)
+        .chain(s.bytes().map(|b| b.to_string()))
+        .collect();
+    format!(
+        "{{CONST {class} :location {loc} :constvalue {len} [ {} ]}}",
+        bytes.join(" ")
+    )
 }
 
 /// The fixture's three cells, in order.
 fn cells() -> [String; 3] {
-    [cell(TEXT, 40, "secret"), cell(TEXT, 52, "secret"), cell(TEXT, 64, "very secret")]
+    [
+        cell(TEXT, 40, "secret"),
+        cell(TEXT, 52, "secret"),
+        cell(TEXT, 64, "very secret"),
+    ]
 }
 
 /// The fixture with cell `i` replaced by `with` (the whole node's text).
 fn swap(text: &str, i: usize, with: &str) -> String {
     let c = &cells()[i];
-    assert!(text.contains(c.as_str()), "{FIXTURE}: no longer holds cell {i} {c}");
+    assert!(
+        text.contains(c.as_str()),
+        "{FIXTURE}: no longer holds cell {i} {c}"
+    );
     text.replacen(c.as_str(), with, 1)
 }
 
@@ -72,19 +89,35 @@ fn with_graph<T>(text: &str, f: impl FnOnce(&PipelineGraph<'_>) -> T) -> T {
     let ctx = MemoryContext::new("literal table key");
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
     let arena = Arena::new(1 << 20);
-    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|r| panic!("decompose: {r}"));
+    let g = decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|r| panic!("decompose: {r}"));
     f(&g)
 }
 
 /// The content key of `text`, and whether its VALUES pipeline is a literal table.
 fn key_of(text: &str) -> (u128, bool) {
-    with_graph(text, |g| (key(g).0, g.pipelines.iter().any(|p| literal_table(p))))
+    with_graph(text, |g| {
+        (key(g).0, g.pipelines.iter().any(|p| literal_table(p)))
+    })
 }
 
 /// The VALUES pipeline's cells, in order.
 fn value_cells<'p>(g: &PipelineGraph<'p>) -> Vec<Node<'p>> {
-    let lists = g.pipelines.iter().find_map(|p| if let Source::Values { lists, .. } = &p.source { Some(*lists) } else { None }).expect("a VALUES pipeline");
-    lists.iter().flat_map(|l| l.as_list().expect("a VALUES row").iter()).collect()
+    let lists = g
+        .pipelines
+        .iter()
+        .find_map(|p| {
+            if let Source::Values { lists, .. } = &p.source {
+                Some(*lists)
+            } else {
+                None
+            }
+        })
+        .expect("a VALUES pipeline");
+    lists
+        .iter()
+        .flat_map(|l| l.as_list().expect("a VALUES row").iter())
+        .collect()
 }
 
 #[test]
@@ -93,20 +126,39 @@ fn a_literal_tables_key_holds_its_cells_classes_not_their_text() {
     let (base, table) = key_of(&text);
     assert!(table, "{FIXTURE}: the VALUES is no literal table");
     // the same shape: one program for every literal set (same length, shorter, longer)
-    for (i, s) in [(0, "secreu"), (2, "x"), (2, "a literal longer than the fixture's by far, to move the header")] {
-        assert_eq!(key_of(&swap(&text, i, &cell(TEXT, [40, 52, 64][i], s))), (base, true), "cell {i} as {s:?}: another key");
+    for (i, s) in [
+        (0, "secreu"),
+        (2, "x"),
+        (
+            2,
+            "a literal longer than the fixture's by far, to move the header",
+        ),
+    ] {
+        assert_eq!(
+            key_of(&swap(&text, i, &cell(TEXT, [40, 52, 64][i], s))),
+            (base, true),
+            "cell {i} as {s:?}: another key"
+        );
     }
     // what the program does depend on: the class of each cell, a cell that is an expression, the column and row counts
     let varchar = ":consttype 1043 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false";
     let typmod = ":consttype 25 :consttypmod 20 :constcollid 100 :constlen -1 :constbyval false :constisnull false";
     let c_coll = ":consttype 25 :consttypmod -1 :constcollid 950 :constlen -1 :constbyval false :constisnull false";
     let null = "{CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull true :location 64 :constvalue <>}";
-    let relabel = |c: &str| format!("{{RELABELTYPE :arg {c} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1}}");
+    let relabel = |c: &str| {
+        format!("{{RELABELTYPE :arg {c} :resulttype 25 :resulttypmod -1 :resultcollid 100 :relabelformat 2 :location -1}}")
+    };
     let third = &cells()[2];
     let differ = [
-        ("type (varchar)", swap(&text, 2, &cell(varchar, 64, "very secret"))),
+        (
+            "type (varchar)",
+            swap(&text, 2, &cell(varchar, 64, "very secret")),
+        ),
         ("typmod", swap(&text, 2, &cell(typmod, 64, "very secret"))),
-        ("collation (C)", swap(&text, 2, &cell(c_coll, 64, "very secret"))),
+        (
+            "collation (C)",
+            swap(&text, 2, &cell(c_coll, 64, "very secret")),
+        ),
         ("NULL", swap(&text, 2, null)),
         ("an expression cell", swap(&text, 2, &relabel(third))),
         ("two rows", text.replacen(&format!(" ({third})"), "", 1)),
@@ -124,14 +176,29 @@ fn a_literal_tables_key_holds_its_cells_classes_not_their_text() {
     // cells, keyed by class
     let expr = swap(&text, 2, &relabel(third));
     let (k, table) = key_of(&expr);
-    assert!(table, "a VALUES with an expression cell is no literal table");
-    assert_eq!(key_of(&swap(&expr, 0, &cell(TEXT, 40, "secreu"))).0, k, "a table cell's text is in the key");
-    assert_ne!(key_of(&swap(&expr, 2, &cell(TEXT, 64, "very secreu"))).0, k, "the expression's own Const left the key");
+    assert!(
+        table,
+        "a VALUES with an expression cell is no literal table"
+    );
+    assert_eq!(
+        key_of(&swap(&expr, 0, &cell(TEXT, 40, "secreu"))).0,
+        k,
+        "a table cell's text is in the key"
+    );
+    assert_ne!(
+        key_of(&swap(&expr, 2, &cell(TEXT, 64, "very secreu"))).0,
+        k,
+        "the expression's own Const left the key"
+    );
     // two columns: one key for every literal set of that shape too
     let two = two_columns(&text);
     let (k2, table) = key_of(&two);
     assert!(table, "the two-column form is no literal table");
-    assert_eq!(key_of(&two.replacen(third.as_str(), &cell(TEXT, 64, "x"), 1)), (k2, true), "two columns: another key for another text");
+    assert_eq!(
+        key_of(&two.replacen(third.as_str(), &cell(TEXT, 64, "x"), 1)),
+        (k2, true),
+        "two columns: another key for another text"
+    );
 }
 
 #[test]
@@ -143,18 +210,30 @@ fn a_lowering_that_bakes_a_cell_files_no_program() {
         let listed = class_keyed_lists(g);
         for c in &cells {
             let at = c.as_const().unwrap().constvalue.as_usize();
-            assert!(listed.contains(&at), "a cell's image is not logged as keyed by its class");
+            assert!(
+                listed.contains(&at),
+                "a cell's image is not logged as keyed by its class"
+            );
         }
         // a lowering that reads a cell (the plan-tree bake, gravity_decompose; the IR's, gravity_expr) is its literals':
         // lowerv4 lib.rs sets `Descs::no_cache` from this flag, so it is run once and never filed
         let third = cells[2].as_const().unwrap();
-        assert!(lowering_reads_lists(g, || {
-            let _ = gravity_decompose::bake::read(third);
-        })
-        .1, "a plan-tree bake of a cell files a program");
-        assert!(lowering_reads_lists(g, || gravity_expr::bake::note(third.constvalue.as_usize())).1, "an IR bake of a cell files a program");
+        assert!(
+            lowering_reads_lists(g, || {
+                let _ = gravity_decompose::bake::read(third);
+            })
+            .1,
+            "a plan-tree bake of a cell files a program"
+        );
+        assert!(
+            lowering_reads_lists(g, || gravity_expr::bake::note(third.constvalue.as_usize())).1,
+            "an IR bake of a cell files a program"
+        );
         // one that reads none is filed: the one program every literal set of the shape shares
-        assert!(!lowering_reads_lists(g, || ()).1, "a lowering that bakes nothing is marked no_cache");
+        assert!(
+            !lowering_reads_lists(g, || ()).1,
+            "a lowering that bakes nothing is marked no_cache"
+        );
     });
 }
 
@@ -169,15 +248,41 @@ fn the_key_walk_visits_each_values_cell_once() {
             let mut walked: Vec<Node<'_>> = Vec::new();
             let _ = key_and_nodes(g, &mut |n| walked.push(n));
             for (i, c) in cells.iter().enumerate() {
-                assert_eq!(walked.iter().filter(|n| n.ptr_eq(*c)).count(), 1, "cell {i}: not walked once");
+                assert_eq!(
+                    walked.iter().filter(|n| n.ptr_eq(*c)).count(),
+                    1,
+                    "cell {i}: not walked once"
+                );
             }
-            let lists = g.pipelines.iter().find_map(|p| if let Source::Values { lists, .. } = &p.source { Some(*lists) } else { None }).unwrap();
+            let lists = g
+                .pipelines
+                .iter()
+                .find_map(|p| {
+                    if let Source::Values { lists, .. } = &p.source {
+                        Some(*lists)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
             for (r, row) in lists.iter().enumerate() {
-                assert_eq!(walked.iter().filter(|n| n.ptr_eq(row)).count(), 1, "row {r}: not walked once");
+                assert_eq!(
+                    walked.iter().filter(|n| n.ptr_eq(row)).count(),
+                    1,
+                    "row {r}: not walked once"
+                );
             }
-            let images: Vec<usize> = cells.iter().filter_map(|c| c.as_const().filter(|k| !k.constbyval && !k.constisnull)).map(|k| k.constvalue.as_usize()).collect();
+            let images: Vec<usize> = cells
+                .iter()
+                .filter_map(|c| c.as_const().filter(|k| !k.constbyval && !k.constisnull))
+                .map(|k| k.constvalue.as_usize())
+                .collect();
             let listed = class_keyed_lists(g);
-            assert_eq!(listed.iter().filter(|a| images.contains(a)).count(), images.len(), "each by-reference cell logged once");
+            assert_eq!(
+                listed.iter().filter(|a| images.contains(a)).count(),
+                images.len(),
+                "each by-reference cell logged once"
+            );
         });
     }
 }
@@ -189,16 +294,45 @@ fn the_key_walk_visits_each_values_cell_once() {
 #[test]
 fn a_literal_tables_key_holds_its_scans_plan_node_id() {
     let text = fixture();
-    let (from, to) = (":scan.plan.plan_node_id 1 :scan.plan.targetlist", ":scan.plan.plan_node_id 2 :scan.plan.targetlist");
-    assert_eq!(text.matches(from).count(), 1, "{FIXTURE}: no longer holds its VALUES scan as node 1");
+    let (from, to) = (
+        ":scan.plan.plan_node_id 1 :scan.plan.targetlist",
+        ":scan.plan.plan_node_id 2 :scan.plan.targetlist",
+    );
+    assert_eq!(
+        text.matches(from).count(),
+        1,
+        "{FIXTURE}: no longer holds its VALUES scan as node 1"
+    );
     let renumbered = text.replacen(from, to, 1);
-    let ids = |t: &str| with_graph(t, |g| g.pipelines.iter().filter(|p| literal_table(p)).map(|p| values_node(p)).collect::<Vec<i32>>());
-    assert_eq!((ids(&text), ids(&renumbered)), (vec![1], vec![2]), "values_node is not the scan's plan node id");
+    let ids = |t: &str| {
+        with_graph(t, |g| {
+            g.pipelines
+                .iter()
+                .filter(|p| literal_table(p))
+                .map(|p| values_node(p))
+                .collect::<Vec<i32>>()
+        })
+    };
+    assert_eq!(
+        (ids(&text), ids(&renumbered)),
+        (vec![1], vec![2]),
+        "values_node is not the scan's plan node id"
+    );
     let ((k, t), (k2, t2)) = (key_of(&text), key_of(&renumbered));
     assert!(t && t2, "the VALUES is no literal table");
-    assert_ne!(k, k2, "two numberings of one VALUES scan share a key (D2918)");
-    let top = (":plan.plan_node_id 0 :plan.targetlist", ":plan.plan_node_id 5 :plan.targetlist");
-    assert_eq!(text.matches(top.0).count(), 1, "{FIXTURE}: no longer holds its ModifyTable as node 0");
+    assert_ne!(
+        k, k2,
+        "two numberings of one VALUES scan share a key (D2918)"
+    );
+    let top = (
+        ":plan.plan_node_id 0 :plan.targetlist",
+        ":plan.plan_node_id 5 :plan.targetlist",
+    );
+    assert_eq!(
+        text.matches(top.0).count(),
+        1,
+        "{FIXTURE}: no longer holds its ModifyTable as node 0"
+    );
     let (k3, _) = key_of(&text.replacen(top.0, top.1, 1));
     assert!(k3 != k && k3 != k2, "a renumbered ModifyTable shares a key (D2918: every plan node id a pipeline runs is keyed)");
 }
@@ -207,5 +341,9 @@ fn a_literal_tables_key_holds_its_scans_plan_node_id() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

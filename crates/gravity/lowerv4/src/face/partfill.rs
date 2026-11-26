@@ -37,7 +37,10 @@ crate::strategies! {
     WIN_PARTFILL = 163, "win.partfill", Window; // a3-strategy-bits.tsv row 163 (after A2 161, F2b 162)
 }
 
-pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { strategies: &[(WIN_PARTFILL, &())], ..crate::ops::NONE };
+pub(crate) const ROWS: crate::ops::Table = crate::ops::Table {
+    strategies: &[(WIN_PARTFILL, &())],
+    ..crate::ops::NONE
+};
 
 /// The road on for this statement (default off: road_off.rs `DEFAULT_OFF`).
 pub(crate) fn road_on(px: &Px<'_, '_>) -> bool {
@@ -57,15 +60,36 @@ pub(crate) fn kcut(px: &Px<'_, '_>, t: usize, words: usize) -> u8 {
     }
     let gx = px.gx;
     let ps = gx.pipelines();
-    let Some(sd) = ps.get(t).and_then(|p| p.ops.iter().find_map(|op| if let Op::Sort(d) = op { Some(d) } else { None })) else { return 0 };
-    let Some(slot) = crate::frame::iface::end_breaker_of(gx, t).map(|b| b.slot) else { return 0 };
+    let Some(sd) = ps.get(t).and_then(|p| {
+        p.ops
+            .iter()
+            .find_map(|op| if let Op::Sort(d) = op { Some(d) } else { None })
+    }) else {
+        return 0;
+    };
+    let Some(slot) = crate::frame::iface::end_breaker_of(gx, t).map(|b| b.slot) else {
+        return 0;
+    };
     // bounded("other: one step per pipeline past the top, at most the program's pipelines")
-    let Some(drain) = (t + 1..ps.len()).find(|&q| matches!(ps[q].source, Source::Breaker { slot: s } if s == slot) && gx.life_of(q, slot).is_some_and(|l| l.0 as usize == t)) else { return 0 };
-    if !ps[drain].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) {
+    let Some(drain) = (t + 1..ps.len()).find(|&q| {
+        matches!(ps[q].source, Source::Breaker { slot: s } if s == slot)
+            && gx.life_of(q, slot).is_some_and(|l| l.0 as usize == t)
+    }) else {
+        return 0;
+    };
+    if !ps[drain]
+        .ops
+        .iter()
+        .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+    {
         return 0;
     }
-    let Some(reader) = crate::ops::window::rows::reader_opt(px, drain) else { return 0 };
-    let Some((_, w)) = crate::ops::window::lower::window_after_args(&ps[reader].ops) else { return 0 };
+    let Some(reader) = crate::ops::window::rows::reader_opt(px, drain) else {
+        return 0;
+    };
+    let Some((_, w)) = crate::ops::window::lower::window_after_args(&ps[reader].ops) else {
+        return 0;
+    };
     let n = w.partition.len();
     if n == 0 || n > sd.keys.len() || n > words || n >= u8::MAX as usize {
         return 0;
@@ -73,14 +97,30 @@ pub(crate) fn kcut(px: &Px<'_, '_>, t: usize, words: usize) -> u8 {
     let lead = &sd.keys[..n];
     // the window's PARTITION BY columns are the drain's (past its projections): the sort row's columns they read
     let col = |resno: i16| sort_column(&ps[drain].ops, resno);
-    let covers = w.partition.iter().all(|p| col(p.resno).is_some_and(|c| lead.iter().any(|k| k.resno == c))) && lead.iter().all(|k| w.partition.iter().any(|p| col(p.resno) == Some(k.resno)));
-    if covers && lead.iter().all(|k| k.coll.bytes_eq) { n as u8 } else { 0 }
+    let covers = w
+        .partition
+        .iter()
+        .all(|p| col(p.resno).is_some_and(|c| lead.iter().any(|k| k.resno == c)))
+        && lead
+            .iter()
+            .all(|k| w.partition.iter().any(|p| col(p.resno) == Some(k.resno)));
+    if covers && lead.iter().all(|k| k.coll.bytes_eq) {
+        n as u8
+    } else {
+        0
+    }
 }
 
 /// The frame word of the object a K-cut fill's claim stores into (`i` 3: beside a reader's, rows.rs `object_word`), filed
 /// by the drain's open (`agg_runs_claim`) and read by the window's end (rows.rs `WinEnd`); 0: the window deals.
 pub(crate) fn object_word(px: &mut Px<'_, '_>, k: usize) -> i32 {
-    px.frame_word(WordKey::Open { face: Face::Window, k, j: u64::MAX, i: 3 }) as i32 * 8
+    px.frame_word(WordKey::Open {
+        face: Face::Window,
+        k,
+        j: u64::MAX,
+        i: 3,
+    }) as i32
+        * 8
 }
 
 /// The drain `emit` of pipeline `k` as a K-cut fill (topn/lower.rs `make_drain`): a plain merging drain (`Emit::plain_drain`)
@@ -88,7 +128,11 @@ pub(crate) fn object_word(px: &mut Px<'_, '_>, k: usize) -> i32 {
 /// (window/lower.rs `offer_cut`) and asks the window's handle; when the window is parted its fill runs as claims
 /// (`WINDOW_CUT`): the window's object table word, the claim's object word, and the window's claims site (the drain's
 /// nominal driving site, as the reader's). `None`: the drain as before.
-pub(crate) fn cut_form(px: &mut Px<'_, '_>, k: usize, emit: &Emit<'_, '_>) -> Option<(u16, i32, usize)> {
+pub(crate) fn cut_form(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    emit: &Emit<'_, '_>,
+) -> Option<(u16, i32, usize)> {
     let r = emit.runs()?;
     if !road_on(px) || !emit.plain_drain() || r.kcut == 0 {
         return None;
@@ -99,7 +143,8 @@ pub(crate) fn cut_form(px: &mut Px<'_, '_>, k: usize, emit: &Emit<'_, '_>) -> Op
     let node = w.plan.plan.plan_node_id;
     crate::ops::window::lower::offer_cut(px, k, r.word);
     crate::ops::window::lower::handle(px, node, k, w);
-    let p = crate::ops::window::lower::parted(px, node).filter(|p| p.fill == k && p.cut.is_some())?;
+    let p =
+        crate::ops::window::lower::parted(px, node).filter(|p| p.fill == k && p.cut.is_some())?;
     Some((p.table, object_word(px, k), p.site))
 }
 
@@ -113,26 +158,47 @@ pub(crate) fn cut_form(px: &mut Px<'_, '_>, k: usize, emit: &Emit<'_, '_>) -> Op
 /// window, the CoSplit proto of the cut is declared after it (exec reads the window's object count at its prepare) and the
 /// fill reads as its outer: the range table's word, the window's claims site and the run's rows, with the window's object
 /// table word (the claim's object, `object_word`). `None`: the fill as before.
-pub(crate) fn rows_form(px: &mut Px<'_, '_>, k: usize, producer: usize, shape: &crate::face::runs::Shape) -> Option<(crate::face::cosplit::At, u16)> {
+pub(crate) fn rows_form(
+    px: &mut Px<'_, '_>,
+    k: usize,
+    producer: usize,
+    shape: &crate::face::runs::Shape,
+) -> Option<(crate::face::cosplit::At, u16)> {
     if !road_on(px) || !crate::face::partruns::road_on(px) {
         return None;
     }
     let gx = px.gx;
     let ps = gx.pipelines();
-    if k >= ps.len() || producer >= ps.len() || px.ident(k) != k || crate::frame::iface::breaker_of(&ps[k].desc).is_none() {
+    if k >= ps.len()
+        || producer >= ps.len()
+        || px.ident(k) != k
+        || crate::frame::iface::breaker_of(&ps[k].desc).is_none()
+    {
         return None;
     }
-    let Source::Breaker { slot } = ps[k].source else { return None };
+    let Source::Breaker { slot } = ps[k].source else {
+        return None;
+    };
     let life = gx.life_of(k, slot);
     // bounded("other: one step per pipeline, at most the program's pipelines")
-    let readers = (0..ps.len()).filter(|&j| ps[j].desc.consumes.contains(&slot) && gx.life_of(j, slot) == life).count();
-    if readers > 1 || !ps[k].ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) {
+    let readers = (0..ps.len())
+        .filter(|&j| ps[j].desc.consumes.contains(&slot) && gx.life_of(j, slot) == life)
+        .count();
+    if readers > 1
+        || !ps[k]
+            .ops
+            .iter()
+            .all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))
+    {
         return None;
     }
     let reader = crate::ops::window::rows::reader_opt(px, k)?;
     let (_, w) = crate::ops::window::lower::window_after_args(&ps[reader].ops)?;
     let (sd, _) = crate::ops::sort::lower::sort_of(px, producer);
-    if !matches!(sd.form, SortForm::Runs) || sd.presorted > 0 || crate::ops::sort::lower::union_arm(&ps[producer]).is_some() {
+    if !matches!(sd.form, SortForm::Runs)
+        || sd.presorted > 0
+        || crate::ops::sort::lower::union_arm(&ps[producer]).is_some()
+    {
         return None;
     }
     let n = w.partition.len();
@@ -146,22 +212,47 @@ pub(crate) fn rows_form(px: &mut Px<'_, '_>, k: usize, producer: usize, shape: &
         *c = sort_column(&ps[k].ops, p.resno)?;
     }
     let pcols = &cols[..n];
-    let covers = pcols.iter().all(|&c| lead.iter().any(|x| x.resno == c)) && lead.iter().all(|x| pcols.contains(&x.resno));
+    let covers = pcols.iter().all(|&c| lead.iter().any(|x| x.resno == c))
+        && lead.iter().all(|x| pcols.contains(&x.resno));
     if !covers || !(0..n).all(|i| shape.keys.get(i).is_some_and(|x| !x.user)) {
         return None;
     }
-    let rerun = |q: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
-    if rerun(k) || rerun(producer) || px.lazy.iter().any(|l| l.0 == k || l.1 == k) || px.serial.contains(&k) {
+    let rerun = |q: usize| {
+        gx.graph
+            .reruns
+            .iter()
+            .any(|r| r.pipelines.contains(&(q as u16)))
+    };
+    if rerun(k)
+        || rerun(producer)
+        || px.lazy.iter().any(|l| l.0 == k || l.1 == k)
+        || px.serial.contains(&k)
+    {
         return None;
     }
     let node = w.plan.plan.plan_node_id;
     crate::ops::window::lower::offer_cut(px, k, u16::MAX);
     crate::ops::window::lower::handle(px, node, k, w);
-    let part = crate::ops::window::lower::parted(px, node).filter(|p| p.fill == k && p.cut.is_some())?;
+    let part =
+        crate::ops::window::lower::parted(px, node).filter(|p| p.fill == k && p.cut.is_some())?;
     let h = px.proto_words(1);
-    px.declare_proto(Proto::new(ProtoKind::CoSplit, k as u16).slot(slot).words(h, 1).arg(gravity_program::protos::cosplit_window_arg(part.table, n as u8)));
+    px.declare_proto(
+        Proto::new(ProtoKind::CoSplit, k as u16)
+            .slot(slot)
+            .words(h, 1)
+            .arg(gravity_program::protos::cosplit_window_arg(
+                part.table, n as u8,
+            )),
+    );
     fires::fire("lower.win.partfill.rows"); // shapecheck fire signal (D3336 A1a): a parted window's fill over a row sort's K-cut parts
-    Some((crate::face::cosplit::At { h, site: part.site, rows: ps[producer].desc.predicted_rows }, part.table))
+    Some((
+        crate::face::cosplit::At {
+            h,
+            site: part.site,
+            rows: ps[producer].desc.predicted_rows,
+        },
+        part.table,
+    ))
 }
 
 /// The column of the sort's row that column `c` of a fill whose ops are `ops` reads: through its projections (each a
@@ -172,8 +263,15 @@ fn sort_column(ops: &[Op<'_>], c: i16) -> Option<i16> {
     for op in ops.iter().rev() {
         match op {
             Op::Project(l) => {
-                let t = l.nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?).as_target_entry().filter(|t| t.resno == resno)?;
-                resno = t.expr.as_var().filter(|v| v.varno == types_nodes::primnodes::OUTER_VAR && v.varlevelsup == 0)?.varattno;
+                let t = l
+                    .nth((resno as usize).checked_sub(1).filter(|&n| n < l.len())?)
+                    .as_target_entry()
+                    .filter(|t| t.resno == resno)?;
+                resno = t
+                    .expr
+                    .as_var()
+                    .filter(|v| v.varno == types_nodes::primnodes::OUTER_VAR && v.varlevelsup == 0)?
+                    .varattno;
             }
             Op::Filter(_) => {}
             _ => return None,

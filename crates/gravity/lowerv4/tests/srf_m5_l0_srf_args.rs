@@ -20,18 +20,37 @@ fn text(rel: &str) -> String {
 /// `rel` lowered in the mode (as tests/diag.rs `lower_diag`): the refusal's text (or served) and every blocker's line.
 fn blockers(rel: &str) -> (Result<(), String>, Vec<diag::Blocker>, Vec<String>) {
     common::RigCatalog::install_seams();
-    let (ctx, arena) = (mcx::MemoryContext::new("m5 l0 fixture"), gravity_program::Arena::new(1 << 20));
-    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text(rel)).unwrap_or_else(|e| panic!("fixture: {e}"));
-    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
+    let (ctx, arena) = (
+        mcx::MemoryContext::new("m5 l0 fixture"),
+        gravity_program::Arena::new(1 << 20),
+    );
+    let fx = gravity_decompose::corpus::load(ctx.mcx(), &text(rel))
+        .unwrap_or_else(|e| panic!("fixture: {e}"));
+    let graph = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx)
+        .unwrap_or_else(|e| panic!("{rel}: decompose {e:?}"));
     gravity_expr::nodes::func::acl_defer_begin();
-    let (r, report) = diag::lower_graph_diag(arena.handle(), &graph, &fx.facts, common::RigCatalog::get(), &mut gravity_lower::Sequential::new(arena.handle()), gravity_lower::LowerOpts::default());
+    let (r, report) = diag::lower_graph_diag(
+        arena.handle(),
+        &graph,
+        &fx.facts,
+        common::RigCatalog::get(),
+        &mut gravity_lower::Sequential::new(arena.handle()),
+        gravity_lower::LowerOpts::default(),
+    );
     gravity_expr::nodes::func::acl_defer_end();
-    (r.map(|_| ()).map_err(|e| e.to_string()), report.blockers, report.lines)
+    (
+        r.map(|_| ()).map_err(|e| e.to_string()),
+        report.blockers,
+        report.lines,
+    )
 }
 
 /// The blockers' Shapes (every stage, cascade or not).
 fn shapes(b: &[diag::Blocker]) -> Vec<String> {
-    b.iter().filter(|b| matches!(b.refusal.reason, Reason::Shape { .. })).map(|b| format!("{:?}", b.refusal)).collect()
+    b.iter()
+        .filter(|b| matches!(b.refusal.reason, Reason::Shape { .. }))
+        .map(|b| format!("{:?}", b.refusal))
+        .collect()
 }
 
 /// P1 (bench-089, `SELECT count(*) FROM (SELECT generate_series(1, a % 3) FROM g) s`): no Shape past the placeholders.
@@ -41,10 +60,17 @@ fn shapes(b: &[diag::Blocker]) -> Vec<String> {
 fn p1_reaches_the_srf_step_without_the_cascade_shape() {
     let (r, b, lines) = blockers("bench-089.plan");
     if let Err(err) = &r {
-        assert!(!err.contains("srf.projectset"), "srf.projectset is built: {err}");
+        assert!(
+            !err.contains("srf.projectset"),
+            "srf.projectset is built: {err}"
+        );
     }
     // the makers past the placeholders ran (the ProjectSet's Project among them) and refused nothing: unbuilt names only
-    assert!(b.iter().all(|b| matches!(b.refusal.reason, Reason::NotBuilt { .. })), "{lines:?}");
+    assert!(
+        b.iter()
+            .all(|b| matches!(b.refusal.reason, Reason::NotBuilt { .. })),
+        "{lines:?}"
+    );
     assert!(shapes(&b).is_empty(), "no Shape: {:?}", shapes(&b));
     assert!(!lines.iter().any(|l| l.contains(WHY)), "{lines:?}");
 }
@@ -53,7 +79,15 @@ fn p1_reaches_the_srf_step_without_the_cascade_shape() {
 /// `generate_series(1, b) * 2`: the `2` is still the outer expression's need, matched against its program's).
 #[test]
 fn every_projectset_fixture_is_free_of_the_shape() {
-    for rel in ["srf-002.plan", "srf-003.plan", "srf-004.plan", "srf-005.plan", "srf-008.plan", "srf-012.plan", "srf-013.plan"] {
+    for rel in [
+        "srf-002.plan",
+        "srf-003.plan",
+        "srf-004.plan",
+        "srf-005.plan",
+        "srf-008.plan",
+        "srf-012.plan",
+        "srf-013.plan",
+    ] {
         let (_, _, lines) = blockers(rel);
         assert!(!lines.iter().any(|l| l.contains(WHY)), "{rel}: {lines:?}");
     }
@@ -64,5 +98,8 @@ fn every_projectset_fixture_is_free_of_the_shape() {
 #[test]
 fn a_scalar_calls_literals_stay_its_needs() {
     let (r, b, lines) = blockers("fieldobs-044.plan");
-    assert!(r.is_ok() && b.is_empty(), "fieldobs-044 serves: {r:?} {lines:?}");
+    assert!(
+        r.is_ok() && b.is_empty(),
+        "fieldobs-044 serves: {r:?} {lines:?}"
+    );
 }

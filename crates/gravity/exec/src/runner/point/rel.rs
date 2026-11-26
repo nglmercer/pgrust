@@ -7,12 +7,16 @@ use types_rel::{NoLock, Relation, RELKIND_MATVIEW, RELKIND_RELATION};
 
 pub(super) fn table_refusal(heap: &Relation<'_>) -> Option<&'static str> {
     let r = &heap.rd_rel;
-    if !matches!(r.relkind, RELKIND_RELATION | RELKIND_MATVIEW) || !gravity_hosts::ops::scan::index_source::heap_am(heap) {
+    if !matches!(r.relkind, RELKIND_RELATION | RELKIND_MATVIEW)
+        || !gravity_hosts::ops::scan::index_source::heap_am(heap)
+    {
         return Some("table kind");
     }
     // IsSystemRelation (catalog.c): a catalog or a TOAST table. Their point reads (shared catalogs, column-privileged ones
     // such as pg_authid, catalog snapshots, system columns) are a later widening with its own proof
-    if catalog_seams::is_catalog_relation::call(heap) || catalog_seams::is_toast_relation::call(heap) {
+    if catalog_seams::is_catalog_relation::call(heap)
+        || catalog_seams::is_toast_relation::call(heap)
+    {
         return Some("system table");
     }
     if r.relpersistence == types_core::catalog::RELPERSISTENCE_TEMP || r.relrowsecurity {
@@ -23,7 +27,10 @@ pub(super) fn table_refusal(heap: &Relation<'_>) -> Option<&'static str> {
 
 /// `index` is one of `heap`'s.
 pub(super) fn index_of(heap: &Relation<'_>, index: &Relation<'_>) -> bool {
-    index.rd_index.as_ref().is_some_and(|f| f.indrelid == heap.rd_id)
+    index
+        .rd_index
+        .as_ref()
+        .is_some_and(|f| f.indrelid == heap.rd_id)
 }
 
 /// The tests of a table a point write changes (pglpoint S3, `None`: the stage writes it): S1's (`table_refusal`), a plain
@@ -57,14 +64,28 @@ pub(super) fn write_refusal(heap: &Relation<'_>) -> Option<&'static str> {
 /// expression's or a predicate's columns included: a key change takes LockTupleExclusive and puts new entries in every
 /// index, a later widening); and no exclusion constraint (indisexclusion). The planner opened and locked every index of
 /// the result relation at its own lock mode (get_relation_info), so they are read here with NoLock.
-pub(super) fn update_refusal(mcx: Mcx<'_>, heap: &Relation<'_>, set: &[i16]) -> PgResult<Option<&'static str>> {
+pub(super) fn update_refusal(
+    mcx: Mcx<'_>,
+    heap: &Relation<'_>,
+    set: &[i16],
+) -> PgResult<Option<&'static str>> {
     let att = &heap.rd_att;
-    let generated = att.constr.as_deref().is_some_and(|c| c.has_generated_stored || c.has_generated_virtual);
-    if generated || att.attrs.iter().any(|a| !a.attisdropped && (a.attidentity != 0 || a.attgenerated != 0)) {
+    let generated = att
+        .constr
+        .as_deref()
+        .is_some_and(|c| c.has_generated_stored || c.has_generated_virtual);
+    if generated
+        || att
+            .attrs
+            .iter()
+            .any(|a| !a.attisdropped && (a.attidentity != 0 || a.attgenerated != 0))
+    {
         return Ok(Some("generated or identity column"));
     }
     let indexed = relcache_seams::relation_get_index_attr_bitmap::call(heap.rd_id)?;
-    if set.iter().any(|a| indexed.hot_blocking.binary_search(a).is_ok() || indexed.summarized.binary_search(a).is_ok()) {
+    if set.iter().any(|a| {
+        indexed.hot_blocking.binary_search(a).is_ok() || indexed.summarized.binary_search(a).is_ok()
+    }) {
         return Ok(Some("indexed column"));
     }
     for &oid in relcache_seams::relation_get_index_list::call(mcx, heap.rd_id)?.iter() {

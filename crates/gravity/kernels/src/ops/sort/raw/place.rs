@@ -54,15 +54,31 @@ crate::contract::host! {
 /// nothing reads (the IR leaves through its exit and the statement stops).
 /// # Safety
 /// As `sort_grow`.
-pub(crate) unsafe fn grew(ctx: *mut Ctx, run: *mut SortRun, tbl: *const u32, poll: &mut Poll<'_>, piece: usize) -> Result<bool, Stopped> {
+pub(crate) unsafe fn grew(
+    ctx: *mut Ctx,
+    run: *mut SortRun,
+    tbl: *const u32,
+    poll: &mut Poll<'_>,
+    piece: usize,
+) -> Result<bool, Stopped> {
     if run as *mut u8 != partial(ctx) {
         return Ok(false);
     }
     let r = &*run;
-    if r.region() != 0 || r.pad[1] == SORTRUN_BIG || r.pad[0] == SEALED || r.row_bytes == 0 || r.cap == 0 {
+    if r.region() != 0
+        || r.pad[1] == SORTRUN_BIG
+        || r.pad[0] == SEALED
+        || r.row_bytes == 0
+        || r.cap == 0
+    {
         return Ok(false);
     }
-    let (cap, rb, n, words) = (r.cap as usize, r.row_bytes as usize, r.len as usize, SORTRUN_VAR_WORDS as usize);
+    let (cap, rb, n, words) = (
+        r.cap as usize,
+        r.row_bytes as usize,
+        r.len as usize,
+        SORTRUN_VAR_WORDS as usize,
+    );
     let end = SORTRUN_HDR + cap * rb;
     let (top, var_bytes) = (r.var_top() as usize, r.var_bytes());
     if top > end || top < SORTRUN_HDR + n * rb {
@@ -121,7 +137,13 @@ unsafe fn stopped(run: *mut SortRun, ncap: usize) -> Result<bool, Stopped> {
 /// single move gave. `Err` when the statement's abort is pending (the move left part done).
 /// # Safety
 /// `src .. src + len + delta` is writable and no one else reads it.
-unsafe fn move_up(poll: &mut Poll<'_>, src: *mut u8, len: usize, delta: usize, piece: usize) -> Result<(), Stopped> {
+unsafe fn move_up(
+    poll: &mut Poll<'_>,
+    src: *mut u8,
+    len: usize,
+    delta: usize,
+    piece: usize,
+) -> Result<(), Stopped> {
     let mut hi = len;
     while hi > 0 {
         poll.tick()?;
@@ -179,8 +201,8 @@ mod tests {
     fn value(i: usize) -> Option<Vec<u8>> {
         match i {
             _ if i % 5 == 1 => None,
-            _ if i.is_multiple_of( 7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
-            _ => Some(format!("v{i}").into_bytes()), // alloc: Cold
+            _ if i.is_multiple_of(7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
+            _ => Some(format!("v{i}").into_bytes()),                              // alloc: Cold
         }
     }
 
@@ -189,12 +211,20 @@ mod tests {
         for i in 0..n {
             let slot = run.add(SORTRUN_HDR + i * rb + 24);
             let size = (slot as *const u32).read_unaligned() as usize;
-            assert_eq!((run.add(SORTRUN_HDR + i * rb) as *const u64).read_unaligned(), i as u64, "row {i}: its tag");
+            assert_eq!(
+                (run.add(SORTRUN_HDR + i * rb) as *const u64).read_unaligned(),
+                i as u64,
+                "row {i}: its tag"
+            );
             match value(i) {
                 None => assert_eq!(size, 0, "row {i}: NULL's slot"),
                 Some(v) => {
                     let off = (slot.add(4) as *const u32).read_unaligned() as usize;
-                    assert_eq!(core::slice::from_raw_parts(slot.add(off), size), &v[..], "row {i}: the copy its slot reaches");
+                    assert_eq!(
+                        core::slice::from_raw_parts(slot.add(off), size),
+                        &v[..],
+                        "row {i}: the copy its slot reaches"
+                    );
                 }
             }
         }
@@ -213,13 +243,21 @@ mod tests {
             let mut own = vec![0u64; RESERVE / 8]; // alloc: Cold
             unsafe { (own.as_mut_ptr() as *mut u32).add(2).write(START as u32) };
             *LEN.lock().expect("len") = START;
-            let mut partials = Box::new(Partials::two(own.as_mut_ptr() as *mut u8, [core::ptr::null_mut(); 2])); // alloc: Cold
+            let mut partials = Box::new(Partials::two(
+                own.as_mut_ptr() as *mut u8,
+                [core::ptr::null_mut(); 2],
+            )); // alloc: Cold
             let mut program = Box::new(ProgramBlock::NONE); // alloc: Cold
             program.partial = &mut *partials;
             program.spill = Some(spill);
             let mut ctx = vec![0u64; gravity_abi::ctx::ctx_size(0) / 8]; // alloc: Cold
             unsafe { (*(ctx.as_mut_ptr() as *mut Ctx)).program = &mut *program };
-            Bound { ctx, _program: program, _partials: partials, own }
+            Bound {
+                ctx,
+                _program: program,
+                _partials: partials,
+                own,
+            }
         }
 
         fn ctx(&mut self) -> *mut Ctx {
@@ -247,15 +285,22 @@ mod tests {
             loop {
                 let r = unsafe { &mut *(run as *mut SortRun) };
                 let row = unsafe { run.add(SORTRUN_HDR + r.len as usize * rb) };
-                let fits = r.len < r.cap && match value(n) {
-                    None => true,
-                    Some(v) => unsafe {
-                        core::ptr::write_bytes(row, 0, rb);
-                        let st = crate::host_abi::sort_image_raw(run, v.as_ptr(), v.len() as u64, 24, 16);
-                        assert!(st == 0 || st == 1, "row {n}: the copy's status {st} (an armed want left unspent answers below zero)");
-                        st == 0
-                    },
-                };
+                let fits = r.len < r.cap
+                    && match value(n) {
+                        None => true,
+                        Some(v) => unsafe {
+                            core::ptr::write_bytes(row, 0, rb);
+                            let st = crate::host_abi::sort_image_raw(
+                                run,
+                                v.as_ptr(),
+                                v.len() as u64,
+                                24,
+                                16,
+                            );
+                            assert!(st == 0 || st == 1, "row {n}: the copy's status {st} (an armed want left unspent answers below zero)");
+                            st == 0
+                        },
+                    };
                 if fits {
                     if value(n).is_none() {
                         unsafe { core::ptr::write_bytes(row, 0, rb) };
@@ -272,7 +317,10 @@ mod tests {
                     st => panic!("grow {grows}: status {st}"),
                 }
                 let g = unsafe { &*(run as *const SortRun) };
-                assert_eq!(g.row_bytes as usize, rb, "grow {grows}: row_bytes restored after the re-arm");
+                assert_eq!(
+                    g.row_bytes as usize, rb,
+                    "grow {grows}: row_bytes restored after the re-arm"
+                );
                 assert!(g.cap > before, "grow {grows}: the capacity grew");
                 assert_eq!(g.len as usize, n, "grow {grows}: the rows kept");
                 assert_eq!(WANT.with(|w| w.get().0), 0, "grow {grows}: the want spent");
@@ -282,7 +330,11 @@ mod tests {
         }
         unsafe { check(run, n, rb) };
         assert!(grows >= 5, "only {grows} grows");
-        assert_eq!(*LEN.lock().expect("len"), RESERVE, "grown to the reservation, then refused");
+        assert_eq!(
+            *LEN.lock().expect("len"),
+            RESERVE,
+            "grown to the reservation, then refused"
+        );
         let r = unsafe { &*(run as *const SortRun) };
         assert!(r.len as usize == n && n > 64, "{n} rows held");
     }
@@ -300,7 +352,11 @@ mod tests {
             r.push();
         }
         let (cap, len) = (r.cap, r.len);
-        assert_eq!(unsafe { sort_grow(c, run, core::ptr::null()) }, 0, "a refused region: put as before");
+        assert_eq!(
+            unsafe { sort_grow(c, run, core::ptr::null()) },
+            0,
+            "a refused region: put as before"
+        );
         let r = unsafe { &*(run as *const SortRun) };
         assert_eq!((r.cap, r.len, r.row_bytes), (cap, len, rb));
         let mut b = Bound::new(place);
@@ -309,12 +365,24 @@ mod tests {
         let o = other.as_mut_ptr() as *mut u8;
         unsafe { (o.add(8) as *mut u32).write(START as u32) };
         unsafe { SortRun::at_share(o, rb) };
-        assert_eq!(unsafe { sort_grow(c, o, core::ptr::null()) }, 0, "not the partial: a big run is put");
+        assert_eq!(
+            unsafe { sort_grow(c, o, core::ptr::null()) },
+            0,
+            "not the partial: a big run is put"
+        );
         let own = b.own.as_mut_ptr() as *mut u8;
         let r = unsafe { SortRun::at_share(own, rb) };
         r.pad[0] = SEALED;
-        assert_eq!(unsafe { sort_grow(c, own, core::ptr::null()) }, 0, "a sealed run never grows");
-        assert_eq!(*LEN.lock().expect("len"), START, "nothing asked of the host");
+        assert_eq!(
+            unsafe { sort_grow(c, own, core::ptr::null()) },
+            0,
+            "a sealed run never grows"
+        );
+        assert_eq!(
+            *LEN.lock().expect("len"),
+            START,
+            "nothing asked of the host"
+        );
     }
 
     /// D4412's rows: NULL every 5th, else a 21-byte value (every row's copy fits a start).
@@ -348,12 +416,20 @@ mod tests {
         for i in 0..n {
             let slot = run.add(SORTRUN_HDR + i * rb + 24);
             let size = (slot as *const u32).read_unaligned() as usize;
-            assert_eq!((run.add(SORTRUN_HDR + i * rb) as *const u64).read_unaligned(), i as u64, "row {i}: its tag");
+            assert_eq!(
+                (run.add(SORTRUN_HDR + i * rb) as *const u64).read_unaligned(),
+                i as u64,
+                "row {i}: its tag"
+            );
             match small(i) {
                 None => assert_eq!(size, 0, "row {i}: NULL's slot"),
                 Some(v) => {
                     let off = (slot.add(4) as *const u32).read_unaligned() as usize;
-                    assert_eq!(core::slice::from_raw_parts(slot.add(off), size), &v[..], "row {i}: the copy its slot reaches");
+                    assert_eq!(
+                        core::slice::from_raw_parts(slot.add(off), size),
+                        &v[..],
+                        "row {i}: the copy its slot reaches"
+                    );
                 }
             }
         }
@@ -366,7 +442,10 @@ mod tests {
     /// `place`, then the statement's abort set: the cancel arrives after the driver grew the region, during the move.
     unsafe extern "C" fn place_then_abort(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         let r = place(ctx, op, arg);
-        ABORT.store(gravity_abi::ctx::ABORT_BIT, core::sync::atomic::Ordering::Release);
+        ABORT.store(
+            gravity_abi::ctx::ABORT_BIT,
+            core::sync::atomic::Ordering::Release,
+        );
         r
     }
 
@@ -386,20 +465,43 @@ mod tests {
         ABORT.store(0, core::sync::atomic::Ordering::Release);
         let mut b = Bound::new(place_then_abort);
         let (c, run) = (b.ctx(), b.own.as_mut_ptr() as *mut u8);
-        unsafe { (*c).cancel = gravity_abi::word(&ABORT as *const core::sync::atomic::AtomicU8 as *const u8) };
+        unsafe {
+            (*c).cancel =
+                gravity_abi::word(&ABORT as *const core::sync::atomic::AtomicU8 as *const u8)
+        };
         unsafe { SortRun::at_share(run, rb as u32) };
         // the start filled with rows and their copies until the next row does not fit
         let n = unsafe { fill(run, rb, 0) };
         assert!(n > 2, "{n} rows in the start");
         unsafe { check_small(run, n, rb) };
         let st = unsafe { sort_grow(c, run, tbl.as_ptr()) };
-        assert_eq!(*LEN.lock().expect("len"), 2 * START, "the region grew before the cancel");
-        assert_eq!(st, gravity_abi::status::CANCELLED, "a cancel during the grow's move stops it (got {st}: moved unpolled)");
+        assert_eq!(
+            *LEN.lock().expect("len"),
+            2 * START,
+            "the region grew before the cancel"
+        );
+        assert_eq!(
+            st,
+            gravity_abi::status::CANCELLED,
+            "a cancel during the grow's move stops it (got {st}: moved unpolled)"
+        );
         let r = unsafe { &*(run as *const SortRun) };
-        assert_eq!(r.row_bytes as usize, rb, "row_bytes restored after the re-arm");
+        assert_eq!(
+            r.row_bytes as usize, rb,
+            "row_bytes restored after the re-arm"
+        );
         let (top, end) = (r.var_top() as usize, SORTRUN_HDR + r.cap as usize * rb);
-        assert!(r.len <= r.cap && top <= end && top >= SORTRUN_HDR + r.len as usize * rb, "a valid run: len {} cap {} top {top} end {end}", r.len, r.cap);
-        assert_eq!((r.len, top, r.var_bytes()), (0, end, 0), "stopped mid-grow: the run emptied in its new extent");
+        assert!(
+            r.len <= r.cap && top <= end && top >= SORTRUN_HDR + r.len as usize * rb,
+            "a valid run: len {} cap {} top {top} end {end}",
+            r.len,
+            r.cap
+        );
+        assert_eq!(
+            (r.len, top, r.var_bytes()),
+            (0, end, 0),
+            "stopped mid-grow: the run emptied in its new extent"
+        );
         ABORT.store(0, core::sync::atomic::Ordering::Release);
     }
 
@@ -408,12 +510,23 @@ mod tests {
     #[test]
     fn a_move_in_pieces_gives_the_single_moves_bytes() {
         let never = || false;
-        for (len, delta) in [(0usize, 8usize), (1, 1), (100, 3), (100, 100), (100, 250), (4099, 17), (4099, 4096)] {
+        for (len, delta) in [
+            (0usize, 8usize),
+            (1, 1),
+            (100, 3),
+            (100, 100),
+            (100, 250),
+            (4099, 17),
+            (4099, 4096),
+        ] {
             for piece in [1usize, 7, 64, 4096, 1 << 20] {
                 let src: Vec<u8> = (0..len + delta).map(|i| (i * 31 % 251) as u8).collect(); // alloc: Cold
                 let (mut want, mut got) = (src.clone(), src); // alloc: Cold
                 unsafe { core::ptr::copy(want.as_ptr(), want.as_mut_ptr().add(delta), len) };
-                assert_eq!(unsafe { move_up(&mut Poll::new(&never), got.as_mut_ptr(), len, delta, piece) }, Ok(()));
+                assert_eq!(
+                    unsafe { move_up(&mut Poll::new(&never), got.as_mut_ptr(), len, delta, piece) },
+                    Ok(())
+                );
                 assert_eq!(got, want, "len {len} delta {delta} piece {piece}");
             }
         }
@@ -439,9 +552,26 @@ mod tests {
         let var = SORTRUN_HDR + cap as usize * rb - top;
         assert!(n > 2 && var > 3 * 64, "{n} rows, {var} bytes of copies");
         let never = || false;
-        assert_eq!(unsafe { grew(c, run as *mut SortRun, tbl.as_ptr(), &mut Poll::new(&never), 64) }, Ok(true));
+        assert_eq!(
+            unsafe {
+                grew(
+                    c,
+                    run as *mut SortRun,
+                    tbl.as_ptr(),
+                    &mut Poll::new(&never),
+                    64,
+                )
+            },
+            Ok(true)
+        );
         let r = unsafe { &*(run as *const SortRun) };
-        assert!(r.cap > cap && r.len as usize == n, "grown: cap {} -> {}, {} rows", cap, r.cap, r.len);
+        assert!(
+            r.cap > cap && r.len as usize == n,
+            "grown: cap {} -> {}, {} rows",
+            cap,
+            r.cap,
+            r.len
+        );
         unsafe { check_small(run, n, rb) };
         // the grown extent filled again, then a cancel at the fourth piece of the next grow's move
         let n = unsafe { fill(run, rb, n) };
@@ -452,13 +582,37 @@ mod tests {
             polls.get() > 3
         };
         let before = *LEN.lock().expect("len");
-        assert_eq!(unsafe { grew(c, run as *mut SortRun, tbl.as_ptr(), &mut Poll::new(&late), 64) }, Err(Stopped));
+        assert_eq!(
+            unsafe {
+                grew(
+                    c,
+                    run as *mut SortRun,
+                    tbl.as_ptr(),
+                    &mut Poll::new(&late),
+                    64,
+                )
+            },
+            Err(Stopped)
+        );
         assert_eq!(polls.get(), 4, "stopped at the fourth piece");
         let len = *LEN.lock().expect("len");
         assert!(len > before, "the region grew before the stop");
         let r = unsafe { &*(run as *const SortRun) };
         let end = SORTRUN_HDR + r.cap as usize * rb;
-        assert_eq!(r.cap as usize, (len - SORTRUN_HDR - SORTRUN_VAR_WORDS as usize) / rb, "the run spans the new extent");
-        assert_eq!((r.len, r.var_top() as usize, r.var_bytes(), r.row_bytes as usize), (0, end, 0, rb), "a valid empty run");
+        assert_eq!(
+            r.cap as usize,
+            (len - SORTRUN_HDR - SORTRUN_VAR_WORDS as usize) / rb,
+            "the run spans the new extent"
+        );
+        assert_eq!(
+            (
+                r.len,
+                r.var_top() as usize,
+                r.var_bytes(),
+                r.row_bytes as usize
+            ),
+            (0, end, 0, rb),
+            "a valid empty run"
+        );
     }
 }

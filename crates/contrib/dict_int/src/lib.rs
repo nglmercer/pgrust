@@ -20,7 +20,9 @@ pub struct DictInt {
 
 #[cold]
 fn invalid_param(msg: String) -> Box<PgError> {
-    PgError::error(msg).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE).into()
+    PgError::error(msg)
+        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+        .into()
 }
 
 /// C atoi: `(int) strtol(s, NULL, 10)` — leading space, optional sign,
@@ -45,7 +47,13 @@ pub fn c_atoi(s: &[u8]) -> i32 {
     let mut overflow = false;
     while i < s.len() && s[i].is_ascii_digit() {
         let d = (s[i] - b'0') as i64;
-        match acc.checked_mul(10).and_then(|v| if neg { v.checked_sub(d) } else { v.checked_add(d) }) {
+        match acc.checked_mul(10).and_then(|v| {
+            if neg {
+                v.checked_sub(d)
+            } else {
+                v.checked_add(d)
+            }
+        }) {
             Some(v) => acc = v,
             None => overflow = true,
         }
@@ -58,7 +66,11 @@ pub fn c_atoi(s: &[u8]) -> i32 {
 }
 
 pub fn dintdict_init(init: &DictInitData<'_>) -> PgResult<DictInt> {
-    let mut d = DictInt { maxlen: 6, rejectlong: false, absval: false };
+    let mut d = DictInt {
+        maxlen: 6,
+        rejectlong: false,
+        absval: false,
+    };
     for (i, (name, value)) in init.dict_options.iter().enumerate() {
         match name.as_slice() {
             b"maxlen" => {
@@ -113,12 +125,20 @@ pub fn dintdict_lexeme<'a>(d: &DictInt, token: &'a [u8]) -> Option<&'a [u8]> {
     Some(txt)
 }
 
-fn dintdict_lexize<'mcx>(mcx: Mcx<'mcx>, d: &DictInt, token: &[u8]) -> PgResult<LexizeResult<'mcx>> {
+fn dintdict_lexize<'mcx>(
+    mcx: Mcx<'mcx>,
+    d: &DictInt,
+    token: &[u8],
+) -> PgResult<LexizeResult<'mcx>> {
     let mut out = PgVec::new_in(mcx);
     if let Some(txt) = dintdict_lexeme(d, token) {
         let mut lexeme = vec_with_capacity_in(mcx, txt.len())?;
         lexeme.extend_from_slice(txt);
-        out.push(TsLexeme { nvariant: 0, flags: 0, lexeme });
+        out.push(TsLexeme {
+            nvariant: 0,
+            flags: 0,
+            lexeme,
+        });
     }
     Ok(LexizeResult(out))
 }
@@ -158,18 +178,28 @@ dfmgr::builtin_library_seams!();
 mod tests {
     use super::*;
 
-    const DEFAULT: DictInt = DictInt { maxlen: 6, rejectlong: false, absval: false };
+    const DEFAULT: DictInt = DictInt {
+        maxlen: 6,
+        rejectlong: false,
+        absval: false,
+    };
 
     #[test]
     fn default_trims_to_six() {
         assert_eq!(dintdict_lexeme(&DEFAULT, b"12345678"), Some(&b"123456"[..]));
         assert_eq!(dintdict_lexeme(&DEFAULT, b"129"), Some(&b"129"[..]));
-        assert_eq!(dintdict_lexeme(&DEFAULT, b"-40865854"), Some(&b"-40865"[..]));
+        assert_eq!(
+            dintdict_lexeme(&DEFAULT, b"-40865854"),
+            Some(&b"-40865"[..])
+        );
     }
 
     #[test]
     fn absval_drops_sign_before_length_check() {
-        let d = DictInt { absval: true, ..DEFAULT };
+        let d = DictInt {
+            absval: true,
+            ..DEFAULT
+        };
         assert_eq!(dintdict_lexeme(&d, b"-40865854"), Some(&b"408658"[..]));
         assert_eq!(dintdict_lexeme(&d, b"+40865854"), Some(&b"408658"[..]));
         assert_eq!(dintdict_lexeme(&d, b"-"), Some(&b""[..]));
@@ -177,7 +207,11 @@ mod tests {
 
     #[test]
     fn rejectlong_rejects() {
-        let d = DictInt { absval: true, rejectlong: true, ..DEFAULT };
+        let d = DictInt {
+            absval: true,
+            rejectlong: true,
+            ..DEFAULT
+        };
         assert_eq!(dintdict_lexeme(&d, b"-40865854"), None);
         assert_eq!(dintdict_lexeme(&d, b"-4086585"), None);
         assert_eq!(dintdict_lexeme(&d, b"-408658"), Some(&b"408658"[..]));

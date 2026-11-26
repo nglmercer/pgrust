@@ -144,23 +144,22 @@ pub(crate) fn with_state<R>(f: impl for<'mcx> FnOnce(&mut InvalState<'mcx>) -> R
 #[cold]
 #[inline(never)]
 fn init_state(slot: &mut Option<ManuallyDrop<McxOwned<InvalStateTy>>>) {
-    let owned =
-        McxOwned::<InvalStateTy>::try_new(MemoryContext::new("CacheInvalidation"), |mcx| {
-            Ok(InvalState {
-                mcx,
-                msg_arrays: [PgVec::new_in(mcx), PgVec::new_in(mcx)],
-                trans_stack: PgVec::new_in(mcx),
-                inplace_info: None,
-                stamp_touched: 0,
-                pending: PendingSummary::default(),
-                rel_scopes: PgVec::new_in(mcx),
-                cat_scopes: PgVec::new_in(mcx),
-                cat_unscoped: 0,
-                support_families: PgVec::new_in(mcx),
-                wal_scratch: [PgVec::new_in(mcx), PgVec::new_in(mcx)],
-            })
+    let owned = McxOwned::<InvalStateTy>::try_new(MemoryContext::new("CacheInvalidation"), |mcx| {
+        Ok(InvalState {
+            mcx,
+            msg_arrays: [PgVec::new_in(mcx), PgVec::new_in(mcx)],
+            trans_stack: PgVec::new_in(mcx),
+            inplace_info: None,
+            stamp_touched: 0,
+            pending: PendingSummary::default(),
+            rel_scopes: PgVec::new_in(mcx),
+            cat_scopes: PgVec::new_in(mcx),
+            cat_unscoped: 0,
+            support_families: PgVec::new_in(mcx),
+            wal_scratch: [PgVec::new_in(mcx), PgVec::new_in(mcx)],
         })
-        .expect("CacheInvalidation context allocation");
+    })
+    .expect("CacheInvalidation context allocation");
     *slot = Some(ManuallyDrop::new(owned));
     // Session-memory teardown (FPBUDGET-1): freed at clean task end.
     ::mcx::register_session_cleanup(Box::new(|| {
@@ -207,17 +206,31 @@ pub fn PendingInvalidationsTouch(relids: &[Oid], cat_ids: &[i32]) -> bool {
 /// storage alone changed moves only the storage readers). `under`: the reads were made under the DDL, so a row-stamped
 /// cache's row the transaction created touches them too (a read before the DDL cannot have found that row, D3866; a
 /// read under it can, and must not outlive it).
-pub fn PendingInvalidationsTouchParts(relids: &[Oid], storage: &[Oid], cat_ids: &[i32], under: bool) -> bool {
+pub fn PendingInvalidationsTouchParts(
+    relids: &[Oid],
+    storage: &[Oid],
+    cat_ids: &[i32],
+    under: bool,
+) -> bool {
     with_state(|state| {
         let (p, touched) = (&state.pending, state.stamp_touched);
-        let scope = |r: Oid| if p.has_rel(r) { rel_scope(&state.rel_scopes, r) } else { 0 };
+        let scope = |r: Oid| {
+            if p.has_rel(r) {
+                rel_scope(&state.rel_scopes, r)
+            } else {
+                0
+            }
+        };
         p.all
             || cat_ids.iter().any(|&id| {
                 let bit = eoxact::stamp_bit(id);
-                state.cat_unscoped & bit != 0 && (under || !l2cache::row_stamped(id) || touched & bit != 0)
+                state.cat_unscoped & bit != 0
+                    && (under || !l2cache::row_stamped(id) || touched & bit != 0)
             })
             || relids.iter().any(|&r| scope(r) & REL_SCOPE_ALL != 0)
-            || storage.iter().any(|&r| scope(r) & (REL_SCOPE_ALL | REL_SCOPE_STORAGE) != 0)
+            || storage
+                .iter()
+                .any(|&r| scope(r) & (REL_SCOPE_ALL | REL_SCOPE_STORAGE) != 0)
     })
 }
 
@@ -237,7 +250,11 @@ pub(crate) struct PendingSummary {
 
 impl Default for PendingSummary {
     fn default() -> Self {
-        PendingSummary { cats: 0, all: false, rels: [0; 64] }
+        PendingSummary {
+            cats: 0,
+            all: false,
+            rels: [0; 64],
+        }
     }
 }
 
@@ -258,7 +275,9 @@ impl PendingSummary {
     }
 
     pub(crate) fn has_rel(&self, rel: Oid) -> bool {
-        Self::rel_bits(rel).iter().all(|&b| self.rels[b / 64] & (1u64 << (b % 64)) != 0)
+        Self::rel_bits(rel)
+            .iter()
+            .all(|&b| self.rels[b / 64] & (1u64 << (b % 64)) != 0)
     }
 }
 
@@ -312,14 +331,21 @@ pub(crate) fn note_rel_scope(state: &mut InvalState<'_>, rel_id: Oid) {
     if let Some(e) = state.rel_scopes.iter_mut().find(|e| e.0 == rel_id) {
         e.1 |= scope;
     } else if scope != REL_SCOPE_ALL && rel_id != types_core::InvalidOid {
-        let before = if state.pending.has_rel(rel_id) { REL_SCOPE_ALL } else { 0 };
+        let before = if state.pending.has_rel(rel_id) {
+            REL_SCOPE_ALL
+        } else {
+            0
+        };
         state.rel_scopes.push((rel_id, scope | before));
     }
 }
 
 /// C3 S5: the scopes registered for `rel_id` this transaction (`REL_SCOPE_ALL` when not kept).
 pub(crate) fn rel_scope(scopes: &[(Oid, u8)], rel_id: Oid) -> u8 {
-    scopes.iter().find(|e| e.0 == rel_id).map_or(REL_SCOPE_ALL, |e| e.1)
+    scopes
+        .iter()
+        .find(|e| e.0 == rel_id)
+        .map_or(REL_SCOPE_ALL, |e| e.1)
 }
 
 /// C3 S5 (D3889): a catcache registration of row `hash` of cache `cache_id` under this backend's scope, as
@@ -334,17 +360,28 @@ pub(crate) fn note_cat_scope(state: &mut InvalState<'_>, cache_id: i32, hash: u3
     if scope == REL_SCOPE_ALL {
         state.cat_unscoped |= bit;
     }
-    if let Some(e) = state.cat_scopes.iter_mut().find(|e| e.0 == cache_id && e.1 == hash) {
+    if let Some(e) = state
+        .cat_scopes
+        .iter_mut()
+        .find(|e| e.0 == cache_id && e.1 == hash)
+    {
         e.2 |= scope;
     } else if scope != REL_SCOPE_ALL {
-        let before = if state.cat_unscoped & bit != 0 { REL_SCOPE_ALL } else { 0 };
+        let before = if state.cat_unscoped & bit != 0 {
+            REL_SCOPE_ALL
+        } else {
+            0
+        };
         state.cat_scopes.push((cache_id, hash, scope | before));
     }
 }
 
 /// C3 S5: the scopes registered for row `hash` of cache `cache_id` this transaction (`REL_SCOPE_ALL` when not kept).
 pub(crate) fn cat_scope(scopes: &[(i32, u32, u8)], cache_id: i32, hash: u32) -> u8 {
-    scopes.iter().find(|e| e.0 == cache_id && e.1 == hash).map_or(REL_SCOPE_ALL, |e| e.2)
+    scopes
+        .iter()
+        .find(|e| e.0 == cache_id && e.1 == hash)
+        .map_or(REL_SCOPE_ALL, |e| e.2)
 }
 
 pub fn set_debug_discard_caches(value: i32) {
@@ -364,7 +401,7 @@ pub fn init_seams() {
     // D3.2 overlay rule (coarse form): a session holding unbroadcast
     // invalidation messages modified a catalog this transaction; it must
     // build cache entries privately (no L2 read or publish) until commit.
-    l2cache::set_pending_invals_probe( TransactionHasPendingInvalidationMessages);
+    l2cache::set_pending_invals_probe(TransactionHasPendingInvalidationMessages);
     // C3 S4b: what a program read is checked against this transaction's own messages (gravity_deps `Deps::current`)
     l2cache::set_pending_touch_probe(PendingInvalidationsTouchParts);
 }

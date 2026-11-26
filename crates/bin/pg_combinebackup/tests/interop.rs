@@ -19,7 +19,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn testdata(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata")
+        .join(name)
 }
 
 fn bin() -> &'static str {
@@ -33,10 +35,7 @@ struct Fixture {
 impl Fixture {
     /// Extract full/incr1/incr2 into a fresh temp dir.
     fn extract(tag: &str) -> Fixture {
-        let root = std::env::temp_dir().join(format!(
-            "pgcb-test-{tag}-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("pgcb-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         for name in ["full", "incr1", "incr2"] {
@@ -168,8 +167,13 @@ struct ManifestSummary {
 fn parse_manifest_file(path: &Path) -> ManifestSummary {
     let buf = std::fs::read(path).unwrap();
     let root = mcx::MemoryContext::new("test");
-    let parsed = parse_manifest::ParsedManifest::parse(root.mcx(), &buf)
-        .unwrap_or_else(|e| panic!("manifest parse failed for {}: {}", path.display(), e.message()));
+    let parsed = parse_manifest::ParsedManifest::parse(root.mcx(), &buf).unwrap_or_else(|e| {
+        panic!(
+            "manifest parse failed for {}: {}",
+            path.display(),
+            e.message()
+        )
+    });
     assert_eq!(parsed.version, 2);
     let mut files = BTreeMap::new();
     for f in parsed.files {
@@ -298,7 +302,10 @@ fn run_error_case(args: &[&str], golden_name: &str, root: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr).replace(root, "/tmp/fx");
     let actual = format!("{}exit={}\n", stderr, output.status.code().unwrap_or(-1));
     let golden = std::fs::read_to_string(testdata(golden_name)).unwrap();
-    assert_eq!(actual, golden, "error output differs from stock for {golden_name}");
+    assert_eq!(
+        actual, golden,
+        "error output differs from stock for {golden_name}"
+    );
 }
 
 /// Chain-validation and option errors pinned byte-for-byte to stock output

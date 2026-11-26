@@ -49,7 +49,9 @@ fn program(holders: usize, fallthrough_only: usize, incoming_value: bool, swap: 
         s.push_str(&format!("      (s{k} (iadd {prev} m{k}))\n"));
         prev = format!("s{k}");
     }
-    s.push_str(&format!("      (recl (iadd {prev} one))\n      (br join recl))\n"));
+    s.push_str(&format!(
+        "      (recl (iadd {prev} one))\n      (br join recl))\n"
+    ));
     s.push_str("    (block join ((rec i64))\n      (t0 (iadd row rec))\n");
     let mut prev = String::from("t0");
     for k in 1..=holders {
@@ -84,16 +86,35 @@ fn check(holders: usize, fallthrough_only: usize, incoming_value: bool, swap: bo
         let mut total = 0i64;
         for i in 0..n {
             let go = i & 1 == 1;
-            let rec = if (go && !swap) || (!go && swap) { ms + 1 } else if incoming_value { mv } else { 0 };
+            let rec = if (go && !swap) || (!go && swap) {
+                ms + 1
+            } else if incoming_value {
+                mv
+            } else {
+                0
+            };
             total += row + rec + hs;
         }
         total
     };
     // The accumulator is in memory: each backend gets a fresh one.
-    let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, &mut acc as *mut i64 as u64, n as u64]).unwrap();
+    let interp = gravity_interp::Interp::new(&p)
+        .run(
+            Func(0),
+            &[cells.as_ptr() as u64, &mut acc as *mut i64 as u64, n as u64],
+        )
+        .unwrap();
     assert_eq!(interp, vec![want as u64], "interpreter: holders {holders} fallthrough_only {fallthrough_only} incoming_value {incoming_value} swap {swap}");
     let mut acc2 = 0i64;
-    let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, &mut acc2 as *mut i64 as u64, n as u64]);
+    let native = common::native(
+        &p,
+        Func(0),
+        &[
+            cells.as_ptr() as u64,
+            &mut acc2 as *mut i64 as u64,
+            n as u64,
+        ],
+    );
     assert_eq!(native, interp, "native vs interpreter: holders {holders} fallthrough_only {fallthrough_only} incoming_value {incoming_value} swap {swap}");
 }
 
@@ -158,13 +179,21 @@ fn demotion_program_nc(nk: usize, nm: usize, phi_uses: usize, NC: usize) -> Prog
       (z (const i64 0))
 "#,
     );
-    s.push_str(&format!("      (br loop z z{}))
-", " z".repeat(NC)));
-    s.push_str(&format!("    (block loop ((i i64) (acc i64){})
-", (1..=NC).map(|c| format!(" (c{c} i64)")).collect::<String>()));
-    s.push_str("      (h (load i64 p 0))
+    s.push_str(&format!(
+        "      (br loop z z{}))
+",
+        " z".repeat(NC)
+    ));
+    s.push_str(&format!(
+        "    (block loop ((i i64) (acc i64){})
+",
+        (1..=NC).map(|c| format!(" (c{c} i64)")).collect::<String>()
+    ));
+    s.push_str(
+        "      (h (load i64 p 0))
       (n (load i64 p 248))
-");
+",
+    );
     for k in 1..=nk {
         s.push_str(&format!("      (k{k} (load i64 p {}))\n", 8 * k));
     }
@@ -180,7 +209,9 @@ fn demotion_program_nc(nk: usize, nm: usize, phi_uses: usize, NC: usize) -> Prog
     s.push_str(&format!("      (br join {prev}))\n    (block join ((r i64))\n      ((call_host touch q))\n      (s0 (iadd h r))\n"));
     let mut prev = String::from("s0");
     for k in 1..=nk {
-        s.push_str(&format!("      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"));
+        s.push_str(&format!(
+            "      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"
+        ));
         prev = format!("s{k}");
     }
     for u in 1..=phi_uses {
@@ -190,24 +221,37 @@ fn demotion_program_nc(nk: usize, nm: usize, phi_uses: usize, NC: usize) -> Prog
     // The counters advance by one per iteration and are summed into the
     // result at the end.
     for c in 1..=NC {
-        s.push_str(&format!("      (c{c}n (iadd c{c} one))
-"));
+        s.push_str(&format!(
+            "      (c{c}n (iadd c{c} one))
+"
+        ));
     }
-    s.push_str(&format!("      (acc1 (iadd acc {prev}))
+    s.push_str(&format!(
+        "      (acc1 (iadd acc {prev}))
       (i1 (iadd i one))
       (more (icmp slt i1 n))
       (condbr more (loop i1 acc1{}) (exit acc1{})))
-", (1..=NC).map(|c| format!(" c{c}n")).collect::<String>(), (1..=NC).map(|c| format!(" c{c}n")).collect::<String>()));
-    s.push_str(&format!("    (block exit ((res i64){})
-", (1..=NC).map(|c| format!(" (e{c} i64)")).collect::<String>()));
+",
+        (1..=NC).map(|c| format!(" c{c}n")).collect::<String>(),
+        (1..=NC).map(|c| format!(" c{c}n")).collect::<String>()
+    ));
+    s.push_str(&format!(
+        "    (block exit ((res i64){})
+",
+        (1..=NC).map(|c| format!(" (e{c} i64)")).collect::<String>()
+    ));
     let mut prev = String::from("res");
     for c in 1..=NC {
-        s.push_str(&format!("      (r{c} (iadd {prev} e{c}))
-"));
+        s.push_str(&format!(
+            "      (r{c} (iadd {prev} e{c}))
+"
+        ));
         prev = format!("r{c}");
     }
-    s.push_str(&format!("      (return {prev}))))
-"));
+    s.push_str(&format!(
+        "      (return {prev}))))
+"
+    ));
     // `GRAVITY_EDGE_DUMP=<dir>` writes the program text (for `asm_debug`).
     if let Ok(dir) = std::env::var("GRAVITY_EDGE_DUMP") {
         std::fs::write(format!("{dir}/demotion-{nk}-{nm}-{phi_uses}.txt"), &s).unwrap();
@@ -245,13 +289,17 @@ fn demotion_program_straight(nk: usize, nm: usize, phi_uses: usize) -> Program {
     s.push_str("      (c (icmp ne flag z))\n      (condbr c (arma) (join z)))\n    (block arma ()\n      (y0 (iadd flag z))\n");
     let mut prev = String::from("y0");
     for m in 1..=nm {
-        s.push_str(&format!("      (w{m} (iadd m{m} m{m}))\n      (y{m} (iadd {prev} w{m}))\n"));
+        s.push_str(&format!(
+            "      (w{m} (iadd m{m} m{m}))\n      (y{m} (iadd {prev} w{m}))\n"
+        ));
         prev = format!("y{m}");
     }
     s.push_str(&format!("      (br join {prev}))\n    (block join ((r i64))\n      ((call_host touch q))\n      (s0 (iadd h r))\n"));
     let mut prev = String::from("s0");
     for k in 1..=nk {
-        s.push_str(&format!("      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"));
+        s.push_str(&format!(
+            "      (t{k} (iadd k{k} k{k}))\n      (s{k} (iadd {prev} t{k}))\n"
+        ));
         prev = format!("s{k}");
     }
     for u in 1..=phi_uses {
@@ -283,11 +331,27 @@ fn a_heavy_phi_must_not_demote_a_holder_inside_the_edge_straight() {
             let r = if flag != 0 { flag + ms } else { 0 };
             let want = h + r + ks + r * phi_uses as i64;
             let mut touched = 0i64;
-            let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]).unwrap();
-            assert_eq!(interp, vec![want as u64], "interpreter: nk {nk} nm {nm} phi_uses {phi_uses} flag {flag}");
+            let interp = gravity_interp::Interp::new(&p)
+                .run(
+                    Func(0),
+                    &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+                )
+                .unwrap();
+            assert_eq!(
+                interp,
+                vec![want as u64],
+                "interpreter: nk {nk} nm {nm} phi_uses {phi_uses} flag {flag}"
+            );
             let mut touched = 0i64;
-            let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]);
-            assert_eq!(native, interp, "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses} flag {flag}");
+            let native = common::native(
+                &p,
+                Func(0),
+                &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+            );
+            assert_eq!(
+                native, interp,
+                "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses} flag {flag}"
+            );
             assert_eq!(touched, 1000);
         }
     }
@@ -304,19 +368,41 @@ fn a_heavy_phi_must_not_demote_a_holder_inside_the_edge() {
             let h = cells[0];
             let ks: i64 = (1..=nk).map(|k| 2 * cells[k]).sum();
             let ms: i64 = (1..=nm).map(|m| cells[16 + m]).sum();
-            (0..n).map(|i| {
-                let r = if i & 1 == 1 { i + n + ms } else { 0 };
-                h + r + ks + r * phi_uses as i64
-            }).sum::<i64>()
+            (0..n)
+                .map(|i| {
+                    let r = if i & 1 == 1 { i + n + ms } else { 0 };
+                    h + r + ks + r * phi_uses as i64
+                })
+                .sum::<i64>()
         };
         let mut touched = 0i64;
-        let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]).unwrap();
-        assert_eq!(interp, vec![want as u64], "interpreter: nk {nk} nm {nm} phi_uses {phi_uses}");
+        let interp = gravity_interp::Interp::new(&p)
+            .run(
+                Func(0),
+                &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+            )
+            .unwrap();
+        assert_eq!(
+            interp,
+            vec![want as u64],
+            "interpreter: nk {nk} nm {nm} phi_uses {phi_uses}"
+        );
         assert_eq!(touched, 1000 * n);
         let mut touched = 0i64;
-        let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]);
-        assert_eq!(native, interp, "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses}");
-        assert_eq!(touched, 1000 * n, "native: the join's call ran once per iteration");
+        let native = common::native(
+            &p,
+            Func(0),
+            &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+        );
+        assert_eq!(
+            native, interp,
+            "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses}"
+        );
+        assert_eq!(
+            touched,
+            1000 * n,
+            "native: the join's call ran once per iteration"
+        );
     }
 }
 
@@ -329,23 +415,48 @@ fn many_loop_carried_phis_agree_with_the_interpreter() {
     let mut cells: Vec<i64> = (0..31).map(|i| 0x4000_0000 + 7919 * i as i64).collect();
     let n = 6i64;
     cells.push(n);
-    for (nk, nm, phi_uses, nc) in [(8, 8, 12, 9), (8, 8, 12, 13), (6, 6, 8, 15), (8, 8, 4, 20), (4, 4, 4, 26)] {
+    for (nk, nm, phi_uses, nc) in [
+        (8, 8, 12, 9),
+        (8, 8, 12, 13),
+        (6, 6, 8, 15),
+        (8, 8, 4, 20),
+        (4, 4, 4, 26),
+    ] {
         let p = demotion_program_nc(nk, nm, phi_uses, nc);
         let want = {
             let h = cells[0];
             let ks: i64 = (1..=nk).map(|k| 2 * cells[k]).sum();
             let ms: i64 = (1..=nm).map(|m| cells[16 + m]).sum();
-            (0..n).map(|i| {
-                let r = if i & 1 == 1 { i + n + ms } else { 0 };
-                h + r + ks + r * phi_uses as i64
-            }).sum::<i64>() + nc as i64 * n
+            (0..n)
+                .map(|i| {
+                    let r = if i & 1 == 1 { i + n + ms } else { 0 };
+                    h + r + ks + r * phi_uses as i64
+                })
+                .sum::<i64>()
+                + nc as i64 * n
         };
         let mut touched = 0i64;
-        let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]).unwrap();
-        assert_eq!(interp, vec![want as u64], "interpreter: nk {nk} nm {nm} phi_uses {phi_uses} nc {nc}");
+        let interp = gravity_interp::Interp::new(&p)
+            .run(
+                Func(0),
+                &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+            )
+            .unwrap();
+        assert_eq!(
+            interp,
+            vec![want as u64],
+            "interpreter: nk {nk} nm {nm} phi_uses {phi_uses} nc {nc}"
+        );
         let mut touched = 0i64;
-        let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]);
-        assert_eq!(native, interp, "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses} nc {nc}");
+        let native = common::native(
+            &p,
+            Func(0),
+            &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+        );
+        assert_eq!(
+            native, interp,
+            "native vs interpreter: nk {nk} nm {nm} phi_uses {phi_uses} nc {nc}"
+        );
     }
 }
 
@@ -365,12 +476,22 @@ fn narrow_phis_program(nc: usize, nf: usize) -> Program {
       (zb (const i8 0))
 "#,
     );
-    s.push_str(&format!("      (br loop z z{}{}))\n", " z".repeat(nc), " zb".repeat(nf)));
-    s.push_str(&format!("    (block loop ((i i64) (acc i64){}{})\n", (1..=nc).map(|c| format!(" (c{c} i64)")).collect::<String>(), (1..=nf).map(|f| format!(" (f{f} i8)")).collect::<String>()));
+    s.push_str(&format!(
+        "      (br loop z z{}{}))\n",
+        " z".repeat(nc),
+        " zb".repeat(nf)
+    ));
+    s.push_str(&format!(
+        "    (block loop ((i i64) (acc i64){}{})\n",
+        (1..=nc).map(|c| format!(" (c{c} i64)")).collect::<String>(),
+        (1..=nf).map(|f| format!(" (f{f} i8)")).collect::<String>()
+    ));
     s.push_str("      (h (load i64 p 0))\n      (n (load i64 p 248))\n      (one (const i64 1))\n      (oneb (const i8 1))\n      (bit (iand i one))\n      (c (icmp eq bit one))\n      (condbr c (arma) (join z)))\n    (block arma ()\n      (y0 (iadd i n))\n      (br join y0))\n    (block join ((r i64))\n      ((call_host touch q))\n      (s0 (iadd h r))\n");
     let mut prev = String::from("s0");
     for c in 1..=nc {
-        s.push_str(&format!("      (c{c}n (iadd c{c} one))\n      (s{c} (iadd {prev} c{c}n))\n"));
+        s.push_str(&format!(
+            "      (c{c}n (iadd c{c} one))\n      (s{c} (iadd {prev} c{c}n))\n"
+        ));
         prev = format!("s{c}");
     }
     for f in 1..=nf {
@@ -397,17 +518,28 @@ fn narrow_loop_carried_phis_agree_with_the_interpreter() {
         let p = narrow_phis_program(nc, nf);
         let want = {
             let h = cells[0];
-            (0..n).map(|i| {
-                let r = if i & 1 == 1 { i + n } else { 0 };
-                // counters: c_k after i iterations = i, and c_kn = i + 1; flags toggle: f after i iterations = i % 2, f_n = (i + 1) % 2
-                h + r + nc as i64 * (i + 1) + nf as i64 * ((i + 1) % 2)
-            }).sum::<i64>()
+            (0..n)
+                .map(|i| {
+                    let r = if i & 1 == 1 { i + n } else { 0 };
+                    // counters: c_k after i iterations = i, and c_kn = i + 1; flags toggle: f after i iterations = i % 2, f_n = (i + 1) % 2
+                    h + r + nc as i64 * (i + 1) + nf as i64 * ((i + 1) % 2)
+                })
+                .sum::<i64>()
         };
         let mut touched = 0i64;
-        let interp = gravity_interp::Interp::new(&p).run(Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]).unwrap();
+        let interp = gravity_interp::Interp::new(&p)
+            .run(
+                Func(0),
+                &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+            )
+            .unwrap();
         assert_eq!(interp, vec![want as u64], "interpreter: nc {nc} nf {nf}");
         let mut touched = 0i64;
-        let native = common::native(&p, Func(0), &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64]);
+        let native = common::native(
+            &p,
+            Func(0),
+            &[cells.as_ptr() as u64, &mut touched as *mut i64 as u64],
+        );
         assert_eq!(native, interp, "native vs interpreter: nc {nc} nf {nf}");
     }
 }

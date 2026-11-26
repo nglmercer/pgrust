@@ -30,7 +30,20 @@ pub enum Milestone {
 
 impl Milestone {
     pub const COUNT: usize = 12;
-    pub const ALL: [Milestone; Milestone::COUNT] = [Milestone::M0, Milestone::M1, Milestone::M2, Milestone::M3, Milestone::M4, Milestone::M5, Milestone::M6, Milestone::M7, Milestone::M8, Milestone::M9, Milestone::M10, Milestone::M11];
+    pub const ALL: [Milestone; Milestone::COUNT] = [
+        Milestone::M0,
+        Milestone::M1,
+        Milestone::M2,
+        Milestone::M3,
+        Milestone::M4,
+        Milestone::M5,
+        Milestone::M6,
+        Milestone::M7,
+        Milestone::M8,
+        Milestone::M9,
+        Milestone::M10,
+        Milestone::M11,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -88,7 +101,11 @@ impl Variant {
 
     /// The refusal of this variant unbuilt: hook and milestone from its declaration, never written at a call site.
     pub const fn not_built(self) -> Reason {
-        Reason::NotBuilt { hook: self.hook(), variant: self, milestone: self.milestone() }
+        Reason::NotBuilt {
+            hook: self.hook(),
+            variant: self,
+            milestone: self.milestone(),
+        }
     }
 }
 
@@ -115,27 +132,60 @@ pub struct ShapeWhy(pub &'static str);
 
 /// A rechecking write over another pipeline's product (Gx::reads_product; D652): EvalPlanQual (execMain.c) must reuse the
 /// leader's InitPlan words / rebuild a join's build. The text keeps its D-id: markers name it.
-pub const READS_PRODUCT: ShapeWhy = ShapeWhy("a rechecking write that reads another pipeline's product (D652)");
+pub const READS_PRODUCT: ShapeWhy =
+    ShapeWhy("a rechecking write that reads another pipeline's product (D652)");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Reason {
     /// A kind or road the statement needs whose milestone has not landed (plan §3.1, R-A).
-    NotBuilt { hook: &'static str, variant: Variant, milestone: Milestone },
-    NumericTooWide { precision: u16, op: NumOp },
-    NoOrder { typid: u32 },
-    NoHash { typid: u32 },
-    Collation { coll: u32, why: CollWhy },
-    JoinScale { a: NumTypmod, b: NumTypmod },
-    Shape { why: ShapeWhy },
-    Width { needed: u32, have: u32 },
-    Grant { life: LifeId, needed: u64, share: u64 },
-    Stopgap { d: u16 },
-    Bug { payload: &'static str },
+    NotBuilt {
+        hook: &'static str,
+        variant: Variant,
+        milestone: Milestone,
+    },
+    NumericTooWide {
+        precision: u16,
+        op: NumOp,
+    },
+    NoOrder {
+        typid: u32,
+    },
+    NoHash {
+        typid: u32,
+    },
+    Collation {
+        coll: u32,
+        why: CollWhy,
+    },
+    JoinScale {
+        a: NumTypmod,
+        b: NumTypmod,
+    },
+    Shape {
+        why: ShapeWhy,
+    },
+    Width {
+        needed: u32,
+        have: u32,
+    },
+    Grant {
+        life: LifeId,
+        needed: u64,
+        share: u64,
+    },
+    Stopgap {
+        d: u16,
+    },
+    Bug {
+        payload: &'static str,
+    },
     /// A pending interrupt stopped the lowering (D231, `cancelpoll::interrupts::pending`): the admission raises it.
     Interrupted,
     /// A scan of relation `relid` whose table AM is neither heap nor pgrc: v4's sources read only those two page formats
     /// (standing ruling: foreign AMs may refuse).
-    UnsupportedAm { relid: u32 },
+    UnsupportedAm {
+        relid: u32,
+    },
 }
 
 impl Reason {
@@ -170,12 +220,16 @@ impl Reason {
     /// The text built from compile-time facts only (variant, hook, milestone, static strings, enum fields): a finite set.
     fn static_text(&self) -> String {
         match self {
-            Reason::NotBuilt { hook, variant, milestone } => format!("NotBuilt {}: {hook} {}", milestone.name(), variant.name()), // alloc: Cold
+            Reason::NotBuilt {
+                hook,
+                variant,
+                milestone,
+            } => format!("NotBuilt {}: {hook} {}", milestone.name(), variant.name()), // alloc: Cold
             Reason::NumericTooWide { op, .. } => format!("NumericTooWide: {op:?}"), // alloc: Cold
-            Reason::Collation { why, .. } => format!("Collation: {why:?}"), // alloc: Cold
-            Reason::Shape { why } => format!("Shape: {}", why.0), // alloc: Cold
-            Reason::Bug { payload } => format!("Bug: {payload}"), // alloc: Cold
-            r => r.variant().to_string(), // alloc: Cold
+            Reason::Collation { why, .. } => format!("Collation: {why:?}"),         // alloc: Cold
+            Reason::Shape { why } => format!("Shape: {}", why.0),                   // alloc: Cold
+            Reason::Bug { payload } => format!("Bug: {payload}"),                   // alloc: Cold
+            r => r.variant().to_string(),                                           // alloc: Cold
         }
     }
 
@@ -194,7 +248,16 @@ impl Reason {
 impl fmt::Display for Reason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Reason::NotBuilt { hook, variant, milestone } => write!(f, "NotBuilt {{ hook: {hook}, variant: {}, milestone: {} }}", variant.name(), milestone.name()),
+            Reason::NotBuilt {
+                hook,
+                variant,
+                milestone,
+            } => write!(
+                f,
+                "NotBuilt {{ hook: {hook}, variant: {}, milestone: {} }}",
+                variant.name(),
+                milestone.name()
+            ),
             r => write!(f, "{r:?}"),
         }
     }
@@ -244,7 +307,10 @@ macro_rules! refuse {
 #[macro_export]
 macro_rules! not_built {
     ($cx:expr, $variant:expr) => {
-        $crate::admit::refusal::raise($crate::admit::refusal::Site::node(&$cx), $crate::admit::refusal::Variant::not_built($variant))
+        $crate::admit::refusal::raise(
+            $crate::admit::refusal::Site::node(&$cx),
+            $crate::admit::refusal::Variant::not_built($variant),
+        )
     };
 }
 
@@ -263,14 +329,22 @@ pub fn check_interrupts(node: i32) {
 #[cold]
 #[inline(never)]
 pub fn raise(node: i32, reason: Reason) -> ! {
-    std::panic::resume_unwind(Box::new(Refusal { reason, node, native_rel: 0 })) // alloc: Cold
+    std::panic::resume_unwind(Box::new(Refusal {
+        reason,
+        node,
+        native_rel: 0,
+    })) // alloc: Cold
 }
 
 /// PGRCSERVE M0 (D2): `raise` of a shape refusal only pgrc relation `relid`'s native code lane meets (D767, D1353).
 #[cold]
 #[inline(never)]
 pub fn refuse_native(node: i32, relid: u32, why: ShapeWhy) -> ! {
-    std::panic::resume_unwind(Box::new(Refusal { reason: Reason::Shape { why }, node, native_rel: relid })) // alloc: Cold
+    std::panic::resume_unwind(Box::new(Refusal {
+        reason: Reason::Shape { why },
+        node,
+        native_rel: relid,
+    })) // alloc: Cold
 }
 
 pub(crate) static BUGS: AtomicU64 = AtomicU64::new(0);
@@ -280,10 +354,20 @@ pub(crate) fn bug(node: i32, payload: Box<dyn core::any::Any + Send>) -> Refusal
     let text = payload.downcast_ref::<&'static str>().copied();
     BUGS.fetch_add(1, Ordering::Relaxed);
     if text.is_none() {
-        let msg = payload.downcast_ref::<String>().map_or("(non-string payload)", String::as_str);
-        eprintln!("WARNING: gravity lowerv4: panic while lowering (Reason::Bug) node={node}: {msg}");
+        let msg = payload
+            .downcast_ref::<String>()
+            .map_or("(non-string payload)", String::as_str);
+        eprintln!(
+            "WARNING: gravity lowerv4: panic while lowering (Reason::Bug) node={node}: {msg}"
+        );
     }
-    Refusal { reason: Reason::Bug { payload: text.unwrap_or("a panic with a runtime message (logged)") }, node, native_rel: 0 }
+    Refusal {
+        reason: Reason::Bug {
+            payload: text.unwrap_or("a panic with a runtime message (logged)"),
+        },
+        node,
+        native_rel: 0,
+    }
 }
 
 /// A facade refusal (`gravity_lower::admit::refuse`) as the seam's refusal, with the text of the `refuse!` it replaces.
@@ -294,7 +378,11 @@ pub(crate) fn of_facade(r: gravity_lower::admit::Refuse) -> Refusal {
         Gap::Am(relid) => Reason::UnsupportedAm { relid },
         Gap::Invariant(what) => return bug(r.node, Box::new(what)), // alloc: Cold
     };
-    Refusal { reason, node: r.node, native_rel: 0 }
+    Refusal {
+        reason,
+        node: r.node,
+        native_rel: 0,
+    }
 }
 
 pub fn bugs() -> u64 {
@@ -332,6 +420,13 @@ impl Refusal {
             _ if oid != 0 => "type",
             _ => "",
         };
-        gravity_lower::Refusal { module: MODULE, what: intern(self.reason.static_text()), node: self.node, detail, oid, native_rel: self.native_rel }
+        gravity_lower::Refusal {
+            module: MODULE,
+            what: intern(self.reason.static_text()),
+            node: self.node,
+            detail,
+            oid,
+            native_rel: self.native_rel,
+        }
     }
 }

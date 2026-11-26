@@ -11,8 +11,12 @@ use crate::walk::Open;
 /// `check_collation_set`).
 pub fn sort_raises(facts: &dyn Facts, d: &SortDesc<'_>) -> bool {
     d.keys.iter().any(|k| {
-        let e = (k.resno as usize).checked_sub(1).and_then(|j| (j < d.tlist.len()).then(|| d.tlist.nth(j))).and_then(|n| n.as_target_entry());
-        e.and_then(|e| crate::catalog::expr_type::type_of(e.expr)).is_some_and(|t| indeterminate(facts, t, k.coll.oid))
+        let e = (k.resno as usize)
+            .checked_sub(1)
+            .and_then(|j| (j < d.tlist.len()).then(|| d.tlist.nth(j)))
+            .and_then(|n| n.as_target_entry());
+        e.and_then(|e| crate::catalog::expr_type::type_of(e.expr))
+            .is_some_and(|t| indeterminate(facts, t, k.coll.oid))
     })
 }
 
@@ -20,6 +24,8 @@ pub fn sort_raises(facts: &dyn Facts, d: &SortDesc<'_>) -> bool {
 /// call (`sort_raises`): PG's WindowAgg pulls that Sort at its first call, so no row reaches a partition or peer compare
 /// (decompose ops/window.rs `map`); lowerv4 serves the raise or refuses it by D1292's name (ops/sort/sort_raise.rs).
 pub fn reads_raising_sort(g: &PipelineGraph<'_>, facts: &dyn Facts, open: &Open<'_>) -> bool {
-    let Source::Breaker { slot } = open.source else { return false };
+    let Source::Breaker { slot } = open.source else {
+        return false;
+    };
     open.union.is_none() && crate::breakers::decl_of(g, slot).is_some_and(|d| matches!(g.pipelines[d.producer as usize].ops.last(), Some(Op::Sort(s)) if sort_raises(facts, s)))
 }

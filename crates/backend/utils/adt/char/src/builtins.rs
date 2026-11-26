@@ -1,7 +1,6 @@
 use ::datum::Datum;
 use ::types_error::PgResult;
-use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
+use ::types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 macro_rules! fc_char2 {
     ($($fc:ident: $core:ident;)*) => {$(
@@ -71,7 +70,9 @@ pub fn fc_char_text(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
 
 pub fn fc_hashchar(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let [a] = fcinfo.args_n::<1>();
-    Ok(Datum::from_u32(::hashfn::hash_bytes_uint32(a.value.as_char() as i32 as u32)))
+    Ok(Datum::from_u32(::hashfn::hash_bytes_uint32(
+        a.value.as_char() as i32 as u32,
+    )))
 }
 
 pub fn fc_hashcharextended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -103,5 +104,10 @@ pub const CHAR_BUILTINS: &[FmgrBuiltin] = &[
     b(2434, "charrecv", 1, fc_charrecv),
     b(2435, "charsend", 1, fc_charsend),
     // skipsupport: native resolution; fmgr-lookup parity row.
-    b(6406, "btcharskipsupport", 1, ::types_fmgr::fc_internal_dispatch_only),
+    b(
+        6406,
+        "btcharskipsupport",
+        1,
+        ::types_fmgr::fc_internal_dispatch_only,
+    ),
 ];

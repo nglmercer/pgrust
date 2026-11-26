@@ -34,7 +34,9 @@ impl<'a> PackedVarlena<'a> {
         unsafe {
             if varatt::varatt_is_1b_e(p) || (!varatt::varatt_is_1b(p) && !varatt::varatt_is_4b_u(p))
             {
-                panic!("fmgr: external/compressed varlena where the caller guaranteed an inline image");
+                panic!(
+                    "fmgr: external/compressed varlena where the caller guaranteed an inline image"
+                );
             }
         }
         PackedVarlena {
@@ -42,7 +44,6 @@ impl<'a> PackedVarlena<'a> {
             _image: PhantomData,
         }
     }
-
 
     #[inline]
     pub fn as_ptr(self) -> *const u8 {
@@ -157,7 +158,10 @@ unsafe fn detoast_arg<'m>(p: *const u8, mcx: Mcx<'m>) -> PgResult<PackedVarlena<
 /// C `pg_detoast_datum_packed` over a bare Datum (executor step paths that
 /// carry no fcinfo). Safety: `d` is a non-null live varlena datum.
 #[allow(clippy::missing_safety_doc)]
-pub unsafe fn datum_varlena_packed<'m>(d: ::datum::Datum, mcx: Mcx<'m>,) -> PgResult<PackedVarlena<'m>> {
+pub unsafe fn datum_varlena_packed<'m>(
+    d: ::datum::Datum,
+    mcx: Mcx<'m>,
+) -> PgResult<PackedVarlena<'m>> {
     // SAFETY: forwarded caller contract — header readable.
     unsafe {
         let p = d.as_usize() as *const u8;
@@ -167,7 +171,10 @@ pub unsafe fn datum_varlena_packed<'m>(d: ::datum::Datum, mcx: Mcx<'m>,) -> PgRe
         if varlena_header_underflows(p) {
             return Err(corrupt_varlena_header_error());
         }
-        Ok(PackedVarlena { ptr: p, _image: PhantomData, })
+        Ok(PackedVarlena {
+            ptr: p,
+            _image: PhantomData,
+        })
     }
 }
 

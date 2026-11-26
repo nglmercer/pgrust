@@ -8,15 +8,15 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Weak};
 
-use pgsync::{Mutex, OnceLock};
 use guc_tables::ConditionCacheMode;
+use pgsync::{Mutex, OnceLock};
 
 use crate::tinylfu;
 
 /// The set bits of `words` (`count` of them) as ascending row ordinals.
 fn survivors(words: &[u64], count: usize) -> Box<[u16]> {
     let mut out = Vec::with_capacity(count); // alloc: Cold (one publish per granule, freed with the entry)
-    // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
+                                             // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
     for (w, &m) in words.iter().enumerate() {
         let mut m = m;
         // bounded("small-fixed: the set bits of one 64-bit word")
@@ -88,7 +88,8 @@ pub struct Entry {
 /// are charged as they are taken, in its cache scope, and join the charge at the publish), and move back to the
 /// dropping thread's at its drop (the last `Arc`), just before they free: an entry unlinked while a source still holds it
 /// stays on the account while it is resident.
-const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::CondCache));
+const OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::CondCache));
 
 struct Counts {
     granules: Box<[AtomicU32]>,
@@ -97,19 +98,60 @@ struct Counts {
 }
 
 impl Entry {
-    fn new(owner: &Arc<dyn Any + Send + Sync>, granules: usize, wpg: usize, mode: ConditionCacheMode) -> Entry {
-        let counts = (mode == ConditionCacheMode::Full).then(|| Counts { granules: (0..granules).map(|_| AtomicU32::new(0)).collect(), known: AtomicU32::new(0), total: AtomicU64::new(0) }); // alloc: Cold
+    fn new(
+        owner: &Arc<dyn Any + Send + Sync>,
+        granules: usize,
+        wpg: usize,
+        mode: ConditionCacheMode,
+    ) -> Entry {
+        let counts = (mode == ConditionCacheMode::Full).then(|| Counts {
+            granules: (0..granules).map(|_| AtomicU32::new(0)).collect(),
+            known: AtomicU32::new(0),
+            total: AtomicU64::new(0),
+        }); // alloc: Cold
         let state = (0..granules).map(|_| AtomicU8::new(UNKNOWN)).collect(); // alloc: Cold
-        let words = (0..if mode >= ConditionCacheMode::Rows { granules } else { 0 }).map(|_| OnceLock::new()).collect(); // alloc: Cold
+        let words = (0..if mode >= ConditionCacheMode::Rows {
+            granules
+        } else {
+            0
+        })
+            .map(|_| OnceLock::new())
+            .collect(); // alloc: Cold
         let base = Self::base_bytes(granules, mode);
-        let held = Mutex::new(memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, base));
-        Entry { held, owner: Arc::downgrade(owner), state, words, wpg, counts, mode, charge: AtomicU64::new(base), used: AtomicU64::new(0) }
+        let held = Mutex::new(memledger::Charge::open(
+            OWNER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            base,
+        ));
+        Entry {
+            held,
+            owner: Arc::downgrade(owner),
+            state,
+            words,
+            wpg,
+            counts,
+            mode,
+            charge: AtomicU64::new(base),
+            used: AtomicU64::new(0),
+        }
     }
 
     /// Charge the Arc allocation and only the per-granule arrays present in this mode.
     fn base_bytes(granules: usize, mode: ConditionCacheMode) -> u64 {
         use core::mem::size_of;
-        let per = size_of::<AtomicU8>() + if mode >= ConditionCacheMode::Rows { size_of::<OnceLock<Mixed>>() } else { 0 } + if mode == ConditionCacheMode::Full { size_of::<AtomicU32>() } else { 0 };
+        let per = size_of::<AtomicU8>()
+            + if mode >= ConditionCacheMode::Rows {
+                size_of::<OnceLock<Mixed>>()
+            } else {
+                0
+            }
+            + if mode == ConditionCacheMode::Full {
+                size_of::<AtomicU32>()
+            } else {
+                0
+            };
         (2 * size_of::<usize>() + size_of::<Entry>() + granules * per) as u64
     }
 
@@ -118,10 +160,16 @@ impl Entry {
     }
 
     pub fn get(&self, g: usize) -> Hit<'_> {
-        match self.state.get(g).map_or(UNKNOWN, |s| s.load(Ordering::Acquire)) {
+        match self
+            .state
+            .get(g)
+            .map_or(UNKNOWN, |s| s.load(Ordering::Acquire))
+        {
             NONE => Hit::None,
             ALL => Hit::All,
-            MIXED => self.words[g].get().map_or(Hit::Unknown, |m| Hit::Mixed(&m.words)),
+            MIXED => self.words[g]
+                .get()
+                .map_or(Hit::Unknown, |m| Hit::Mixed(&m.words)),
             _ => Hit::Unknown,
         }
     }
@@ -129,7 +177,11 @@ impl Entry {
     /// The full-mode survivor count before delete vectors, `None` in other modes or while unknown.
     pub fn count(&self, g: usize) -> Option<u32> {
         let counts = self.counts.as_ref()?;
-        match self.state.get(g).map_or(UNKNOWN, |s| s.load(Ordering::Acquire)) {
+        match self
+            .state
+            .get(g)
+            .map_or(UNKNOWN, |s| s.load(Ordering::Acquire))
+        {
             UNKNOWN => None,
             _ => Some(counts.granules[g].load(Ordering::Relaxed)),
         }
@@ -138,16 +190,25 @@ impl Entry {
     /// The full-mode survivor total, `None` in other modes or until every granule is published.
     pub fn part_total(&self) -> Option<u64> {
         let counts = self.counts.as_ref()?;
-        (counts.known.load(Ordering::Acquire) as usize == self.state.len()).then(|| counts.total.load(Ordering::Relaxed))
+        (counts.known.load(Ordering::Acquire) as usize == self.state.len())
+            .then(|| counts.total.load(Ordering::Relaxed))
     }
 
     /// Granule `g`'s survivors as ascending row ordinals when it is a mixed granule that kept them (`put`'s `list_max`):
     /// the rows its `Hit::Mixed` words set, nothing else.
     pub fn rows(&self, g: usize) -> Option<&[u16]> {
-        if self.state.get(g).map_or(UNKNOWN, |s| s.load(Ordering::Acquire)) != MIXED {
+        if self
+            .state
+            .get(g)
+            .map_or(UNKNOWN, |s| s.load(Ordering::Acquire))
+            != MIXED
+        {
             return None;
         }
-        self.words[g].get().map(|m| &m.rows[..]).filter(|r| !r.is_empty())
+        self.words[g]
+            .get()
+            .map(|m| &m.rows[..])
+            .filter(|r| !r.is_empty())
     }
 
     /// Publish only the mode's permitted payload, ignoring bits past `rows`. Full mode additionally keeps sparse row
@@ -157,18 +218,29 @@ impl Entry {
             return;
         }
         let Some(s) = self.state.get(g) else { return };
-        if s.load(Ordering::Acquire) != UNKNOWN || rows == 0 || words.len() < rows.div_ceil(64) || rows > self.wpg * 64 {
+        if s.load(Ordering::Acquire) != UNKNOWN
+            || rows == 0
+            || words.len() < rows.div_ceil(64)
+            || rows > self.wpg * 64
+        {
             return;
         }
         let mut filled = 0u64;
         let n = rows.div_ceil(64);
-        let tail = if rows.is_multiple_of( 64) { !0u64 } else { (1u64 << (rows % 64)) - 1 };
+        let tail = if rows.is_multiple_of(64) {
+            !0u64
+        } else {
+            (1u64 << (rows % 64)) - 1
+        };
         let last = |i: usize, w: u64| if i + 1 == n { w & tail } else { w };
         let any = words[..n].iter().enumerate().any(|(i, &w)| last(i, w) != 0);
         if self.mode == ConditionCacheMode::Granule && any {
             return;
         }
-        let every = words[..n].iter().enumerate().all(|(i, &w)| last(i, w) == if i + 1 == n { tail } else { !0 });
+        let every = words[..n]
+            .iter()
+            .enumerate()
+            .all(|(i, &w)| last(i, w) == if i + 1 == n { tail } else { !0 });
         let mut survivors_n = 0u32;
         let v = if !any {
             NONE
@@ -181,13 +253,26 @@ impl Entry {
             // the entry's at the publish
             let cache = memledger::arena::cache_scope_for(OWNER, memledger::Kind::Region);
             let mut own = vec![0u64; self.wpg].into_boxed_slice(); // alloc: Cold charged OWNER
-            own[..n].iter_mut().enumerate().for_each(|(i, o)| *o = last(i, words[i]));
-            let count = own[..n].iter().map(|w| w.count_ones() as usize).sum::<usize>();
+            own[..n]
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, o)| *o = last(i, words[i]));
+            let count = own[..n]
+                .iter()
+                .map(|w| w.count_ones() as usize)
+                .sum::<usize>();
             survivors_n = count as u32;
-            let list: Box<[u16]> = if self.mode == ConditionCacheMode::Full && count <= list_max { survivors(&own[..n], count) } else { Box::default() };
+            let list: Box<[u16]> = if self.mode == ConditionCacheMode::Full && count <= list_max {
+                survivors(&own[..n], count)
+            } else {
+                Box::default()
+            };
             let taken = cache.finish();
             let add = (self.wpg * 8 + list.len().next_multiple_of(4) * 2) as u64;
-            match self.words[g].set(Mixed { words: own, rows: list }) {
+            match self.words[g].set(Mixed {
+                words: own,
+                rows: list,
+            }) {
                 Ok(()) => {
                     filled = add;
                     let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
@@ -215,9 +300,13 @@ impl Entry {
         if let Some(counts) = &self.counts {
             counts.granules[g].store(survivors_n, Ordering::Relaxed);
         }
-        if s.compare_exchange(UNKNOWN, v, Ordering::Release, Ordering::Relaxed).is_ok() {
+        if s.compare_exchange(UNKNOWN, v, Ordering::Release, Ordering::Relaxed)
+            .is_ok()
+        {
             if let Some(counts) = &self.counts {
-                counts.total.fetch_add(survivors_n as u64, Ordering::Relaxed);
+                counts
+                    .total
+                    .fetch_add(survivors_n as u64, Ordering::Relaxed);
                 counts.known.fetch_add(1, Ordering::Release);
             }
         }
@@ -283,7 +372,12 @@ fn order(lru: &mut BTreeMap<u64, Key>, tick: &mut u64, key: Key, e: &Entry, seg:
 /// cachepolicy (C5): move resident `e` into segment `to`, its bytes from its segment's total to `to`'s in the one word.
 fn move_seg(e: &Entry, to: u8) {
     let bits = (to as u64) << SEG_SHIFT;
-    let prev = e.charge.fetch_update(Ordering::AcqRel, Ordering::Acquire, |c| Some((c & !SEG) | bits)).unwrap_or_else(|c| c);
+    let prev = e
+        .charge
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |c| {
+            Some((c & !SEG) | bits)
+        })
+        .unwrap_or_else(|c| c);
     if prev & LIVE != 0 {
         let b = (prev & !META) as i64;
         SEG_HELD[seg_of(prev)].fetch_sub(b, Ordering::Relaxed);
@@ -319,7 +413,12 @@ impl Store {
 
     /// The next entry out at the budget: the first of the order by `EVICT_ORDER` (under lru the least recently used).
     fn victim(&self) -> Option<Key> {
-        EVICT_ORDER.iter().find_map(|&g| self.lru.range(order_key(g, 0)..order_key(g + 1, 0)).next().map(|(_, k)| *k))
+        EVICT_ORDER.iter().find_map(|&g| {
+            self.lru
+                .range(order_key(g, 0)..order_key(g + 1, 0))
+                .next()
+                .map(|(_, k)| *k)
+        })
     }
 
     /// Unlink `key`'s entry at the budget (an insert's or a trim's eviction): the byte clock, the ghost, the counts.
@@ -347,8 +446,14 @@ impl Store {
         let share = mempolicy::cache::tinylfu_protected(cap);
         // bounded("other: protected's least recent entries back to probation until protected holds its share, one move each, at most the protected entries; under the store lock, a stop would leave protected over its share")
         while seg_held(tinylfu::PROTECTED) > share {
-            let first = self.lru.range(order_key(tinylfu::PROTECTED, 0)..).next().map(|(&k, &v)| (k, v));
-            let Some((k, old)) = first.filter(|&(_, old)| old != key) else { break };
+            let first = self
+                .lru
+                .range(order_key(tinylfu::PROTECTED, 0)..)
+                .next()
+                .map(|(&k, &v)| (k, v));
+            let Some((k, old)) = first.filter(|&(_, old)| old != key) else {
+                break;
+            };
             let Some(oe) = self.map.get(&old) else { break };
             self.lru.remove(&k);
             move_seg(oe, tinylfu::PROBATION);
@@ -367,7 +472,9 @@ impl Store {
         let main = order_key(tinylfu::PROBATION, 0);
         // bounded("other: the window's least recent entries into main or out until the window holds its share, one move or eviction each, at most the window's entries; under the store lock, a stop would leave the window over its share")
         while seg_held(tinylfu::WINDOW) > window {
-            let Some((&wk, &cand)) = self.lru.range(..main).next() else { break };
+            let Some((&wk, &cand)) = self.lru.range(..main).next() else {
+                break;
+            };
             let Some(ce) = self.map.get(&cand) else { break };
             let over = held().saturating_sub(cap);
             if over == 0 {
@@ -391,7 +498,9 @@ impl Store {
             if bytes >= over && mempolicy::cache::tinylfu_admit(est(&cand), count) {
                 // bounded("other: the n victims counted just above, one eviction each")
                 for _ in 0..n {
-                    let Some((_, &v)) = self.lru.range(main..).next() else { break };
+                    let Some((_, &v)) = self.lru.range(main..).next() else {
+                        break;
+                    };
                     self.evict(&v, true);
                 }
                 if let Some(ce) = self.map.get(&cand) {
@@ -479,7 +588,12 @@ static CAP_EVICTED_BYTES: AtomicU64 = AtomicU64::new(0);
 static SEG_HELD: [AtomicI64; 3] = [AtomicI64::new(0), AtomicI64::new(0), AtomicI64::new(0)];
 /// cachepolicy (C5, W-TinyLFU), since start: window entries admitted into main past the sketch, refused by it (evicted),
 /// probation entries promoted to protected on a hit, protected entries demoted back to probation.
-static TLFU: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+static TLFU: [AtomicU64; 4] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
 const ADMITTED: usize = 0;
 const REJECTED: usize = 1;
 const PROMOTED: usize = 2;
@@ -493,7 +607,15 @@ fn seg_held(seg: u8) -> u64 {
 /// accounts view's `cachepolicy` rows).
 pub fn tinylfu_census() -> [u64; 7] {
     let c = |i: usize| TLFU[i].load(Ordering::Relaxed);
-    [c(ADMITTED), c(REJECTED), c(PROMOTED), c(DEMOTED), seg_held(tinylfu::WINDOW), seg_held(tinylfu::PROBATION), seg_held(tinylfu::PROTECTED)]
+    [
+        c(ADMITTED),
+        c(REJECTED),
+        c(PROMOTED),
+        c(DEMOTED),
+        seg_held(tinylfu::WINDOW),
+        seg_held(tinylfu::PROBATION),
+        seg_held(tinylfu::PROTECTED),
+    ]
 }
 
 pub fn cap_evictions() -> u64 {
@@ -519,7 +641,8 @@ pub fn capacity_seen() -> u64 {
     if CAPACITY_SET.load(Ordering::Relaxed) {
         CAPACITY.load(Ordering::Relaxed)
     } else {
-        crate::dict::text_hosts::reuse::store_bytes(gravity_program::cost::condition_cache_cap) as u64
+        crate::dict::text_hosts::reuse::store_bytes(gravity_program::cost::condition_cache_cap)
+            as u64
     }
 }
 
@@ -536,7 +659,9 @@ pub fn trim_to(bytes: u64) -> u64 {
         return 0;
     }
     // D4398: on the memory ladder's pass, nothing unlinked while another thread holds the store
-    let Some(mut guard) = memledger::ladder_pass::lock_or_skip(store()) else { return 0 };
+    let Some(mut guard) = memledger::ladder_pass::lock_or_skip(store()) else {
+        return 0;
+    };
     let s = &mut *guard;
     // bounded("other: the memory budget's reclaim hook: least recently used entries unlinked until the cache holds the asked bytes, one unlink each, at most the cache's entries; the reclaimer owns it, and a stop would leave the budget's ask unmet")
     while held() > bytes {
@@ -568,7 +693,11 @@ const fn in_tail(used: u64, tail: u64) -> bool {
 /// A key's word for the ghosts.
 #[inline]
 fn ghost_key(key: &Key) -> u64 {
-    key.0[0] ^ key.0[1].rotate_left(17) ^ key.1[0].rotate_left(31) ^ key.1[1].rotate_left(47) ^ key.2 as u64
+    key.0[0]
+        ^ key.0[1].rotate_left(17)
+        ^ key.1[0].rotate_left(31)
+        ^ key.1[1].rotate_left(47)
+        ^ key.2 as u64
 }
 
 /// Whether ghost key `k` is in the sample (one key in [`GHOST_SAMPLE`], `memledger::value::sampled`).
@@ -594,10 +723,14 @@ fn evicted(key: &Key, e: Option<&Entry>) {
 /// broker's plan on the memory watchdog's thread: no allocation and no wait (the LRU walked in order under `try_lock`;
 /// busy, or the store never made, the last mark stays).
 pub fn publish_tail() {
-    let Some(g) = STORE.get().and_then(memledger::value::try_lock) else { return };
+    let Some(g) = STORE.get().and_then(memledger::value::try_lock) else {
+        return;
+    };
     let tenth = held() / 10;
     let (mut tick, mut bytes) = (0u64, 0u64);
-    let order = EVICT_ORDER.iter().flat_map(|&s| g.lru.range(order_key(s, 0)..order_key(s + 1, 0)));
+    let order = EVICT_ORDER
+        .iter()
+        .flat_map(|&s| g.lru.range(order_key(s, 0)..order_key(s + 1, 0)));
     // bounded("other: the memory watchdog thread's walk of the LRU's coldest tenth of bytes under try_lock, outside any statement: no statement's cancel applies")
     for (&t, key) in order {
         if bytes >= tenth {
@@ -614,7 +747,13 @@ pub fn publish_tail() {
 /// `(hits, misses, granules published, entries evicted, bytes held)`.
 pub fn census() -> [u64; 5] {
     let v = memledger::value::stats(memledger::Consumer::CondCache);
-    [v.hits, v.misses, PUBLISHED.load(Ordering::Relaxed), EVICTED.load(Ordering::Relaxed), held()]
+    [
+        v.hits,
+        v.misses,
+        PUBLISHED.load(Ordering::Relaxed),
+        EVICTED.load(Ordering::Relaxed),
+        held(),
+    ]
 }
 
 fn held() -> u64 {
@@ -640,7 +779,7 @@ pub fn drop_all() -> usize {
     let mut s = pgsync::lock(store());
     let mut keys = memledger::ChargedVec::<Key>::new(Some(OWNER), memledger::Kind::Region);
     keys.with_vec(|v| v.extend(s.map.keys().copied())); // alloc: Exec charged OWNER
-    // bounded("other: a rig's restart stand-in that drops every entry, outside any statement: no statement's cancel applies")
+                                                        // bounded("other: a rig's restart stand-in that drops every entry, outside any statement: no statement's cancel applies")
     for k in keys.iter() {
         s.unlink(k);
     }
@@ -662,28 +801,62 @@ pub fn dead_bytes() -> u64 {
     let s = pgsync::lock(m);
     // one pass over the resident entries for a memory view's row (an iterator chain, no loop of ours: no bounded marker),
     // an atomic load each, no allocation
-    s.map.values().filter(|e| e.owner.strong_count() == 0).map(|e| e.bytes()).sum()
+    s.map
+        .values()
+        .filter(|e| e.owner.strong_count() == 0)
+        .map(|e| e.bytes())
+        .sum()
 }
 
 fn store() -> &'static Mutex<Store> {
-    STORE.get_or_init(|| Mutex::new(Store { map: HashMap::new(), lru: BTreeMap::new(), tick: 0, sketch: None, sweep_at: SWEEP_FLOOR, closed_seen: 0, swept_ns: 0 })) // alloc: Cold
+    STORE.get_or_init(|| {
+        Mutex::new(Store {
+            map: HashMap::new(),
+            lru: BTreeMap::new(),
+            tick: 0,
+            sketch: None,
+            sweep_at: SWEEP_FLOOR,
+            closed_seen: 0,
+            swept_ns: 0,
+        })
+    }) // alloc: Cold
 }
 
 /// cachepolicy (C5): a sketch for the store, its words on the condition cache's charge.
 fn new_sketch() -> tinylfu::Sketch {
-    let charge = memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, tinylfu::Sketch::bytes());
-    tinylfu::Sketch::new(vec![0u64; tinylfu::SKETCH_WORDS].into_boxed_slice(), charge) // alloc: Cold charged OWNER
+    let charge = memledger::Charge::open(
+        OWNER,
+        memledger::Release::Evict,
+        memledger::Kind::Region,
+        memledger::charge::Door::Heap,
+        tinylfu::Sketch::bytes(),
+    );
+    tinylfu::Sketch::new(vec![0u64; tinylfu::SKETCH_WORDS].into_boxed_slice(), charge)
+    // alloc: Cold charged OWNER
 }
 
 /// The entry of `(fp, unit)` for `owner`'s `granules` granules of `rows` rows at most: the resident one when `owner` is
 /// the one it was filled under, else a new one registered in its place (evicting least-recently-used entries to the
 /// budget, or under W-TinyLFU through its window and admission: `Store::admit`); a new entry over the whole budget, or
 /// one W-TinyLFU's admission refuses, is handed back unregistered (a scan-local memo).
-pub fn entry_for(fp: [u64; 2], unit: [u64; 2], owner: &Arc<dyn Any + Send + Sync>, granules: usize, rows: usize) -> Arc<Entry> {
+pub fn entry_for(
+    fp: [u64; 2],
+    unit: [u64; 2],
+    owner: &Arc<dyn Any + Send + Sync>,
+    granules: usize,
+    rows: usize,
+) -> Arc<Entry> {
     entry_for_mode(fp, unit, owner, granules, rows, ConditionCacheMode::Full)
 }
 
-pub fn entry_for_mode(fp: [u64; 2], unit: [u64; 2], owner: &Arc<dyn Any + Send + Sync>, granules: usize, rows: usize, mode: ConditionCacheMode) -> Arc<Entry> {
+pub fn entry_for_mode(
+    fp: [u64; 2],
+    unit: [u64; 2],
+    owner: &Arc<dyn Any + Send + Sync>,
+    granules: usize,
+    rows: usize,
+    mode: ConditionCacheMode,
+) -> Arc<Entry> {
     let wpg = rows.div_ceil(64).max(1);
     if mode == ConditionCacheMode::Off {
         return Arc::new(Entry::new(owner, granules, wpg, mode)); // alloc: Cold
@@ -740,7 +913,9 @@ pub fn entry_for_mode(fp: [u64; 2], unit: [u64; 2], owner: &Arc<dyn Any + Send +
     }
     // bounded("other: the cache's capacity holds: least recently used entries unlinked until the new entry fits, one unlink each, at most the cache's entries; a stop would leave the cache over its budget")
     while held() + need > cap {
-        let Some((_, oldest)) = s.lru.pop_first() else { break };
+        let Some((_, oldest)) = s.lru.pop_first() else {
+            break;
+        };
         s.evict(&oldest, true);
     }
     s.link(key, &e);
@@ -755,7 +930,12 @@ const DOMAIN: &[u8] = b"gravity.v4.cond-words.2";
 /// bound words `covered` (`(word, varlena)` in need order: any number, any order), each as its null byte then its 8
 /// bytes, or, for a varlena word, its data length and bytes. `None` (the cache stays off for the execution) before the
 /// seed is installed, for a word outside the block, a compressed or external varlena, or a zero result.
-pub fn fingerprint(shape: [u64; 2], words: &[u64], nulls: &[u8], covered: &[(usize, bool)]) -> Option<[u64; 2]> {
+pub fn fingerprint(
+    shape: [u64; 2],
+    words: &[u64],
+    nulls: &[u8],
+    covered: &[(usize, bool)],
+) -> Option<[u64; 2]> {
     let keys = gravity_dict::fp::keys()?;
     let mut bytes: Vec<u8> = Vec::with_capacity(DOMAIN.len() + 16 + covered.len() * 9); // alloc: Exec
     bytes.extend_from_slice(DOMAIN);
@@ -854,7 +1034,11 @@ mod tests {
         full.put(2, &[5, 0], 100, 8);
         assert_eq!(full.part_total(), Some(102));
         assert_eq!(full.rows(2), Some(&[0, 2][..]));
-        for mode in [ConditionCacheMode::Granule, ConditionCacheMode::Rows, ConditionCacheMode::Off] {
+        for mode in [
+            ConditionCacheMode::Granule,
+            ConditionCacheMode::Rows,
+            ConditionCacheMode::Off,
+        ] {
             let e = entry(mode);
             assert!(!Arc::ptr_eq(&e, &full));
             assert_eq!(e.get(0), Hit::Unknown);
@@ -871,11 +1055,17 @@ mod tests {
                 ConditionCacheMode::Off => assert!((0..3).all(|g| e.get(g) == Hit::Unknown)),
                 ConditionCacheMode::Granule => {
                     assert!(e.words.is_empty(), "granule mode allocates no bitmap cells");
-                    assert_eq!((e.get(0), e.get(1), e.get(2)), (Hit::None, Hit::Unknown, Hit::Unknown));
+                    assert_eq!(
+                        (e.get(0), e.get(1), e.get(2)),
+                        (Hit::None, Hit::Unknown, Hit::Unknown)
+                    );
                     assert!(Arc::ptr_eq(&e, &entry(mode)));
                 }
                 ConditionCacheMode::Rows => {
-                    assert_eq!((e.get(0), e.get(1), e.get(2)), (Hit::None, Hit::All, Hit::Mixed(&[5, 0])));
+                    assert_eq!(
+                        (e.get(0), e.get(1), e.get(2)),
+                        (Hit::None, Hit::All, Hit::Mixed(&[5, 0]))
+                    );
                     assert!(Arc::ptr_eq(&e, &entry(mode)));
                 }
                 ConditionCacheMode::Full => unreachable!(),
@@ -940,29 +1130,49 @@ mod tests {
             let e = entry_for([7, case], [8, 9], &o, 2, 8192);
             e.put(0, &words, rows, list_max);
             let mut masked = words.clone();
-            if ! rows.is_multiple_of( 64) {
+            if !rows.is_multiple_of(64) {
                 masked[n - 1] &= (1u64 << (rows % 64)) - 1;
             }
-            let count = crate::ops::scan::pgrc::granule_source::words_to_sel(&masked, &mut sel, &mut sel16);
+            let count =
+                crate::ops::scan::pgrc::granule_source::words_to_sel(&masked, &mut sel, &mut sel16);
             match e.get(0) {
                 Hit::Mixed(w) => {
                     assert_eq!(&w[..n], &masked[..], "case {case}: the words");
                     match e.rows(0) {
                         Some(r) => {
                             assert!(count <= list_max, "case {case}: a list past list_max");
-                            assert_eq!(r, &sel16[..], "case {case}: the list is words_to_sel's selection of the words");
+                            assert_eq!(
+                                r,
+                                &sel16[..],
+                                "case {case}: the list is words_to_sel's selection of the words"
+                            );
                         }
-                        None => assert!(count > list_max, "case {case}: {count} survivors <= {list_max} kept no list"),
+                        None => assert!(
+                            count > list_max,
+                            "case {case}: {count} survivors <= {list_max} kept no list"
+                        ),
                     }
                 }
-                Hit::None | Hit::All => assert_eq!(e.rows(0), None, "case {case}: no list for a none / all granule"),
+                Hit::None | Hit::All => assert_eq!(
+                    e.rows(0),
+                    None,
+                    "case {case}: no list for a none / all granule"
+                ),
                 Hit::Unknown => panic!("case {case}: published"),
             }
-            assert_eq!(e.rows(1), None, "case {case}: an unpublished granule has no list");
+            assert_eq!(
+                e.rows(1),
+                None,
+                "case {case}: an unpublished granule has no list"
+            );
             // the first publish wins, its list with it
             e.put(0, &[!0; 128][..n], rows, rows);
             if let Some(r) = e.rows(0) {
-                assert_eq!(r, &sel16[..], "case {case}: a later publish never replaces the list");
+                assert_eq!(
+                    r,
+                    &sel16[..],
+                    "case {case}: a later publish never replaces the list"
+                );
             }
         }
         drop_all();
@@ -983,16 +1193,27 @@ mod tests {
         e.put(0, &words, 8192, 1024);
         let wbytes = 128 * 8;
         assert_eq!(e.rows(0), Some(&[192u16, 193, 195][..]));
-        assert_eq!(e.bytes(), b0 + wbytes + 8, "the words and the 3-row list (6 bytes, rounded to 8)");
+        assert_eq!(
+            e.bytes(),
+            b0 + wbytes + 8,
+            "the words and the 3-row list (6 bytes, rounded to 8)"
+        );
         words[5] = !0; // 67 survivors, past list_max 64: the words alone
         e.put(1, &words, 8192, 64);
         assert_eq!(e.rows(1), None);
         assert_eq!(e.bytes(), b0 + 2 * wbytes + 8);
         // CACHE-CHARGE: the ledger holds the entry's bytes once: its scope's charge (none here: no cache arena installed in
         // a test binary, so the blocks are the general road's) and the rest committed at the publish
-        assert_eq!(e.held.lock().unwrap().committed(), e.bytes(), "the entry's charge is its bytes, counted once");
+        assert_eq!(
+            e.held.lock().unwrap().committed(),
+            e.bytes(),
+            "the entry's charge is its bytes, counted once"
+        );
         drop_all();
-        assert!(e.charge.load(Ordering::Relaxed) & LIVE == 0, "unlinked: its words and list left HELD together");
+        assert!(
+            e.charge.load(Ordering::Relaxed) & LIVE == 0,
+            "unlinked: its words and list left HELD together"
+        );
         assert_eq!(e.bytes(), b0 + 2 * wbytes + 8);
         set_capacity(100 << 20);
     }
@@ -1008,10 +1229,23 @@ mod tests {
         let granules = 1000;
         let e = entry_for([4527, 0], [0, 0], &o, granules, 64 * granules);
         let per = size_of::<AtomicU8>() + size_of::<OnceLock<Mixed>>() + size_of::<AtomicU32>();
-        assert!(per >= 1 + 2 * size_of::<Box<[u64]>>() + 4, "a granule's cells: the state, the words' two slices, the count ({per})");
-        assert_eq!(e.bytes(), (2 * size_of::<usize>() + size_of::<Entry>() + granules * per) as u64);
-        assert!(e.bytes() > (granules * 21 + 64) as u64, "more than the old estimate");
-        assert_eq!(e.held.lock().unwrap().committed(), e.bytes(), "the charge commits it, once");
+        assert!(
+            per >= 1 + 2 * size_of::<Box<[u64]>>() + 4,
+            "a granule's cells: the state, the words' two slices, the count ({per})"
+        );
+        assert_eq!(
+            e.bytes(),
+            (2 * size_of::<usize>() + size_of::<Entry>() + granules * per) as u64
+        );
+        assert!(
+            e.bytes() > (granules * 21 + 64) as u64,
+            "more than the old estimate"
+        );
+        assert_eq!(
+            e.held.lock().unwrap().committed(),
+            e.bytes(),
+            "the charge commits it, once"
+        );
         drop_all();
         set_capacity(100 << 20);
     }
@@ -1023,7 +1257,10 @@ mod tests {
         let (a, b) = (owner(), owner());
         let e = entry_for([9, 9], [7, 7], &a, 2, 64);
         e.put(0, &[1], 64, 0);
-        assert_eq!(entry_for([9, 9], [7, 7], &a, 2, 64).get(0), Hit::Mixed(&[1]));
+        assert_eq!(
+            entry_for([9, 9], [7, 7], &a, 2, 64).get(0),
+            Hit::Mixed(&[1])
+        );
         // the same part identity reopened (inode reuse, a new generation): a fresh entry
         assert_eq!(entry_for([9, 9], [7, 7], &b, 2, 64).get(0), Hit::Unknown);
         assert_eq!(entry_for([9, 9], [7, 8], &b, 2, 64).get(0), Hit::Unknown);
@@ -1042,11 +1279,19 @@ mod tests {
         a.put(0, &[0], 64, 0);
         let _b = entry_for([2, 0], [0, 0], &o, 8, 64);
         let _c = entry_for([3, 0], [0, 0], &o, 8, 64);
-        assert_eq!(entry_for([1, 0], [0, 0], &o, 8, 64).get(0), Hit::Unknown, "the oldest entry was evicted");
+        assert_eq!(
+            entry_for([1, 0], [0, 0], &o, 8, 64).get(0),
+            Hit::Unknown,
+            "the oldest entry was evicted"
+        );
         set_capacity(0);
         let d = entry_for([4, 0], [0, 0], &o, 8, 64);
         d.put(0, &[0], 64, 0);
-        assert_eq!(entry_for([4, 0], [0, 0], &o, 8, 64).get(0), Hit::Unknown, "a zero budget registers nothing");
+        assert_eq!(
+            entry_for([4, 0], [0, 0], &o, 8, 64).get(0),
+            Hit::Unknown,
+            "a zero budget registers nothing"
+        );
         set_capacity(100 << 20);
     }
 
@@ -1069,12 +1314,19 @@ mod tests {
             let _ = entry_for([70, i], [0, 0], &o, 8, 64);
         }
         let e1 = value::ext_stats(CondCache);
-        assert_eq!(e1.evicted_bytes - e0.evicted_bytes, 254 * one, "all but the two newest evicted");
+        assert_eq!(
+            e1.evicted_bytes - e0.evicted_bytes,
+            254 * one,
+            "all but the two newest evicted"
+        );
         for i in 0..254u64 {
             let _ = entry_for([70, i], [0, 0], &o, 8, 64);
         }
         let g = value::ext_stats(CondCache).ghost_hits - e1.ghost_hits;
-        assert!(g > 0 && g.is_multiple_of( GHOST_SAMPLE), "the sampled ghosts taken, each counting the sample ({g})");
+        assert!(
+            g > 0 && g.is_multiple_of(GHOST_SAMPLE),
+            "the sampled ghosts taken, each counting the sample ({g})"
+        );
 
         drop_all();
         set_capacity(100 << 20);
@@ -1082,12 +1334,24 @@ mod tests {
             let _ = entry_for([71, i], [0, 0], &o, 8, 64);
         }
         publish_tail();
-        assert_eq!(value::ext_stats(CondCache).tail_bytes, one, "a tenth of ten equal entries: the oldest");
+        assert_eq!(
+            value::ext_stats(CondCache).tail_bytes,
+            one,
+            "a tenth of ten equal entries: the oldest"
+        );
         let t0 = value::ext_stats(CondCache).tail_hits;
         let _ = entry_for([71, 9], [0, 0], &o, 8, 64);
-        assert_eq!(value::ext_stats(CondCache).tail_hits, t0, "the newest: no tail hit");
+        assert_eq!(
+            value::ext_stats(CondCache).tail_hits,
+            t0,
+            "the newest: no tail hit"
+        );
         let _ = entry_for([71, 0], [0, 0], &o, 8, 64);
-        assert_eq!(value::ext_stats(CondCache).tail_hits, t0 + 1, "the oldest: a tail hit");
+        assert_eq!(
+            value::ext_stats(CondCache).tail_hits,
+            t0 + 1,
+            "the oldest: a tail hit"
+        );
         drop_all();
         set_capacity(100 << 20);
     }
@@ -1113,13 +1377,25 @@ mod tests {
         assert_eq!(f(&[5, pl], &[0, 0], 2), Some(a));
         assert_ne!(f(&[6, ps], &[0, 0], 2), Some(a), "another literal");
         assert_ne!(f(&[5, ps], &[1, 0], 2), Some(a), "a null");
-        assert_ne!(fingerprint([11, 23], &[5, ps], &[0, 0], &mask(2, 2)), Some(a), "another shape (type, typmod, collation)");
-        assert_ne!(f(&[5, ps], &[0, 0], 0), Some(a), "a word read as a by-value datum");
+        assert_ne!(
+            fingerprint([11, 23], &[5, ps], &[0, 0], &mask(2, 2)),
+            Some(a),
+            "another shape (type, typmod, collation)"
+        );
+        assert_ne!(
+            f(&[5, ps], &[0, 0], 0),
+            Some(a),
+            "a word read as a by-value datum"
+        );
         let external: [u8; 2] = [0x01, 18];
         let compressed: [u8; 8] = [(8 << 2) | 2, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(f(&[external.as_ptr() as u64], &[0], 1), None);
         assert_eq!(f(&[compressed.as_ptr() as u64], &[0], 1), None);
-        assert_eq!(fingerprint(shape, &[1, 2], &[0, 0], &[(1, false), (2, false)]), None, "a word outside the block");
+        assert_eq!(
+            fingerprint(shape, &[1, 2], &[0, 0], &[(1, false), (2, false)]),
+            None,
+            "a word outside the block"
+        );
         // the vector has no length cap and no order rule: 100 words, a repeat and a descending pair each key, in order
         let many: Vec<u64> = (0..100).collect();
         let zeros = [0u8; 100];
@@ -1133,10 +1409,23 @@ mod tests {
             want.extend_from_slice(&i.to_le_bytes());
         }
         assert_eq!(Some(all), gravity_dict::fp::fp128(&want));
-        let down = fingerprint(shape, &many, &zeros, &[(7, false), (3, false)]).expect("a descending pair");
-        assert_ne!(Some(down), fingerprint(shape, &many, &zeros, &[(3, false), (7, false)]), "the order is the need order");
-        assert_ne!(fingerprint(shape, &many, &zeros, &[(3, false), (3, false)]), fingerprint(shape, &many, &zeros, &[(3, false)]), "a repeated word is hashed twice");
-        assert_eq!(fingerprint(shape, &[5, ps, 7], &[0, 0, 0], &[(1, true), (0, false)]), fingerprint(shape, &[7, pl, 5], &[0, 0, 0], &[(1, true), (2, false)]), "the values in need order, not the positions");
+        let down = fingerprint(shape, &many, &zeros, &[(7, false), (3, false)])
+            .expect("a descending pair");
+        assert_ne!(
+            Some(down),
+            fingerprint(shape, &many, &zeros, &[(3, false), (7, false)]),
+            "the order is the need order"
+        );
+        assert_ne!(
+            fingerprint(shape, &many, &zeros, &[(3, false), (3, false)]),
+            fingerprint(shape, &many, &zeros, &[(3, false)]),
+            "a repeated word is hashed twice"
+        );
+        assert_eq!(
+            fingerprint(shape, &[5, ps, 7], &[0, 0, 0], &[(1, true), (0, false)]),
+            fingerprint(shape, &[7, pl, 5], &[0, 0, 0], &[(1, true), (2, false)]),
+            "the values in need order, not the positions"
+        );
     }
 
     #[test]
@@ -1151,10 +1440,21 @@ mod tests {
         for i in 0..SWEEP_FLOOR as u64 - 1 {
             let _ = entry_for([6, i], [6, 6], &p, 4, 64);
         }
-        assert!(pgsync::lock(store()).map.contains_key(&([5, 5], [5, 5], ConditionCacheMode::Full as u8)), "no walk per insert: the closed part's entry waits");
+        assert!(
+            pgsync::lock(store()).map.contains_key(&(
+                [5, 5],
+                [5, 5],
+                ConditionCacheMode::Full as u8
+            )),
+            "no walk per insert: the closed part's entry waits"
+        );
         let _ = entry_for([6, 99], [6, 6], &p, 4, 64);
         let s = pgsync::lock(store());
-        assert!(!s.map.contains_key(&([5, 5], [5, 5], ConditionCacheMode::Full as u8)), "the store reached its sweep floor: swept");
+        assert!(
+            !s.map
+                .contains_key(&([5, 5], [5, 5], ConditionCacheMode::Full as u8)),
+            "the store reached its sweep floor: swept"
+        );
         assert_eq!((s.map.len(), s.lru.len()), (SWEEP_FLOOR, SWEEP_FLOOR));
         drop(s);
         drop_all();
@@ -1177,18 +1477,36 @@ mod tests {
         // a part closed, but drop_all's stamp is the last sweep's: inside the gap, no walk
         pgrc_read::openpart::note_part_closed();
         let _ = entry_for([9, 1], [9, 9], &p, 4, 64);
-        assert!(pgsync::lock(store()).map.contains_key(&dead), "inside the gap after the last sweep: the entry waits");
+        assert!(
+            pgsync::lock(store()).map.contains_key(&dead),
+            "inside the gap after the last sweep: the entry waits"
+        );
         // the last sweep a gap ago and a part closed since: the next insert sweeps, at three entries of a floor of 64
         pgsync::lock(store()).swept_ns = 0;
         pgrc_read::openpart::note_part_closed();
         let sweeps = SWEEPS.load(Ordering::Relaxed);
         let _ = entry_for([9, 2], [9, 9], &p, 4, 64);
         let s = pgsync::lock(store());
-        assert!(!s.map.contains_key(&dead), "a part closed since the last sweep: its entries go at the next insert");
-        assert!(s.map.contains_key(&live) && s.map.contains_key(&([9, 2], [9, 9], ConditionCacheMode::Full as u8)), "a live part's entries stay");
+        assert!(
+            !s.map.contains_key(&dead),
+            "a part closed since the last sweep: its entries go at the next insert"
+        );
+        assert!(
+            s.map.contains_key(&live)
+                && s.map
+                    .contains_key(&([9, 2], [9, 9], ConditionCacheMode::Full as u8)),
+            "a live part's entries stay"
+        );
         assert_eq!(s.map.len(), s.lru.len());
-        assert_eq!(held(), s.map.values().map(|v| v.bytes()).sum::<u64>(), "the dead entry's bytes left the running total");
-        assert!(s.swept_ns > 0 && s.closed_seen > 0, "the sweep stamped its end and the closed count it saw");
+        assert_eq!(
+            held(),
+            s.map.values().map(|v| v.bytes()).sum::<u64>(),
+            "the dead entry's bytes left the running total"
+        );
+        assert!(
+            s.swept_ns > 0 && s.closed_seen > 0,
+            "the sweep stamped its end and the closed count it saw"
+        );
         drop(s);
         assert!(SWEEPS.load(Ordering::Relaxed) > sweeps);
         drop_all();
@@ -1208,18 +1526,29 @@ mod tests {
         for i in 0..8u64 {
             entry_for([11, i], [11, 11], &p, 4, 64).put(0, &[1], 64, 0);
         }
-        assert_eq!(dead_bytes(), 0, "every part open: the live fill is not dead");
+        assert_eq!(
+            dead_bytes(),
+            0,
+            "every part open: the live fill is not dead"
+        );
         let bytes = pgsync::lock(store()).map[&dead].bytes();
         drop(o);
         pgrc_read::openpart::note_part_closed();
-        assert_eq!(dead_bytes(), bytes, "the closed part's entry is dead, its bytes exactly");
+        assert_eq!(
+            dead_bytes(),
+            bytes,
+            "the closed part's entry is dead, its bytes exactly"
+        );
         // the sweep's gap since drop_all's stamp: the next insert sweeps
         pgsync::lock(store()).swept_ns = 0;
         let _ = entry_for([11, 99], [11, 11], &p, 4, 64);
         assert!(!pgsync::lock(store()).map.contains_key(&dead), "swept");
         assert_eq!(dead_bytes(), 0, "the sweep took the dead bytes");
         drop(p);
-        assert!(dead_bytes() > 0, "the live part closed: its entries are dead now");
+        assert!(
+            dead_bytes() > 0,
+            "the live part closed: its entries are dead now"
+        );
         drop_all();
         assert_eq!(dead_bytes(), 0);
     }
@@ -1236,28 +1565,53 @@ mod tests {
         let one = entry_for([0, 1], [0, 0], &o, 8, 64).bytes();
         drop_all();
         set_capacity(one * 1024);
-        let (evicted, sweeps) = (EVICTED.load(Ordering::Relaxed), SWEEPS.load(Ordering::Relaxed));
+        let (evicted, sweeps) = (
+            EVICTED.load(Ordering::Relaxed),
+            SWEEPS.load(Ordering::Relaxed),
+        );
         let kept = ([0, 0], [1, 1], ConditionCacheMode::Full as u8);
         entry_for(kept.0, kept.1, &o, 8, 64).put(0, &[1], 64, 0);
         for i in 1..4096u64 {
             let _ = entry_for([i, 0], [0, 0], &o, 8, 64);
             if i % 100 == 0 {
-                assert_eq!(entry_for(kept.0, kept.1, &o, 8, 64).get(0), Hit::Mixed(&[1]), "a touched entry is never the oldest");
+                assert_eq!(
+                    entry_for(kept.0, kept.1, &o, 8, 64).get(0),
+                    Hit::Mixed(&[1]),
+                    "a touched entry is never the oldest"
+                );
             }
             if i % 512 == 0 {
                 let s = pgsync::lock(store());
-                assert_eq!(held(), s.map.values().map(|v| v.bytes()).sum::<u64>(), "the running total is the residents' sum");
+                assert_eq!(
+                    held(),
+                    s.map.values().map(|v| v.bytes()).sum::<u64>(),
+                    "the running total is the residents' sum"
+                );
             }
         }
         let s = pgsync::lock(store());
         // the touched entry (one + a words page) and the newest 1 022 inserts fill the budget
         assert_eq!((s.map.len(), s.lru.len()), (1023, 1023));
-        assert!(s.map.contains_key(&kept) && s.map.contains_key(&([4095, 0], [0, 0], ConditionCacheMode::Full as u8)) && !s.map.contains_key(&([3073, 0], [0, 0], ConditionCacheMode::Full as u8)));
-        assert!(s.map.contains_key(&([3074, 0], [0, 0], ConditionCacheMode::Full as u8)), "the oldest resident insert is the 1 022nd newest");
+        assert!(
+            s.map.contains_key(&kept)
+                && s.map
+                    .contains_key(&([4095, 0], [0, 0], ConditionCacheMode::Full as u8))
+                && !s
+                    .map
+                    .contains_key(&([3073, 0], [0, 0], ConditionCacheMode::Full as u8))
+        );
+        assert!(
+            s.map
+                .contains_key(&([3074, 0], [0, 0], ConditionCacheMode::Full as u8)),
+            "the oldest resident insert is the 1 022nd newest"
+        );
         assert_eq!(held(), s.map.values().map(|v| v.bytes()).sum::<u64>());
         drop(s);
         assert_eq!(EVICTED.load(Ordering::Relaxed) - evicted, 4095 - 1022);
-        assert!(SWEEPS.load(Ordering::Relaxed) - sweeps <= 5, "a sweep per doubling (64 .. 1 024), not per insert");
+        assert!(
+            SWEEPS.load(Ordering::Relaxed) - sweeps <= 5,
+            "a sweep per doubling (64 .. 1 024), not per insert"
+        );
         drop_all();
         assert_eq!(held(), 0);
         set_capacity(100 << 20);
@@ -1276,11 +1630,18 @@ mod tests {
         w[0] = 0b1011;
         w[127] = 1 << 63;
         e.put(2, &w, 8192, 0);
-        assert_eq!((e.count(0), e.count(1), e.count(2), e.count(3)), (Some(0), Some(8192), Some(4), None));
+        assert_eq!(
+            (e.count(0), e.count(1), e.count(2), e.count(3)),
+            (Some(0), Some(8192), Some(4), None)
+        );
         assert_eq!(e.part_total(), None, "granule 3 unknown");
         e.put(3, &[!0; 128], 100, 64);
         e.put(3, &[0; 128], 100, 64);
-        assert_eq!(e.count(3), Some(100), "the first publish stands; bits past the granule's rows ignored");
+        assert_eq!(
+            e.count(3),
+            Some(100),
+            "the first publish stands; bits past the granule's rows ignored"
+        );
         assert_eq!(e.part_total(), Some(8192 + 4 + 100));
     }
 
@@ -1296,9 +1657,19 @@ mod tests {
         }
         assert_eq!(old.part_total(), Some(3 * 8192));
         let other_fp = entry_for([3, 3], [9, 9], &o, 3, 8192);
-        assert_eq!((other_fp.get(0), other_fp.count(0), other_fp.part_total()), (Hit::Unknown, None, None));
+        assert_eq!(
+            (other_fp.get(0), other_fp.count(0), other_fp.part_total()),
+            (Hit::Unknown, None, None)
+        );
         let other_layout = entry_for([2, 2], [9, 9], &o, 4, 8192);
-        assert_eq!((other_layout.get(0), other_layout.count(0), other_layout.part_total()), (Hit::Unknown, None, None));
+        assert_eq!(
+            (
+                other_layout.get(0),
+                other_layout.count(0),
+                other_layout.part_total()
+            ),
+            (Hit::Unknown, None, None)
+        );
         drop_all();
     }
 }

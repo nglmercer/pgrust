@@ -73,7 +73,11 @@ impl Seen {
         if self.next.is_empty() {
             self.n = img.len();
         } else if img.len() != self.n {
-            return Err(bad(&format!("m9_gen_seen: an image of {} words where the union's are {}", img.len(), self.n))); // alloc: Cold
+            return Err(bad(&format!(
+                "m9_gen_seen: an image of {} words where the union's are {}",
+                img.len(),
+                self.n
+            ))); // alloc: Cold
         }
         let mut at = self.heads.get(&h).copied().unwrap_or(0);
         while at != 0 {
@@ -83,8 +87,13 @@ impl Seen {
             }
             at = self.next.get(i).copied().unwrap_or(0);
         }
-        let Ok(id) = u32::try_from(self.next.len() + 1) else { return Err(bad("m9_gen_seen: more than 2^32 - 1 distinct rows")) };
-        if self.words.try_reserve(img.len()).is_err() || self.next.try_reserve(1).is_err() || self.heads.try_reserve(1).is_err() {
+        let Ok(id) = u32::try_from(self.next.len() + 1) else {
+            return Err(bad("m9_gen_seen: more than 2^32 - 1 distinct rows"));
+        };
+        if self.words.try_reserve(img.len()).is_err()
+            || self.next.try_reserve(1).is_err()
+            || self.heads.try_reserve(1).is_err()
+        {
             return Err(oom(8 * img.len() + 16));
         }
         self.words.extend_from_slice(img); // alloc: Exec
@@ -126,7 +135,9 @@ impl Seen {
 
     /// The bytes its capacity holds (the vectors' and the table's, each grown by doubling).
     fn bytes(&self) -> u64 {
-        8 * self.words.capacity() as u64 + 4 * self.next.capacity() as u64 + HEAD_BYTES * self.heads.capacity() as u64
+        8 * self.words.capacity() as u64
+            + 4 * self.next.capacity() as u64
+            + HEAD_BYTES * self.heads.capacity() as u64
     }
 
     /// Its capacity's growth since the last bill billed (`overdraw`: the pool hold of that many bytes; `None` where there is
@@ -162,7 +173,11 @@ impl Live for GenLive {
     /// hash table and tables.
     fn reopen(&self, members: &[u16]) -> PgResult<()> {
         if members.contains(&self.pipeline) {
-            let Ok(mut held) = self.rt.held.try_borrow_mut() else { return Err(bad("setop.recursive: its object re-armed inside its own call")) };
+            let Ok(mut held) = self.rt.held.try_borrow_mut() else {
+                return Err(bad(
+                    "setop.recursive: its object re-armed inside its own call",
+                ));
+            };
             held.take();
             self.held_word.clear();
             *self.rt.seen.borrow_mut() = Seen::default();
@@ -179,20 +194,30 @@ impl Protocol for Gen {
     fn prepare(&self, p: &Proto, cx: &mut Prepare<'_>) -> PgResult<Option<Box<dyn Live>>> {
         let base = p.words.base as usize;
         if p.words.n != 1 || base >= cx.words.len() || base >= cx.nulls.len() {
-            return Err(bad("setop.recursive's declaration is not its object's (one handle word)"));
+            return Err(bad(
+                "setop.recursive's declaration is not its object's (one handle word)",
+            ));
         }
         let (mut cell, rt) = lay();
         let held_word = super::raw::HeldWord::of(&mut cell);
         cx.words[base] = handle(&cell);
         cx.nulls[base] = 0;
         *cx.nparams = (*cx.nparams).max(base + 1);
-        Ok(Some(Box::new(GenLive { _cell: cell, rt, pipeline: p.pipeline, held_word }))) // alloc: Exec
+        Ok(Some(Box::new(GenLive {
+            _cell: cell,
+            rt,
+            pipeline: p.pipeline,
+            held_word,
+        }))) // alloc: Exec
     }
 }
 
 /// A fresh object: its cell (nothing held) and its state, both kept by the `Live` to the execution's end.
 fn lay() -> (Box<[u64]>, Box<GenRt>) {
-    let rt = Box::new(GenRt { held: RefCell::new(None), seen: RefCell::new(Seen::default()) }); // alloc: Exec
+    let rt = Box::new(GenRt {
+        held: RefCell::new(None),
+        seen: RefCell::new(Seen::default()),
+    }); // alloc: Exec
     let cell = super::raw::lay_cell(&*rt as *const GenRt as u64);
     (cell, rt)
 }
@@ -203,24 +228,46 @@ fn handle(cell: &[u64]) -> u64 {
 
 /// F1: an error PostgreSQL raises at the term row that raised it, kept until the rows before it are returned.
 fn holdable(e: &PgError) -> bool {
-    use types_error::{errcode_to_category as class, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR, ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR};
+    use types_error::{
+        errcode_to_category as class, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR,
+        ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR,
+    };
     let c = class(e.sqlstate());
     e.level() == types_error::ERROR
-        && ![ERRCODE_QUERY_CANCELED, ERRCODE_SYSTEM_ERROR, ERRCODE_INSUFFICIENT_RESOURCES, ERRCODE_INTERNAL_ERROR].iter().any(|&k| class(k) == c)
+        && ![
+            ERRCODE_QUERY_CANCELED,
+            ERRCODE_SYSTEM_ERROR,
+            ERRCODE_INSUFFICIENT_RESOURCES,
+            ERRCODE_INTERNAL_ERROR,
+        ]
+        .iter()
+        .any(|&k| class(k) == c)
         && crate::runner::refusal_of(e).is_none()
 }
 
 /// The object's operation (raw.rs `gen_op`, its `Head::op`, reads the cell): `OP_GEN_HOLD` / `OP_GEN_RAISE` /
 /// `OP_GEN_CHECK` / `OP_GEN_SEEN` (`img`: the image words raw.rs `image` read, `n` of them past the KeyHash). Panic-free
 /// (its hosts run under no `guard!`, crash policy): no unwrap, expect or indexing; a re-entered object is an error by name.
-pub(super) fn op(rt: &GenRt, held_word: &super::raw::HeldWord, code: u64, img: Option<&[u64]>, n: u64, overdraw: &mut dyn FnMut(u64) -> Option<gravity_driver::Held>, owner: &dyn Fn() -> Option<(Owner, Kind)>) -> i64 {
+pub(super) fn op(
+    rt: &GenRt,
+    held_word: &super::raw::HeldWord,
+    code: u64,
+    img: Option<&[u64]>,
+    n: u64,
+    overdraw: &mut dyn FnMut(u64) -> Option<gravity_driver::Held>,
+    owner: &dyn Fn() -> Option<(Owner, Kind)>,
+) -> i64 {
     if code == abi::OP_GEN_SEEN {
         return seen(rt, img, n, overdraw, owner);
     }
     if code == abi::OP_GEN_HAS {
         return has(rt, img, n);
     }
-    let Ok(mut held) = rt.held.try_borrow_mut() else { return fail(bad("setop.recursive: its object entered inside its own call")) };
+    let Ok(mut held) = rt.held.try_borrow_mut() else {
+        return fail(bad(
+            "setop.recursive: its object entered inside its own call",
+        ));
+    };
     match code {
         abi::OP_GEN_HOLD => match gravity_fn::take_error() {
             // no error stashed (a parked unwind resumes past the program): nothing kept, the IR raises at once
@@ -253,9 +300,19 @@ pub(super) fn op(rt: &GenRt, held_word: &super::raw::HeldWord, code: u64, img: O
 /// words (a null address, no image word) or a failed allocation is an error by name. A new image's growth of the set's
 /// capacity is billed (`Seen::bill`, through `overdraw`) and charged (`Seen::sync`, to `owner`'s answer at the set's first
 /// new image).
-fn seen(rt: &GenRt, words: Option<&[u64]>, n: u64, overdraw: &mut dyn FnMut(u64) -> Option<gravity_driver::Held>, owner: &dyn Fn() -> Option<(Owner, Kind)>) -> i64 {
-    let Some((&h, img)) = words.and_then(|w| w.split_first()) else { return fail(bad(&format!("m9_gen_seen: no image of {n} words"))) }; // alloc: Cold
-    let Ok(mut set) = rt.seen.try_borrow_mut() else { return fail(bad("setop.recursive: its set entered inside its own call")) };
+fn seen(
+    rt: &GenRt,
+    words: Option<&[u64]>,
+    n: u64,
+    overdraw: &mut dyn FnMut(u64) -> Option<gravity_driver::Held>,
+    owner: &dyn Fn() -> Option<(Owner, Kind)>,
+) -> i64 {
+    let Some((&h, img)) = words.and_then(|w| w.split_first()) else {
+        return fail(bad(&format!("m9_gen_seen: no image of {n} words")));
+    }; // alloc: Cold
+    let Ok(mut set) = rt.seen.try_borrow_mut() else {
+        return fail(bad("setop.recursive: its set entered inside its own call"));
+    };
     match set.offer(h, img) {
         Ok(true) => {
             set.bill(overdraw);
@@ -273,15 +330,25 @@ fn seen(rt: &GenRt, words: Option<&[u64]>, n: u64, overdraw: &mut dyn FnMut(u64)
 /// D3374 (e) (`OP_GEN_HAS`): 1 when the set holds the image `words` (its KeyHash first, then `n` words), 0 when not;
 /// nothing is kept. No words is an error by name.
 fn has(rt: &GenRt, words: Option<&[u64]>, n: u64) -> i64 {
-    let Some((&h, img)) = words.and_then(|w| w.split_first()) else { return fail(bad(&format!("m9_gen_has: no image of {n} words"))) }; // alloc: Cold
-    let Ok(set) = rt.seen.try_borrow() else { return fail(bad("setop.recursive: its set entered inside its own call")) };
+    let Some((&h, img)) = words.and_then(|w| w.split_first()) else {
+        return fail(bad(&format!("m9_gen_has: no image of {n} words")));
+    }; // alloc: Cold
+    let Ok(set) = rt.seen.try_borrow() else {
+        return fail(bad("setop.recursive: its set entered inside its own call"));
+    };
     i64::from(set.holds(h, img))
 }
 
 #[cold]
 #[inline(never)]
 fn oom(bytes: usize) -> Box<PgError> {
-    Box::new(PgError::error("out of memory".to_string()).with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail(format!("Failed on request of size {bytes} in a recursive UNION's table."))) // alloc: Cold
+    Box::new(
+        PgError::error("out of memory".to_string())
+            .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
+            .with_detail(format!(
+                "Failed on request of size {bytes} in a recursive UNION's table."
+            )),
+    ) // alloc: Cold
 }
 
 #[cold]
@@ -325,23 +392,42 @@ mod tests {
 
     #[test]
     fn an_ordinary_term_error_is_kept_and_raised_later_once() {
-        let (st, held, stashed, o) = hold(Some(err(types_error::ERRCODE_DIVISION_BY_ZERO, "division by zero")));
-        assert_eq!((st, held, stashed), (0, 1, None), "kept: nothing left stashed");
+        let (st, held, stashed, o) = hold(Some(err(
+            types_error::ERRCODE_DIVISION_BY_ZERO,
+            "division by zero",
+        )));
+        assert_eq!(
+            (st, held, stashed),
+            (0, 1, None),
+            "kept: nothing left stashed"
+        );
         let h = handle(&o.0);
         // SAFETY: a live object.
-        assert_eq!(unsafe { abi::m9_gen_raise(core::ptr::null_mut(), h) }, ERROR);
+        assert_eq!(
+            unsafe { abi::m9_gen_raise(core::ptr::null_mut(), h) },
+            ERROR
+        );
         let e = gravity_fn::take_error().expect("the kept error stashed for the raise");
-        assert_eq!((e.message(), e.sqlstate()), ("division by zero", types_error::ERRCODE_DIVISION_BY_ZERO));
+        assert_eq!(
+            (e.message(), e.sqlstate()),
+            ("division by zero", types_error::ERRCODE_DIVISION_BY_ZERO)
+        );
         assert_eq!(o.0[abi::GEN_HELD / 8], 0);
         // SAFETY: as above.
-        assert_eq!(unsafe { abi::m9_gen_raise(core::ptr::null_mut(), h) }, ERROR);
+        assert_eq!(
+            unsafe { abi::m9_gen_raise(core::ptr::null_mut(), h) },
+            ERROR
+        );
         assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("no kept error")));
     }
 
     /// A PostgreSQL 0A000 that is no run-time refusal is an ordinary error.
     #[test]
     fn a_feature_error_that_is_no_refusal_is_kept() {
-        let (st, held, _, _) = hold(Some(err(types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "cannot do that")));
+        let (st, held, _, _) = hold(Some(err(
+            types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
+            "cannot do that",
+        )));
         assert_eq!((st, held), (0, 1));
     }
 
@@ -350,10 +436,16 @@ mod tests {
     fn a_cancel_a_system_resource_or_internal_error_a_refusal_or_a_fatal_passes_straight_through() {
         let fatal = Box::new(PgError::new(types_error::FATAL, "terminating connection")); // alloc: Cold
         let cases = [
-            err(types_error::ERRCODE_QUERY_CANCELED, "canceling statement due to statement timeout"),
+            err(
+                types_error::ERRCODE_QUERY_CANCELED,
+                "canceling statement due to statement timeout",
+            ),
             err(types_error::ERRCODE_IO_ERROR, "could not read spill file"),
             err(types_error::ERRCODE_OUT_OF_MEMORY, "out of memory"),
-            err(types_error::ERRCODE_INTERNAL_ERROR, "gravity: Bug: pipeline 2 consumes slot 0 that is not live"),
+            err(
+                types_error::ERRCODE_INTERNAL_ERROR,
+                "gravity: Bug: pipeline 2 consumes slot 0 that is not live",
+            ),
             err(types_error::ERRCODE_DATA_CORRUPTED, "invalid page"),
             crate::runner::refused("graph: a rerun member consumes a live slot past 63"),
             fatal,
@@ -362,7 +454,11 @@ mod tests {
             let msg = e.message().to_owned();
             let (st, held, stashed, _) = hold(Some(e));
             assert_eq!((st, held), (ERROR, 0), "{msg}: never kept");
-            assert_eq!(stashed.as_deref(), Some(msg.as_str()), "{msg}: left stashed for the raise");
+            assert_eq!(
+                stashed.as_deref(),
+                Some(msg.as_str()),
+                "{msg}: left stashed for the raise"
+            );
         }
     }
 
@@ -371,19 +467,51 @@ mod tests {
     #[test]
     fn a_union_holds_each_image_once_and_drops_a_seen_one() {
         let (_cell, rt) = lay();
-        let offer = |words: &[u64]| seen(&rt, Some(words), words.len() as u64 - 1, &mut |_| None, &|| None);
+        let offer = |words: &[u64]| {
+            seen(
+                &rt,
+                Some(words),
+                words.len() as u64 - 1,
+                &mut |_| None,
+                &|| None,
+            )
+        };
         assert_eq!(offer(&[7, 1, 0]), 1, "new");
         assert_eq!(offer(&[7, 1, 0]), 0, "seen");
-        assert_eq!(offer(&[7, 2, 0]), 1, "a hash collision with other words is new");
+        assert_eq!(
+            offer(&[7, 2, 0]),
+            1,
+            "a hash collision with other words is new"
+        );
         assert_eq!(offer(&[7, 2, 0]), 0, "and seen through the chain");
-        assert_eq!(offer(&[9, 0, 1]), 1, "a NULL key (flags 1) is not the zero value");
-        assert_eq!(offer(&[9, 0, 1]), 0, "two NULL keys are one row (PG's grouping equality)");
+        assert_eq!(
+            offer(&[9, 0, 1]),
+            1,
+            "a NULL key (flags 1) is not the zero value"
+        );
+        assert_eq!(
+            offer(&[9, 0, 1]),
+            0,
+            "two NULL keys are one row (PG's grouping equality)"
+        );
         let _ = gravity_fn::take_error();
         assert_eq!(offer(&[7, 1]), ERROR, "another width");
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("an image of 1 words where the union's are 2")));
+        assert!(gravity_fn::take_error().is_some_and(|e| e
+            .message()
+            .contains("an image of 1 words where the union's are 2")));
         // SAFETY: a null address is refused before any read.
-        assert_eq!(seen(&rt, unsafe { super::super::raw::image(core::ptr::null(), 1) }, 1, &mut |_| None, &|| None), ERROR);
-        assert!(gravity_fn::take_error().is_some_and(|e| e.message().contains("m9_gen_seen: no image of 1 words")));
+        assert_eq!(
+            seen(
+                &rt,
+                unsafe { super::super::raw::image(core::ptr::null(), 1) },
+                1,
+                &mut |_| None,
+                &|| None
+            ),
+            ERROR
+        );
+        assert!(gravity_fn::take_error()
+            .is_some_and(|e| e.message().contains("m9_gen_seen: no image of 1 words")));
     }
 
     /// D1378: each growth of the set's capacity is billed once, by the bytes it grew (the pool's
@@ -398,13 +526,39 @@ mod tests {
                 total += b;
                 None
             };
-            assert_eq!(seen(&rt, Some(&[i.wrapping_mul(0x9e37_79b9_7f4a_7c15), i, 0]), 2, &mut bill, &|| None), 1, "image {i} is new");
+            assert_eq!(
+                seen(
+                    &rt,
+                    Some(&[i.wrapping_mul(0x9e37_79b9_7f4a_7c15), i, 0]),
+                    2,
+                    &mut bill,
+                    &|| None
+                ),
+                1,
+                "image {i} is new"
+            );
         }
         let held = rt.seen.borrow().bytes();
-        assert_eq!(total, held, "the bills are the set's capacity, {held} bytes");
-        assert!((3..=60).contains(&bills), "a bill per doubling, not per row: {bills}");
+        assert_eq!(
+            total, held,
+            "the bills are the set's capacity, {held} bytes"
+        );
+        assert!(
+            (3..=60).contains(&bills),
+            "a bill per doubling, not per row: {bills}"
+        );
         let before = (bills, total);
-        assert_eq!(seen(&rt, Some(&[0, 0, 0]), 2, &mut |b| panic!("a seen image bills {b}"), &|| None), 0, "image 0 seen");
+        assert_eq!(
+            seen(
+                &rt,
+                Some(&[0, 0, 0]),
+                2,
+                &mut |b| panic!("a seen image bills {b}"),
+                &|| None
+            ),
+            0,
+            "image 0 seen"
+        );
         assert_eq!((bills, total), before);
     }
 
@@ -425,8 +579,22 @@ mod tests {
                 Some((o, Kind::Region))
             };
             for i in 0..10_000u64 {
-                assert_eq!(seen(&rt, Some(&[i.wrapping_mul(0x9e37_79b9_7f4a_7c15), i, 0]), 2, &mut |_| None, &owner), 1, "image {i} is new");
-                assert_eq!(committed() - base, rt.seen.borrow().bytes() as i64, "image {i}");
+                assert_eq!(
+                    seen(
+                        &rt,
+                        Some(&[i.wrapping_mul(0x9e37_79b9_7f4a_7c15), i, 0]),
+                        2,
+                        &mut |_| None,
+                        &owner
+                    ),
+                    1,
+                    "image {i} is new"
+                );
+                assert_eq!(
+                    committed() - base,
+                    rt.seen.borrow().bytes() as i64,
+                    "image {i}"
+                );
             }
             assert_eq!(asked.get(), 1, "the owner is asked once");
             assert!(committed() - base >= 10_000 * 16);

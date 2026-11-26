@@ -28,7 +28,12 @@ const CORPUS: &str = "A-24c nt_f sweep (6 M heap rows, random text keys of 2 .. 
 
 // One anchor (update): every price is the hashed path's, so the rule decides alike on every host.
 const fn fitted(ns: f64) -> Fitted {
-    Fitted { ns, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update }
+    Fitted {
+        ns,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Update,
+    }
 }
 
 /// The register kinds an aggregate of the front closes into, the order of `SAVE`.
@@ -52,7 +57,14 @@ pub const KINDS: usize = 6;
 
 /// The record fold's cost a row over the front's add, an aggregate of each kind (W0, one participant; W8's own fit:
 /// 0.02 / 0.12 / 0.51 / 0.18 / 0.03 / 1.30 against a base of 0.33).
-pub const SAVE: [Fitted; KINDS] = [fitted(0.077), fitted(0.968), fitted(4.221), fitted(1.471), fitted(0.556), fitted(10.741)];
+pub const SAVE: [Fitted; KINDS] = [
+    fitted(0.077),
+    fitted(0.968),
+    fitted(4.221),
+    fitted(1.471),
+    fitted(0.556),
+    fitted(10.741),
+];
 /// The front's probe a row (the image's two blocks, the terms' exactness test), every row of a claim.
 pub const BASE: Fitted = fitted(2.172);
 /// A row of a group with no block: the miss and the claim's test beside the record fold (held at zero: the fit puts a
@@ -60,7 +72,14 @@ pub const BASE: Fitted = fitted(2.172);
 pub const MISS: Fitted = fitted(0.0);
 /// A row of a group with no block: an aggregate's term, computed before the probe and not used, by kind (W8's own fit:
 /// 0 / 0.26 / 0.61 / 0.14 / 0.14 / 1.27).
-pub const TERM: [Fitted; KINDS] = [fitted(0.735), fitted(2.246), fitted(7.221), fitted(0.702), fitted(7.134), fitted(0.0)];
+pub const TERM: [Fitted; KINDS] = [
+    fitted(0.735),
+    fitted(2.246),
+    fitted(7.221),
+    fitted(0.702),
+    fitted(7.134),
+    fitted(0.0),
+];
 
 /// The share of `groups` groups, each claiming first come its hash's block or the next of `blocks`, that find both
 /// claimed: `a^2 / (a^2 + 0.69 a + 2.31)` at `a = groups / blocks`. Simulated (3,000 random placements a point): within
@@ -83,7 +102,12 @@ pub fn front_pays(groups: u64, blocks: u32, aggs: &[u32; KINDS]) -> bool {
         return false;
     }
     let m = missed(groups as f64, blocks as f64);
-    let of = |price: &[Fitted; KINDS]| -> f64 { aggs.iter().zip(price.iter()).map(|(&n, p)| n as f64 * p.ns).sum() };
+    let of = |price: &[Fitted; KINDS]| -> f64 {
+        aggs.iter()
+            .zip(price.iter())
+            .map(|(&n, p)| n as f64 * p.ns)
+            .sum()
+    };
     (1.0 - m) * of(&SAVE) > BASE.ns + m * (MISS.ns + of(&TERM))
 }
 
@@ -110,18 +134,32 @@ mod tests {
             assert!(front_pays(8, 64, &of(&[(k, 4)])), "{k:?}");
         }
         assert!(front_pays(8, 64, &of(&[(Kind::WideTree, 1)])));
-        assert!(!front_pays(0, 64, &of(&[(Kind::Tree, 4)])), "no estimate: no front");
+        assert!(
+            !front_pays(0, 64, &of(&[(Kind::Tree, 4)])),
+            "no estimate: no front"
+        );
     }
 
     /// The miss share has no step: one group past the blocks decides as one at them unless the two sides are within a
     /// share point of each other, and the share climbs from none to most of the groups.
     #[test]
     fn the_miss_share_is_continuous_past_the_blocks() {
-        assert!(missed(1.0, 64.0) < 0.001 && (missed(64.0, 64.0) - 0.25).abs() < 1e-9 && missed(256.0, 64.0) > 0.75);
+        assert!(
+            missed(1.0, 64.0) < 0.001
+                && (missed(64.0, 64.0) - 0.25).abs() < 1e-9
+                && missed(256.0, 64.0) > 0.75
+        );
         assert!((missed(65.0, 64.0) - missed(64.0, 64.0)).abs() < 0.006);
         let four = of(&[(Kind::Tree, 4)]);
-        assert_eq!([63, 64, 65].map(|g| front_pays(g, 64, &four)), [true; 3], "four products: the front at and past the blocks");
-        assert!(!front_pays(256, 64, &four), "four times the blocks: most groups miss");
+        assert_eq!(
+            [63, 64, 65].map(|g| front_pays(g, 64, &four)),
+            [true; 3],
+            "four products: the front at and past the blocks"
+        );
+        assert!(
+            !front_pays(256, 64, &four),
+            "four times the blocks: most groups miss"
+        );
     }
 
     /// Twice the blocks: half the groups miss and their rows pay their terms for nothing, so four products, three
@@ -129,9 +167,21 @@ mod tests {
     /// column each take the front at the blocks and keep the record fold at twice them.
     #[test]
     fn twice_the_blocks_prices_the_missed_terms() {
-        let list = of(&[(Kind::Tree, 2), (Kind::Present, 1), (Kind::Ext, 2), (Kind::WideSum, 1)]);
-        for aggs in [list, of(&[(Kind::Tree, 4)]), of(&[(Kind::Tree, 3), (Kind::WideTree, 1)])] {
-            assert!(front_pays(64, 64, &aggs) && !front_pays(128, 64, &aggs), "{aggs:?}");
+        let list = of(&[
+            (Kind::Tree, 2),
+            (Kind::Present, 1),
+            (Kind::Ext, 2),
+            (Kind::WideSum, 1),
+        ]);
+        for aggs in [
+            list,
+            of(&[(Kind::Tree, 4)]),
+            of(&[(Kind::Tree, 3), (Kind::WideTree, 1)]),
+        ] {
+            assert!(
+                front_pays(64, 64, &aggs) && !front_pays(128, 64, &aggs),
+                "{aggs:?}"
+            );
         }
     }
 }

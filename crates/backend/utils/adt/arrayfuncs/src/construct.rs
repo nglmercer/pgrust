@@ -91,7 +91,15 @@ pub fn deconstruct_array<'mcx>(
 ) -> PgResult<(PgVec<'mcx, Datum>, PgVec<'mcx, bool>)> {
     let mut elems: PgVec<Datum> = PgVec::new_in(mcx);
     let mut nulls: PgVec<bool> = PgVec::new_in(mcx);
-    deconstruct_array_into(array, elmlen, elmbyval, elmalign, allow_nulls, &mut elems, &mut nulls)?;
+    deconstruct_array_into(
+        array,
+        elmlen,
+        elmbyval,
+        elmalign,
+        allow_nulls,
+        &mut elems,
+        &mut nulls,
+    )?;
     Ok((elems, nulls))
 }
 
@@ -221,7 +229,9 @@ pub fn construct_array<'mcx>(
 ) -> PgResult<PgVec<'mcx, u8>> {
     let dims = [elems.len() as i32];
     let lbs = [1i32];
-    construct_md_array(mcx, elems, None, 1, &dims, &lbs, elmtype, elmlen, elmbyval, elmalign)
+    construct_md_array(
+        mcx, elems, None, 1, &dims, &lbs, elmtype, elmlen, elmbyval, elmalign,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -349,7 +359,13 @@ fn att_addlength_datum_offset(cur: usize, attlen: i32, _datum: Datum, p: *const 
     }
 }
 
-pub(crate) fn write_header(out: &mut [u8], total_size: usize, ndim: i32, dataoffset: i32, elemtype: Oid) {
+pub(crate) fn write_header(
+    out: &mut [u8],
+    total_size: usize,
+    ndim: i32,
+    dataoffset: i32,
+    elemtype: Oid,
+) {
     out[0..4].copy_from_slice(&set_varsize_4b(total_size));
     out[4..8].copy_from_slice(&ndim.to_ne_bytes());
     out[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
@@ -420,10 +436,7 @@ pub(crate) fn copy_array_els(
 
 // C `ArrayGetIntegerTypmods` (arrayutils.c); lives here because it needs
 // deconstruct_array and arrayutils sits below this crate.
-pub fn array_get_integer_typmods<'mcx>(
-    mcx: Mcx<'mcx>,
-    arr: &[u8],
-) -> PgResult<PgVec<'mcx, i32>> {
+pub fn array_get_integer_typmods<'mcx>(mcx: Mcx<'mcx>, arr: &[u8]) -> PgResult<PgVec<'mcx, i32>> {
     if arr_elemtype(arr) != CSTRINGOID {
         return Err(Box::new(
             PgError::error("typmod array must be type cstring[]")
@@ -449,9 +462,9 @@ pub fn array_get_integer_typmods<'mcx>(
         // SAFETY: each element datum is a live NUL-terminated cstring from
         // the deconstructed image.
         let s = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-        out.push(::numutils::pg_strtoint32(&alloc::string::String::from_utf8_lossy(
-            s.to_bytes(),
-        ))?);
+        out.push(::numutils::pg_strtoint32(
+            &alloc::string::String::from_utf8_lossy(s.to_bytes()),
+        )?);
     }
     Ok(out)
 }

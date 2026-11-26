@@ -6,29 +6,32 @@
 //! keys are `src.index_array`'s, index-only scans `src.index_only`'s and the other AMs `src.index_am`'s (M2); the graph
 //! routes those kinds. Registers kind `src.index`. Owner M1-SOURCE.
 use gravity_decompose::graph::KeyForm;
-use mcx::{GrowIn, PgBox};
 use gravity_decompose::{Am, Source};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, Value};
 use gravity_program::{limits, LaneDesc, Pipeline};
+use mcx::{GrowIn, PgBox};
 
-use crate::ops::scan::pgrc::lower::shape;
-use crate::frame::site::{index_site, Reader, CTID_AT};
+use crate::admit::refusal::{Reason, Variant};
 use crate::face::kinds::KindId;
 use crate::face::source::{Locator, SourceMech, WinConds};
 use crate::frame::env::Env;
 use crate::frame::frame::{SourceMaker, Win, WordWin};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
-use crate::admit::refusal::{Reason, Variant};
+use crate::frame::site::{index_site, Reader, CTID_AT};
 use crate::lifetime::bound::{self, Feed, KeyAt};
+use crate::ops::scan::pgrc::lower::shape;
 use crate::ops::Table;
 
 pub(crate) fn index_fetch(gx: &crate::graph::Gx<'_, '_>, am: Am, relid: u32) -> bool {
     am == Am::Heap || gx.facts.rel(relid).is_some_and(|r| r.index_fetch())
 }
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::SrcIndex, &SourceMaker(make))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[(KindId::SrcIndex, &SourceMaker(make))],
+    ..crate::ops::NONE
+};
 
 struct Index<'g> {
     rd: Reader<'g>,
@@ -38,9 +41,26 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[k];
     let node = p.node_id;
-    let Source::Index { site, am, relid, keys, .. } = &p.source else { crate::refuse!(node, Reason::Bug { payload: "an index entry over another source" }) };
+    let Source::Index {
+        site,
+        am,
+        relid,
+        keys,
+        ..
+    } = &p.source
+    else {
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload: "an index entry over another source"
+            }
+        )
+    };
     if !index_fetch(gx, *am, *relid) {
-        shape(node, "an index scan over a relation that is not a heap table");
+        shape(
+            node,
+            "an index scan over a relation that is not a heap table",
+        );
     }
     // the key words in the host's order (hosts `SiteRecipe::words`): a comparison's value, or a row comparison's
     // members' values in column order (PostgreSQL's SK_ROW_MEMBER keys; a NULL member is the host's SK_ISNULL)
@@ -49,22 +69,39 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
         match key.form {
             KeyForm::Op => vals.push_in((key.attno, key.value)),
             KeyForm::Row => {
-                let Some(rc) = key.value.as_row_compare_expr() else { crate::refuse!(node, Reason::Bug { payload: "a row comparison index key over another node" }) };
+                let Some(rc) = key.value.as_row_compare_expr() else {
+                    crate::refuse!(
+                        node,
+                        Reason::Bug {
+                            payload: "a row comparison index key over another node"
+                        }
+                    )
+                };
                 let idx = gx.facts.index(site.index);
                 for (l, r) in rc.largs.iter().zip(rc.rargs.iter()) {
                     let col = l.as_var().map_or(0, |v| v.varattno as usize);
-                    let attno = idx.as_ref().filter(|i| (1..=i.nkeys as usize).contains(&col)).map_or(0, |i| i.keys[col - 1]);
+                    let attno = idx
+                        .as_ref()
+                        .filter(|i| (1..=i.nkeys as usize).contains(&col))
+                        .map_or(0, |i| i.keys[col - 1]);
                     vals.push_in((attno, r));
                 }
             }
-            KeyForm::Any | KeyForm::AmAny => crate::not_built!(node, Variant::Kind(KindId::SrcIndexArray)),
+            KeyForm::Any | KeyForm::AmAny => {
+                crate::not_built!(node, Variant::Kind(KindId::SrcIndexArray))
+            }
             // `column IS [NOT] NULL` (D409): the host's SK_SEARCHNULL / SK_SEARCHNOTNULL key, no word
             KeyForm::Null | KeyForm::NotNull => {}
-            KeyForm::AmOp | KeyForm::OrderBy => crate::not_built!(node, Variant::Kind(KindId::SrcIndexAm)),
+            KeyForm::AmOp | KeyForm::OrderBy => {
+                crate::not_built!(node, Variant::Kind(KindId::SrcIndexAm))
+            }
         }
     }
     if vals.len() > limits::KEYS {
-        shape(node, "an index scan with more key words than INDEX_MAX_KEYS");
+        shape(
+            node,
+            "an index scan with more key words than INDEX_MAX_KEYS",
+        );
     }
     let mut slots = mcx::reserved_in(vals.len(), px.mcx());
     let mut attnos = mcx::reserved_in(vals.len(), px.mcx());
@@ -79,11 +116,22 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
         }
         attnos.push_in(attno);
     }
-    if crate::rerun::params_key::input_cells(px, node, &ids, &ids, vals.iter().map(|v| v.1), &mut slots, &mut attnos) {
+    if crate::rerun::params_key::input_cells(
+        px,
+        node,
+        &ids,
+        &ids,
+        vals.iter().map(|v| v.1),
+        &mut slots,
+        &mut attnos,
+    ) {
         crate::rerun::params_key::host_keys_serial(px);
     }
     if slots.len() > limits::KEYS {
-        shape(node, "an index scan with more key words and computed keys' parameters than INDEX_MAX_KEYS");
+        shape(
+            node,
+            "an index scan with more key words and computed keys' parameters than INDEX_MAX_KEYS",
+        );
     }
     let (mut s, ctid) = index_site(px, site, *relid, &slots, &attnos, node);
     // D2665: the system columns the scan reads (V4R-88 lanes), filled from each fetched row's header (hosts heap_fetch.rs `project`)
@@ -105,7 +153,11 @@ impl SourceMech for Index<'_> {
     /// keeps it on the leader (D3246).
     fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize) -> Pipeline {
         let d = px.gx.pipelines()[k].desc;
-        if d.is_eligible() { crate::ops::scan::heap::pipeline_desc(px, k) } else { d }
+        if d.is_eligible() {
+            crate::ops::scan::heap::pipeline_desc(px, k)
+        } else {
+            d
+        }
     }
 
     fn open(&self, b: &mut FunctionBuilder<'_>, env: &mut Env) -> Value {
@@ -116,18 +168,44 @@ impl SourceMech for Index<'_> {
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let (cursor, end) = self.rd.window(b, env, l_eof);
         let w = self.rd.vals();
-        Win { cursor, end, facts: WinConds { nonulls: self.rd.nonulls(b), nosel: Some(w.sel_null), ..WinConds::default() } }
+        Win {
+            cursor,
+            end,
+            facts: WinConds {
+                nonulls: self.rd.nonulls(b),
+                nosel: Some(w.sel_null),
+                ..WinConds::default()
+            },
+        }
     }
 
-    fn word_win<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win) -> Option<WordWin<'e>> {
+    fn word_win<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+    ) -> Option<WordWin<'e>> {
         self.rd.word_win(env.mcx)
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.rd.row(b, env, j, carry, next)
     }
 
-    fn locator(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env, _row: &RowVals) -> Option<Locator> {
+    fn locator(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        _env: &mut Env,
+        _row: &RowVals,
+    ) -> Option<Locator> {
         self.rd.locator(b)
     }
 }

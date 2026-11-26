@@ -171,7 +171,10 @@ fn first_snapshot_sets_and_eoxact_clears_xmin() {
 
     end_xact();
     assert!(!FirstSnapshotSet());
-    assert_eq!(lmgr_proc::GetPGProcByNumber(me).xmin.read(), InvalidTransactionId);
+    assert_eq!(
+        lmgr_proc::GetPGProcByNumber(me).xmin.read(),
+        InvalidTransactionId
+    );
     assert_eq!(TransactionXmin(), InvalidTransactionId);
 }
 
@@ -226,7 +229,10 @@ fn register_unregister_lifecycle() {
     assert_eq!(reg.regd_count.get(), 0);
     assert_eq!(FORGOTTEN.get(), f0 + 1);
     drop(reg);
-    assert_eq!(lmgr_proc::GetPGProcByNumber(me).xmin.read(), InvalidTransactionId);
+    assert_eq!(
+        lmgr_proc::GetPGProcByNumber(me).xmin.read(),
+        InvalidTransactionId
+    );
     assert!(!HaveRegisteredOrActiveSnapshot());
 
     end_xact();
@@ -357,7 +363,10 @@ fn serialize_restore_roundtrip_across_thread() {
 
     std::thread::spawn(move || {
         let restored = RestoreSnapshot(&ser);
-        assert_eq!(restored.snapshot_type, types_snapshot::SnapshotType::SNAPSHOT_MVCC);
+        assert_eq!(
+            restored.snapshot_type,
+            types_snapshot::SnapshotType::SNAPSHOT_MVCC
+        );
         assert_eq!(restored.xmin, 100);
         assert_eq!(restored.xmax, 200);
         assert_eq!(restored.xip[..], [110, 120, 150]);
@@ -444,7 +453,9 @@ fn panic_inside_with_state_does_not_poison_the_session() {
     PopActiveSnapshot().unwrap();
 
     AtEOXact_Snapshot(false, true).expect("abort-path AtEOXact_Snapshot");
-    assert!(with_state(|s| s.active.is_empty() && s.registered.is_empty()));
+    assert!(with_state(
+        |s| s.active.is_empty() && s.registered.is_empty()
+    ));
     assert!(!with_state(|s| s.first_snapshot_set));
 }
 
@@ -463,13 +474,21 @@ fn vfs_mkdir(dir: &str) {
 
 fn vfs_read_file(path: &str) -> Vec<u8> {
     let fd = vfs::open(&cpath(path), libc::O_RDONLY, 0);
-    assert!(fd >= 0, "vfs_read_file open({path}): errno {}", vfs::get_errno());
+    assert!(
+        fd >= 0,
+        "vfs_read_file open({path}): errno {}",
+        vfs::get_errno()
+    );
     let mut out = Vec::new();
     let mut buf = [0u8; 4096];
     let mut off = 0i64;
     loop {
         let n = vfs::pread(fd, &mut buf, off);
-        assert!(n >= 0, "vfs_read_file pread({path}): errno {}", vfs::get_errno());
+        assert!(
+            n >= 0,
+            "vfs_read_file pread({path}): errno {}",
+            vfs::get_errno()
+        );
         if n == 0 {
             break;
         }
@@ -483,7 +502,9 @@ fn vfs_read_file(path: &str) -> Vec<u8> {
 static CWD: Mutex<()> = Mutex::new(());
 
 fn enter_dir(dir: &str) -> std::sync::MutexGuard<'static, ()> {
-    let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = CWD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     std::env::set_current_dir(dir).unwrap();
     guard
 }
@@ -553,11 +574,18 @@ fn capture_hook(error: &types_error::PgError, _output_to_server: &mut bool) {
 }
 
 fn captured(f: impl FnOnce()) -> Vec<(types_error::ErrorLevel, types_error::SqlState, String)> {
-    EMITTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+    EMITTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
     let previous = elog::set_emit_log_hook(Some(capture_hook));
     f();
     elog::set_emit_log_hook(previous);
-    std::mem::take(&mut *EMITTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+    std::mem::take(
+        &mut *EMITTED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
 }
 
 #[test]
@@ -574,7 +602,8 @@ fn import_snapshot_read_failure_is_internal_error_sqlstate() {
     let err = ImportSnapshot("00000003-00000002-1").unwrap_err();
     ISO_USES_XACT_SNAPSHOT.set(false);
     assert!(
-        err.message.starts_with("could not read file \"pg_snapshots/00000003-00000002-1\": "),
+        err.message
+            .starts_with("could not read file \"pg_snapshots/00000003-00000002-1\": "),
         "unexpected ImportSnapshot error: {}",
         err.message
     );
@@ -602,7 +631,11 @@ fn eoxact_commit_warns_with_the_leftover_active_snapshot_address() {
         .filter(|(level, _, msg)| *level == WARNING && msg.ends_with("still active"))
         .map(|(_, _, msg)| msg)
         .collect();
-    assert_eq!(warnings.len(), 2, "one WARNING per unpopped active snapshot: {seen:?}");
+    assert_eq!(
+        warnings.len(),
+        2,
+        "one WARNING per unpopped active snapshot: {seen:?}"
+    );
     for msg in warnings {
         let addr = msg
             .strip_prefix("snapshot 0x")
@@ -612,7 +645,11 @@ fn eoxact_commit_warns_with_the_leftover_active_snapshot_address() {
             !addr.is_empty() && addr.bytes().all(|b| b.is_ascii_hexdigit()),
             "%p renders as 0x + lowercase hex, got {msg:?}"
         );
-        assert_eq!(addr, addr.to_ascii_lowercase(), "%p is lowercase hex: {msg:?}");
+        assert_eq!(
+            addr,
+            addr.to_ascii_lowercase(),
+            "%p is lowercase hex: {msg:?}"
+        );
     }
     assert!(!ActiveSnapshotSet());
 }
@@ -628,8 +665,15 @@ fn delete_all_exported_snapshot_files_logs_could_not_remove() {
     vfs_mkdir("pg_snapshots/AAAA-junkdir/keep");
 
     let seen = captured(DeleteAllExportedSnapshotFiles);
-    let logs: Vec<_> = seen.iter().filter(|(level, _, _)| *level == types_error::LOG).collect();
-    assert_eq!(logs.len(), 1, "exactly one LOG line for the one entry: {seen:?}");
+    let logs: Vec<_> = seen
+        .iter()
+        .filter(|(level, _, _)| *level == types_error::LOG)
+        .collect();
+    assert_eq!(
+        logs.len(),
+        1,
+        "exactly one LOG line for the one entry: {seen:?}"
+    );
     let (_, sqlstate, msg) = logs[0];
     assert!(
         msg.starts_with("could not remove file \"pg_snapshots/AAAA-junkdir\": "),

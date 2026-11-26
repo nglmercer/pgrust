@@ -12,7 +12,14 @@ mod rerun;
 mod stores;
 
 pub use bound::{sample_at, BoundAt, Feed};
-pub use keep::{at_any_rescan, child_eflags, cte_scans, eflags_at, eflags_in, function_rescan, keep_rule, keeps_in, node_of, reach, resolve, shields, shields_in, Keep, Kept, Reach, Rescan, Site, Usual, BACKWARD, MARK, REWIND};
+pub use keep::{
+    at_any_rescan, child_eflags, cte_scans, eflags_at, eflags_in, function_rescan, keep_rule,
+    keeps_in, node_of, reach, resolve, shields, shields_in, Keep, Kept, Reach, Rescan, Site, Usual,
+    BACKWARD, MARK, REWIND,
+};
+pub(crate) use rerun::{
+    changed_params, claim_refills, keep_at, keepable, kept_hashed, reexecuted, refills_left,
+    rereads_run, rerun_set, sub_kept_fills, term_unwhole,
+};
 pub use rerun::{KeptBy, KeptRec};
-pub(crate) use rerun::{changed_params, claim_refills, keep_at, keepable, kept_hashed, reexecuted, refills_left, rereads_run, rerun_set, sub_kept_fills, term_unwhole};
 pub use stores::{root_store, subplan_stores, Store};

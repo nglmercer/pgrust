@@ -25,17 +25,26 @@ use core::cmp::Ordering;
 use gravity_abi::ctx::lane;
 use gravity_abi::site::Site;
 use gravity_abi::{Datum as Word, Lane};
-use gravity_driver::{blank_site, ArenaRef, ArenaVec, BindingRef, Cursor, Error, Residency, Result, Source, Window, WindowBase};
+use gravity_driver::{
+    blank_site, ArenaRef, ArenaVec, BindingRef, Cursor, Error, Residency, Result, Source, Window,
+    WindowBase,
+};
 use gravity_fn::arena::{AVec, Kind, OpArena, Refused};
 use gravity_program::cost::pgrc::{MERGE_LANE_BYTES, MERGE_LIVE_BYTES, MERGE_LIVE_MAX};
-use gravity_program::protos::{VERDICT_CODE_SPARSE, VERDICT_CODE_TABLE, VERDICT_CONST_KEY, VERDICT_COUNT_ONLY, VERDICT_COUNT_SELECT, VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED, VERDICT_PACKED_ZONE, VERDICT_UNREAD};
+use gravity_program::protos::{
+    VERDICT_CODE_SPARSE, VERDICT_CODE_TABLE, VERDICT_CONST_KEY, VERDICT_COUNT_ONLY,
+    VERDICT_COUNT_SELECT, VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE,
+    VERDICT_PACKED, VERDICT_PACKED_ZONE, VERDICT_UNREAD,
+};
 use gravity_program::{SiteDesc, ZonePred};
 use pgrc_format::sortkey::{NullsOrder, SortDir};
 use pgrc_write::runs::Heap;
 use pgrc_write::seal::cmp::{slot_cmp, KeySlot};
 use pgrc_write::structural::ClusterKeyDecl;
 
-use super::granule_source::{part_sorted_on, GranuleRangeSource, GranuleRecipe, Resolved, VerdictCell};
+use super::granule_source::{
+    part_sorted_on, GranuleRangeSource, GranuleRecipe, Resolved, VerdictCell,
+};
 
 mod raw;
 
@@ -48,7 +57,18 @@ const NONE: u32 = u32::MAX;
 /// The verdicts whose windows a merge cannot cut into runs: a lane left undecoded or filled late (late, packed, unread,
 /// elision, count-only, guarded selections), rows that stand for codes (code tables) or a window's const-key hint. The
 /// zone, bloom, PSMA and condition-cache verdicts only skip granules and select rows, which a run keeps.
-const SHAPED: u64 = VERDICT_LATE | VERDICT_PACKED | VERDICT_UNREAD | VERDICT_PACKED_ZONE | VERDICT_ELIDE | VERDICT_ELIDE_HIT | VERDICT_CONST_KEY | VERDICT_GUARD_SEL | VERDICT_COUNT_ONLY | VERDICT_COUNT_SELECT | VERDICT_CODE_TABLE | VERDICT_CODE_SPARSE;
+const SHAPED: u64 = VERDICT_LATE
+    | VERDICT_PACKED
+    | VERDICT_UNREAD
+    | VERDICT_PACKED_ZONE
+    | VERDICT_ELIDE
+    | VERDICT_ELIDE_HIT
+    | VERDICT_CONST_KEY
+    | VERDICT_GUARD_SEL
+    | VERDICT_COUNT_ONLY
+    | VERDICT_COUNT_SELECT
+    | VERDICT_CODE_TABLE
+    | VERDICT_CODE_SPARSE;
 
 /// One key cell of a stream's head (or of a row): NULL, a by-value word, or a by-reference value's payload bytes.
 #[derive(Clone, Copy)]
@@ -60,7 +80,12 @@ struct Cell {
 }
 
 impl Cell {
-    const NULL: Cell = Cell { null: true, w: 0, p: core::ptr::null(), n: 0 };
+    const NULL: Cell = Cell {
+        null: true,
+        w: 0,
+        p: core::ptr::null(),
+        n: 0,
+    };
 }
 
 /// One part's sorted stream.
@@ -151,8 +176,15 @@ fn lanes_per(desc: &SiteDesc) -> usize {
 pub fn footprint(desc: &SiteDesc) -> usize {
     let (n, lp) = (live_max(desc), lanes_per(desc));
     let lane = core::mem::size_of::<Lane>();
-    let zone = (desc.zone_preds().len() + desc.zone_any.len()) * core::mem::size_of::<ZonePred>() + desc.zone_any_ends.len() * 2 + desc.filter_lanes.words().len() * 8;
-    core::mem::size_of::<MergedRangeSource>() + n * core::mem::size_of::<Member>() + (n + 1) * lp * lane + desc.merge.len() * 8 + zone + 256
+    let zone = (desc.zone_preds().len() + desc.zone_any.len()) * core::mem::size_of::<ZonePred>()
+        + desc.zone_any_ends.len() * 2
+        + desc.filter_lanes.words().len() * 8;
+    core::mem::size_of::<MergedRangeSource>()
+        + n * core::mem::size_of::<Member>()
+        + (n + 1) * lp * lane
+        + desc.merge.len() * 8
+        + zone
+        + 256
 }
 
 fn refused(r: Refused) -> Error {
@@ -162,11 +194,19 @@ fn refused(r: Refused) -> Error {
 impl MergedRangeSource {
     /// The merged source of range site `site` (its descriptor `desc`, whose `merge` is the key) over `recipe`, its members'
     /// room in the Node's arena `a`.
-    pub fn new(recipe: GranuleRecipe, site: usize, desc: &SiteDesc, a: ArenaRef) -> MergedRangeSource {
+    pub fn new(
+        recipe: GranuleRecipe,
+        site: usize,
+        desc: &SiteDesc,
+        a: ArenaRef,
+    ) -> MergedRangeSource {
         let (live_max, lp) = (live_max(desc), lanes_per(desc));
         let natts = recipe.natts;
         let hint = (natts + 1 + recipe.tables.len()).max(recipe.verdict_lane.map_or(0, |k| k + 1));
-        assert!(hint <= lp, "gravity: a merged site's recipe publishes {hint} lanes, its descriptor {lp}");
+        assert!(
+            hint <= lp,
+            "gravity: a merged site's recipe publishes {hint} lanes, its descriptor {lp}"
+        );
         let mut lanes = ArenaVec::with_capacity_in(live_max * lp, a);
         lanes.resize(live_max * lp, Lane::NONE);
         let mut scratch = ArenaVec::with_capacity_in(lp, a);
@@ -199,7 +239,12 @@ impl MergedRangeSource {
             keys,
             key_lanes,
             byref,
-            decl: ClusterKeyDecl { attno: 0, dir: SortDir::Asc, nulls: NullsOrder::Last, path: Vec::new() }, // alloc: Node
+            decl: ClusterKeyDecl {
+                attno: 0,
+                dir: SortDir::Asc,
+                nulls: NullsOrder::Last,
+                path: Vec::new(),
+            }, // alloc: Node
             exec: None,
             cur: Cursor::new(),
             site,
@@ -225,7 +270,10 @@ impl MergedRangeSource {
 
     /// The granules this execution's members decoded (an evicted stream's granule decodes again when it reaches the top).
     pub fn granules_decoded(&self) -> u64 {
-        self.members[..self.nlive].iter().map(|m| m.src.granules_decoded()).sum()
+        self.members[..self.nlive]
+            .iter()
+            .map(|m| m.src.granules_decoded())
+            .sum()
     }
 
     /// The refusals of the site's shape, before any member binds.
@@ -238,19 +286,29 @@ impl MergedRangeSource {
         if resolved.order_of(self.site).is_some() {
             return Err(Error::host("gravity: a merged site under a walk order"));
         }
-        if r.entries.is_some() || r.entries_every || !r.tables.is_empty() || r.sample.is_some() || !r.shred.is_empty() {
-            return Err(Error::host("gravity: a merged site with entries, tables, a sample or shred lanes"));
+        if r.entries.is_some()
+            || r.entries_every
+            || !r.tables.is_empty()
+            || r.sample.is_some()
+            || !r.shred.is_empty()
+        {
+            return Err(Error::host(
+                "gravity: a merged site with entries, tables, a sample or shred lanes",
+            ));
         }
         if self.keys.is_empty() || self.keys.len() > MAX_KEYS {
-            return Err(Error::host("gravity: a merged site's key is empty or longer than INDEX_MAX_KEYS"));
+            return Err(Error::host(
+                "gravity: a merged site's key is empty or longer than INDEX_MAX_KEYS",
+            ));
         }
         // bounded("key-columns: one check per merge key column, at most MAX_KEYS")
         for &k in self.key_lanes.iter() {
-            let ok = (k as usize) < r.natts && match r.kinds[k as usize] {
-                lane::KIND_BYVAL => matches!(r.widths[k as usize], 2 | 4 | 8),
-                lane::KIND_BYREF => true,
-                _ => false,
-            };
+            let ok = (k as usize) < r.natts
+                && match r.kinds[k as usize] {
+                    lane::KIND_BYVAL => matches!(r.widths[k as usize], 2 | 4 | 8),
+                    lane::KIND_BYREF => true,
+                    _ => false,
+                };
             if !ok {
                 return Err(Error::host("gravity: a merged site's key is not a by-value integer or a by-reference value lane of the site"));
             }
@@ -261,7 +319,9 @@ impl MergedRangeSource {
     fn bind_merge(&mut self, b: &BindingRef<'_>) -> Result<()> {
         let resolved = Resolved::of(b).map_err(crate::stash)?;
         self.shape(resolved)?;
-        let list = resolved.list(self.recipe.rel).ok_or_else(|| Error::host("gravity: a merged site bound without its part list"))?;
+        let list = resolved
+            .list(self.recipe.rel)
+            .ok_or_else(|| Error::host("gravity: a merged site bound without its part list"))?;
         let k = list.len();
         // the witness: every part's rows are in the key's order (the seal sorted or verified them)
         // bounded("other: one sort witness per part of the statement's list, each a small section of an open part")
@@ -288,7 +348,12 @@ impl MergedRangeSource {
             if self.anyd {
                 src.zone_any(&self.any, &self.any_ends, self.any_base);
             }
-            self.members.push(Member { src, site: blank_site(lanes), stream: NONE, used: 0 });
+            self.members.push(Member {
+                src,
+                site: blank_site(lanes),
+                stream: NONE,
+                used: 0,
+            });
         }
         // bounded("other: one bind per member this execution needs, at most MERGE_LIVE_MAX of them")
         for i in 0..live {
@@ -308,7 +373,19 @@ impl MergedRangeSource {
             // bounded("other: one stream per part of the statement's list")
             for p in 0..k {
                 let (start, end) = (list.starts()[p], list.end_of(p));
-                streams.push(&arena, Stream { start, end, g: start, row: 0, at: 0, member: NONE, done: start >= end, own: AVec::new() })?; // alloc: Exec
+                streams.push(
+                    &arena,
+                    Stream {
+                        start,
+                        end,
+                        g: start,
+                        row: 0,
+                        at: 0,
+                        member: NONE,
+                        done: start >= end,
+                        own: AVec::new(),
+                    },
+                )?; // alloc: Exec
             }
             let mut heads = AVec::with_capacity(&arena, k * nk)?;
             heads.resize(&arena, k * nk, Cell::NULL)?;
@@ -317,7 +394,19 @@ impl MergedRangeSource {
             Ok((streams, heads, slots))
         })();
         match state {
-            Ok((streams, heads, slots)) => self.exec = Some(Exec { streams, heads, slots, live: 0, keys: AVec::new(), nulls: AVec::new(), run: None, clock: 0, arena }), // alloc: Exec
+            Ok((streams, heads, slots)) => {
+                self.exec = Some(Exec {
+                    streams,
+                    heads,
+                    slots,
+                    live: 0,
+                    keys: AVec::new(),
+                    nulls: AVec::new(),
+                    run: None,
+                    clock: 0,
+                    arena,
+                })
+            } // alloc: Exec
             Err(r) => {
                 self.unbind_members();
                 return Err(refused(r));
@@ -351,7 +440,9 @@ impl MergedRangeSource {
         // bounded("key-columns: one cell per merge key column, at most MAX_KEYS")
         for (i, o) in out.iter_mut().enumerate() {
             let l = raw::site_lane(site, self.key_lanes[i] as usize);
-            *o = raw::cell_at(&l, row, self.byref[i]).ok_or_else(|| Error::host("gravity: a merged key's value is not a plain varlena image"))?;
+            *o = raw::cell_at(&l, row, self.byref[i]).ok_or_else(|| {
+                Error::host("gravity: a merged key's value is not a plain varlena image")
+            })?;
         }
         Ok(())
     }
@@ -382,7 +473,13 @@ impl MergedRangeSource {
     /// Stream `s`'s head from its member's window at index `at`, its cells loaded.
     fn load_head(&mut self, s: u32, at: u32) -> Result<()> {
         let nk = self.keys.len();
-        let m = self.exec.as_ref().expect("bound").streams.as_slice(&self.exec.as_ref().expect("bound").arena)[s as usize].member as usize;
+        let m = self
+            .exec
+            .as_ref()
+            .expect("bound")
+            .streams
+            .as_slice(&self.exec.as_ref().expect("bound").arena)[s as usize]
+            .member as usize;
         let row = self.row_of(m, at);
         let mut cells = [Cell::NULL; MAX_KEYS];
         self.row_cells(m, row as usize, &mut cells[..nk])?;
@@ -390,7 +487,8 @@ impl MergedRangeSource {
         let st = &mut ex.streams.as_mut_slice(&ex.arena)[s as usize];
         st.at = at;
         st.row = row;
-        ex.heads.as_mut_slice(&ex.arena)[s as usize * nk..(s as usize + 1) * nk].copy_from_slice(&cells[..nk]);
+        ex.heads.as_mut_slice(&ex.arena)[s as usize * nk..(s as usize + 1) * nk]
+            .copy_from_slice(&cells[..nk]);
         Ok(())
     }
 
@@ -420,12 +518,18 @@ impl MergedRangeSource {
     fn check_window(&self, m: usize) -> Result<()> {
         let site = &self.members[m].site;
         if site.answered != 0 || site.end() == 0 {
-            return Err(Error::host("gravity: a merged site's member published an answered or empty window"));
+            return Err(Error::host(
+                "gravity: a merged site's member published an answered or empty window",
+            ));
         }
         // bounded("key-columns: one check per merge key column, at most MAX_KEYS")
         for &k in self.key_lanes.iter() {
-            if k >= site.nlanes || gravity_abi::unword(raw::site_lane(site, k as usize).ptr).is_null() {
-                return Err(Error::host("gravity: a merged site's key lane is undecoded"));
+            if k >= site.nlanes
+                || gravity_abi::unword(raw::site_lane(site, k as usize).ptr).is_null()
+            {
+                return Err(Error::host(
+                    "gravity: a merged site's key lane is undecoded",
+                ));
             }
         }
         Ok(())
@@ -453,7 +557,11 @@ impl MergedRangeSource {
         let ex = self.exec.as_mut().expect("bound");
         let total: usize = {
             let h = &ex.heads.as_slice(&ex.arena)[s as usize * nk..(s as usize + 1) * nk];
-            h.iter().zip(self.byref.iter()).filter(|(c, &br)| br && !c.null).map(|(c, _)| c.n as usize).sum()
+            h.iter()
+                .zip(self.byref.iter())
+                .filter(|(c, &br)| br && !c.null)
+                .map(|(c, _)| c.n as usize)
+                .sum()
         };
         let streams = ex.streams.as_mut_slice(&ex.arena);
         let st = &mut streams[s as usize];
@@ -461,10 +569,15 @@ impl MergedRangeSource {
         st.own.reserve(&ex.arena, total).map_err(refused)?;
         let heads = ex.heads.as_mut_slice(&ex.arena);
         // bounded("key-columns: one copy per by-reference merge key column, at most MAX_KEYS")
-        for (c, &br) in heads[s as usize * nk..(s as usize + 1) * nk].iter_mut().zip(self.byref.iter()) {
+        for (c, &br) in heads[s as usize * nk..(s as usize + 1) * nk]
+            .iter_mut()
+            .zip(self.byref.iter())
+        {
             if br && !c.null {
                 let at = st.own.len();
-                st.own.extend_from_slice(&ex.arena, raw::bytes(c.p, c.n)).map_err(refused)?;
+                st.own
+                    .extend_from_slice(&ex.arena, raw::bytes(c.p, c.n))
+                    .map_err(refused)?;
                 c.p = raw::own_at(&st.own, &ex.arena, at);
             }
         }
@@ -479,10 +592,15 @@ impl MergedRangeSource {
     /// the rest of its part from its granule; its head stays where it was when that granule comes back (its rows a
     /// runtime filter dropped since are passed), else it moves to the first row of the window that does.
     fn open(&mut self, s: u32) -> Result<()> {
-        let m = match self.members[..self.nlive].iter().position(|m| m.stream == NONE) {
+        let m = match self.members[..self.nlive]
+            .iter()
+            .position(|m| m.stream == NONE)
+        {
             Some(m) => m,
             None => {
-                let m = (0..self.nlive).min_by_key(|&m| self.members[m].used).expect("a member");
+                let m = (0..self.nlive)
+                    .min_by_key(|&m| self.members[m].used)
+                    .expect("a member");
                 self.evict(self.members[m].stream)?;
                 m
             }
@@ -540,10 +658,17 @@ impl MergedRangeSource {
         let nk = self.keys.len();
         let ex = self.exec.as_mut().expect("bound");
         let (byref, decl) = (&self.byref[..], &self.decl);
-        let (heads, slots) = (ex.heads.as_slice(&ex.arena), ex.slots.as_mut_slice(&ex.arena));
+        let (heads, slots) = (
+            ex.heads.as_slice(&ex.arena),
+            ex.slots.as_mut_slice(&ex.arena),
+        );
         let mut less = |a: u32, b: u32| stream_less(byref, decl, heads, nk, a, b);
         let mut h = Heap::resume(slots, ex.live);
-        debug_assert_eq!(h.top(), Some(s), "the run's stream is the top until it settles");
+        debug_assert_eq!(
+            h.top(),
+            Some(s),
+            "the run's stream is the top until it settles"
+        );
         if alive {
             h.fix_top(&mut less);
         } else {
@@ -610,19 +735,32 @@ impl MergedRangeSource {
             w.rows = e;
             w.cursor = at;
         }
-        w.set_base(WindowBase { pos: site.pos, part_id: site.part_id, dict_epoch: site.dict_epoch, granule: site.granule, claim_id: site.claim_id });
+        w.set_base(WindowBase {
+            pos: site.pos,
+            part_id: site.part_id,
+            dict_epoch: site.dict_epoch,
+            granule: site.granule,
+            claim_id: site.claim_id,
+        });
         w.set_part_facts(site.part_facts);
     }
 
     fn seek_merge(&mut self, keys: &[Word], nulls: &[u8]) -> Result<()> {
         let k = {
-            let ex = self.exec.as_mut().ok_or_else(|| Error::host("gravity: seek on an unbound merged source"))?;
+            let ex = self
+                .exec
+                .as_mut()
+                .ok_or_else(|| Error::host("gravity: seek on an unbound merged source"))?;
             ex.run = None;
             ex.live = 0;
             ex.keys.clear();
-            ex.keys.extend_from_slice(&ex.arena, keys).map_err(refused)?;
+            ex.keys
+                .extend_from_slice(&ex.arena, keys)
+                .map_err(refused)?;
             ex.nulls.clear();
-            ex.nulls.extend_from_slice(&ex.arena, nulls).map_err(refused)?;
+            ex.nulls
+                .extend_from_slice(&ex.arena, nulls)
+                .map_err(refused)?;
             ex.streams.len()
         };
         self.cur.clear();
@@ -650,7 +788,9 @@ impl MergedRangeSource {
         };
         // a merged site is read whole, in one claim (its pipeline is serial): a claim of part of it has no order to keep
         if keys[0] > 0 || keys[1] < total {
-            return Err(Error::host("gravity: a merged site read by a claim of part of its relation"));
+            return Err(Error::host(
+                "gravity: a merged site read by a claim of part of its relation",
+            ));
         }
         // every stream's first head: its part's first window that keeps a row
         // bounded("other: one stream per part of the statement's list, a granule decode each")
@@ -666,7 +806,10 @@ impl MergedRangeSource {
         let nk = self.keys.len();
         let ex = self.exec.as_mut().expect("bound");
         let live = {
-            let (streams, slots) = (ex.streams.as_slice(&ex.arena), ex.slots.as_mut_slice(&ex.arena));
+            let (streams, slots) = (
+                ex.streams.as_slice(&ex.arena),
+                ex.slots.as_mut_slice(&ex.arena),
+            );
             let mut n = 0;
             // bounded("other: one stream per part of the statement's list")
             for (s, st) in streams.iter().enumerate() {
@@ -678,14 +821,22 @@ impl MergedRangeSource {
             n
         };
         let (byref, decl) = (&self.byref[..], &self.decl);
-        let (heads, slots) = (ex.heads.as_slice(&ex.arena), ex.slots.as_mut_slice(&ex.arena));
+        let (heads, slots) = (
+            ex.heads.as_slice(&ex.arena),
+            ex.slots.as_mut_slice(&ex.arena),
+        );
         let mut less = |a: u32, b: u32| stream_less(byref, decl, heads, nk, a, b);
         ex.live = Heap::new(slots, live, &mut less).len();
         Ok(())
     }
 
     fn window_merge(&mut self, w: &mut Window<'_>) -> Result<u32> {
-        let run = self.exec.as_mut().ok_or_else(|| Error::host("gravity: a window of an unbound merged source"))?.run.take();
+        let run = self
+            .exec
+            .as_mut()
+            .ok_or_else(|| Error::host("gravity: a window of an unbound merged source"))?
+            .run
+            .take();
         if let Some((s, e)) = run {
             self.settle(s, e)?;
         }
@@ -695,7 +846,10 @@ impl MergedRangeSource {
             let (top, runner) = {
                 let ex = self.exec.as_mut().expect("bound");
                 let (byref, decl) = (&self.byref[..], &self.decl);
-                let (heads, slots) = (ex.heads.as_slice(&ex.arena), ex.slots.as_mut_slice(&ex.arena));
+                let (heads, slots) = (
+                    ex.heads.as_slice(&ex.arena),
+                    ex.slots.as_mut_slice(&ex.arena),
+                );
                 let mut less = |a: u32, b: u32| stream_less(byref, decl, heads, nk, a, b);
                 let h = Heap::resume(slots, ex.live);
                 let Some(top) = h.top() else { return Ok(0) };
@@ -710,7 +864,10 @@ impl MergedRangeSource {
                 };
                 let ex = self.exec.as_mut().expect("bound");
                 let (byref, decl) = (&self.byref[..], &self.decl);
-                let (heads, slots) = (ex.heads.as_slice(&ex.arena), ex.slots.as_mut_slice(&ex.arena));
+                let (heads, slots) = (
+                    ex.heads.as_slice(&ex.arena),
+                    ex.slots.as_mut_slice(&ex.arena),
+                );
                 let mut less = |a: u32, b: u32| stream_less(byref, decl, heads, nk, a, b);
                 let mut h = Heap::resume(slots, ex.live);
                 if done {
@@ -747,8 +904,18 @@ impl MergedRangeSource {
 }
 
 /// Stream `a`'s head sorts before stream `b`'s: by key, a tie to the lower part.
-fn stream_less(byref: &[bool], decl: &ClusterKeyDecl, heads: &[Cell], nk: usize, a: u32, b: u32) -> bool {
-    let (x, y) = (&heads[a as usize * nk..(a as usize + 1) * nk], &heads[b as usize * nk..(b as usize + 1) * nk]);
+fn stream_less(
+    byref: &[bool],
+    decl: &ClusterKeyDecl,
+    heads: &[Cell],
+    nk: usize,
+    a: u32,
+    b: u32,
+) -> bool {
+    let (x, y) = (
+        &heads[a as usize * nk..(a as usize + 1) * nk],
+        &heads[b as usize * nk..(b as usize + 1) * nk],
+    );
     match MergedRangeSource::cmp(byref, decl, x, y) {
         Ordering::Less => true,
         Ordering::Equal => a < b,
@@ -826,11 +993,19 @@ impl Source for MergedRangeSource {
     }
 
     fn dict_value(&mut self, part_id: u32, lane: u16, code: u32) -> Result<(Word, u32)> {
-        let ex = self.exec.as_ref().ok_or_else(|| Error::host("gravity: a dictionary value of an unbound merged source"))?;
+        let ex = self.exec.as_ref().ok_or_else(|| {
+            Error::host("gravity: a dictionary value of an unbound merged source")
+        })?;
         let streams = ex.streams.as_slice(&ex.arena);
-        let m = match streams.get(part_id as usize).map(|s| s.member).filter(|&m| m != NONE) {
+        let m = match streams
+            .get(part_id as usize)
+            .map(|s| s.member)
+            .filter(|&m| m != NONE)
+        {
             Some(m) => m as usize,
-            None => self.current().ok_or_else(|| Error::host("gravity: a merged source with no member"))?,
+            None => self
+                .current()
+                .ok_or_else(|| Error::host("gravity: a merged source with no member"))?,
         };
         self.members[m].src.dict_value(part_id, lane, code)
     }
@@ -872,7 +1047,10 @@ impl Source for MergedRangeSource {
     }
 
     fn pins(&self) -> u64 {
-        self.members[..self.nlive].iter().map(|m| m.src.pins()).sum()
+        self.members[..self.nlive]
+            .iter()
+            .map(|m| m.src.pins())
+            .sum()
     }
 
     fn release(&mut self) {

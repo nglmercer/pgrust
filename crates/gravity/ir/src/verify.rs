@@ -21,7 +21,7 @@ fn filled<T: Clone>(m: Mcx<'_>, x: T, n: usize) -> PgVec<'_, T> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct VerifyError {
-    pub func: String, // alloc: Cold
+    pub func: String,    // alloc: Cold
     pub message: String, // alloc: Cold
 }
 
@@ -73,15 +73,20 @@ pub fn verify_structure(program: &Program) -> Result<(), VerifyError> {
 /// `verify_structure` with its tables in `m`.
 pub fn verify_structure_in(program: &Program, m: Mcx<'_>) -> Result<(), VerifyError> {
     for f in program.funcs.iter() {
-        verify_function_structure(f, m).map_err(|m| VerifyError { func: String::from(f.name.as_str()), message: m })?; // alloc: Cold
+        verify_function_structure(f, m).map_err(|m| VerifyError {
+            func: String::from(f.name.as_str()),
+            message: m,
+        })?; // alloc: Cold
     }
     Ok(())
 }
 
-fn verify_function_structure(f: &Function, m: Mcx<'_>) -> Result<(), String> { // alloc: Cold
+fn verify_function_structure(f: &Function, m: Mcx<'_>) -> Result<(), String> {
+    // alloc: Cold
     let nv = f.values.len();
     let mut defined = filled(m, false, nv);
-    let mut define = |v: Value, what: Site| -> Result<(), String> { // alloc: Cold
+    let mut define = |v: Value, what: Site| -> Result<(), String> {
+        // alloc: Cold
         if v.index() >= nv {
             return Err(format!("{what}: value v{} out of range", v.0)); // alloc: Cold
         }
@@ -110,17 +115,29 @@ fn verify_function_structure(f: &Function, m: Mcx<'_>) -> Result<(), String> { /
     for (bi, b) in f.blocks.iter().enumerate() {
         for e in b.term.edges() {
             let Some(tb) = f.blocks.get(e.target.index()) else {
-                return Err(format!("b{bi} terminator: edge to b{} out of range", e.target.0)); // alloc: Cold
+                return Err(format!(
+                    "b{bi} terminator: edge to b{} out of range",
+                    e.target.0
+                )); // alloc: Cold
             };
             if e.target == f.entry {
-                return Err(format!("b{bi} terminator: edge to b{}, the entry block (its parameters are the function's arguments)", e.target.0)); // alloc: Cold
+                return Err(format!("b{bi} terminator: edge to b{}, the entry block (its parameters are the function's arguments)", e.target.0));
+                // alloc: Cold
             }
             if tb.params.len() != e.args.len() {
-                return Err(format!("b{bi} terminator: edge to b{} has {} args, block has {} params", e.target.0, e.args.len(), tb.params.len())); // alloc: Cold
+                return Err(format!(
+                    "b{bi} terminator: edge to b{} has {} args, block has {} params",
+                    e.target.0,
+                    e.args.len(),
+                    tb.params.len()
+                )); // alloc: Cold
             }
             for &a in e.args.iter() {
                 if a.index() >= nv {
-                    return Err(format!("b{bi} terminator: edge to b{} passes v{} out of range", e.target.0, a.0)); // alloc: Cold
+                    return Err(format!(
+                        "b{bi} terminator: edge to b{} passes v{} out of range",
+                        e.target.0, a.0
+                    )); // alloc: Cold
                 }
             }
         }
@@ -138,7 +155,8 @@ fn verify_function_structure(f: &Function, m: Mcx<'_>) -> Result<(), String> { /
 /// named, never a panic. Flat tables throughout (successors, predecessors,
 /// the dominator tree as preorder intervals): one query per use is two
 /// compares, and the only allocations are a handful of vectors per function.
-fn verify_function_dominance(f: &Function, m: Mcx<'_>) -> Result<(), String> { // alloc: Cold
+fn verify_function_dominance(f: &Function, m: Mcx<'_>) -> Result<(), String> {
+    // alloc: Cold
     const NONE: u32 = u32::MAX;
     let nb = f.blocks.len();
     let nv = f.values.len();
@@ -295,8 +313,13 @@ fn verify_function_dominance(f: &Function, m: Mcx<'_>) -> Result<(), String> { /
             }
         }
     }
-    let check = |v: Value, block: u32, position: u32, what: Site| -> Result<(), String> { // alloc: Cold
-        let (db, dp) = if v.index() < nv { def[v.index()] } else { (NONE, 0) };
+    let check = |v: Value, block: u32, position: u32, what: Site| -> Result<(), String> {
+        // alloc: Cold
+        let (db, dp) = if v.index() < nv {
+            def[v.index()]
+        } else {
+            (NONE, 0)
+        };
         if db == NONE {
             return Err(format!("{what}: v{} is never defined", v.0)); // alloc: Cold
         }
@@ -304,10 +327,15 @@ fn verify_function_dominance(f: &Function, m: Mcx<'_>) -> Result<(), String> { /
             dp < position
         } else {
             let (a, u) = (order[db as usize], order[block as usize]);
-            a != NONE && pre[a as usize] <= pre[u as usize] && pre[u as usize] < pre[a as usize] + size[a as usize]
+            a != NONE
+                && pre[a as usize] <= pre[u as usize]
+                && pre[u as usize] < pre[a as usize] + size[a as usize]
         };
         if !ok {
-            return Err(format!("{what}: v{} is defined in b{db}, which does not dominate the use", v.0)); // alloc: Cold
+            return Err(format!(
+                "{what}: v{} is defined in b{db}, which does not dominate the use",
+                v.0
+            )); // alloc: Cold
         }
         Ok(())
     };
@@ -350,7 +378,8 @@ fn verify_function_dominance(f: &Function, m: Mcx<'_>) -> Result<(), String> { /
 /// block (the message starts with its name) and, when `dump` is set
 /// (`GRAVITY_VERIFY_DUMP=1`), the whole program. Dominance is part of
 /// `verify` (main 09-24), so the old `GRAVITY_VERIFY_DOMINANCE` opt-in is gone.
-pub fn verify_lowered(program: &Program, dump: bool) -> Result<(), String> { // alloc: Cold
+pub fn verify_lowered(program: &Program, dump: bool) -> Result<(), String> {
+    // alloc: Cold
     let verified = verify_structure(program);
     #[cfg(debug_assertions)]
     let verified = verified.and_then(|()| verify(program));
@@ -358,10 +387,18 @@ pub fn verify_lowered(program: &Program, dump: bool) -> Result<(), String> { // 
     let text = crate::text::print_program(program);
     let block = e.message.split(' ').next().and_then(|b| {
         let start = text.find(&format!("(block {b} "))?; // alloc: Cold
-        let end = text[start + 1..].find("\n    (block ").map_or(text.len(), |i| start + 1 + i);
+        let end = text[start + 1..]
+            .find("\n    (block ")
+            .map_or(text.len(), |i| start + 1 + i);
         Some(&text[start..end])
     });
-    Err(format!("fn {}: {}\n{}\n{}", e.func, e.message, block.unwrap_or(""), if dump { text.as_str() } else { "" })) // alloc: Cold
+    Err(format!(
+        "fn {}: {}\n{}\n{}",
+        e.func,
+        e.message,
+        block.unwrap_or(""),
+        if dump { text.as_str() } else { "" }
+    )) // alloc: Cold
 }
 
 /// The whole verifier: `verify_structure`, then per function the types and
@@ -377,7 +414,12 @@ pub fn verify(program: &Program) -> Result<(), VerifyError> {
 pub fn verify_in(program: &Program, m: Mcx<'_>) -> Result<(), VerifyError> {
     verify_structure_in(program, m)?;
     for f in program.funcs.iter() {
-        verify_function(program, f, m).and_then(|()| verify_function_dominance(f, m)).map_err(|m| VerifyError { func: String::from(f.name.as_str()), message: m })?; // alloc: Cold
+        verify_function(program, f, m)
+            .and_then(|()| verify_function_dominance(f, m))
+            .map_err(|m| VerifyError {
+                func: String::from(f.name.as_str()),
+                message: m,
+            })?; // alloc: Cold
     }
     Ok(())
 }
@@ -397,15 +439,20 @@ pub fn verify_dominance(program: &Program) -> Result<(), VerifyError> {
     let m = cx.mcx();
     verify_structure_in(program, m)?;
     for f in program.funcs.iter() {
-        verify_function_dominance(f, m).map_err(|m| VerifyError { func: String::from(f.name.as_str()), message: m })?; // alloc: Cold
+        verify_function_dominance(f, m).map_err(|m| VerifyError {
+            func: String::from(f.name.as_str()),
+            message: m,
+        })?; // alloc: Cold
     }
     Ok(())
 }
 
-fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> { // alloc: Cold
+fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> {
+    // alloc: Cold
     let nv = f.values.len();
     let mut defined = filled(m, false, nv);
-    let mut define = |v: Value, what: Site| -> Result<(), String> { // alloc: Cold
+    let mut define = |v: Value, what: Site| -> Result<(), String> {
+        // alloc: Cold
         if v.index() >= nv {
             return Err(format!("{what}: value v{} out of range", v.0)); // alloc: Cold
         }
@@ -421,11 +468,19 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
     if f.entry.index() >= f.blocks.len() {
         return Err(String::from("entry block out of range")); // alloc: Cold
     }
-    if !f.blocks[f.entry.index()].params.iter().map(|&v| f.values[v.index()]).eq(f.params.iter().copied()) {
-        return Err(String::from("entry block parameters do not match function parameters")); // alloc: Cold
+    if !f.blocks[f.entry.index()]
+        .params
+        .iter()
+        .map(|&v| f.values[v.index()])
+        .eq(f.params.iter().copied())
+    {
+        return Err(String::from(
+            "entry block parameters do not match function parameters",
+        )); // alloc: Cold
     }
     if f.params.iter().chain(&f.returns).any(|t| t.is_vector()) {
-        return Err(String::from("vector types never cross a function boundary")); // alloc: Cold
+        return Err(String::from("vector types never cross a function boundary"));
+        // alloc: Cold
     }
     for (bi, b) in f.blocks.iter().enumerate() {
         for &v in b.params.iter() {
@@ -438,27 +493,43 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
         }
     }
     // Types (dominance: `verify_function_dominance`, which `verify` runs after).
-    let ty = |v: Value| -> Result<Type, String> { // alloc: Cold
-        f.values.get(v.index()).copied().ok_or_else(|| format!("v{} out of range", v.0)) // alloc: Cold
+    let ty = |v: Value| -> Result<Type, String> {
+        // alloc: Cold
+        f.values
+            .get(v.index())
+            .copied()
+            .ok_or_else(|| format!("v{} out of range", v.0)) // alloc: Cold
     };
-    let expect = |v: Value, t: Type, what: Site| -> Result<(), String> { // alloc: Cold
+    let expect = |v: Value, t: Type, what: Site| -> Result<(), String> {
+        // alloc: Cold
         let got = ty(v)?;
         if got != t {
             return Err(format!("{what}: v{} is {got:?}, expected {t:?}", v.0)); // alloc: Cold
         }
         Ok(())
     };
-    let same = |a: Value, b: Value, what: Site| -> Result<Type, String> { // alloc: Cold
+    let same = |a: Value, b: Value, what: Site| -> Result<Type, String> {
+        // alloc: Cold
         let (ta, tb) = (ty(a)?, ty(b)?);
         if ta != tb {
-            return Err(format!("{what}: v{} is {ta:?} but v{} is {tb:?}", a.0, b.0)); // alloc: Cold
+            return Err(format!("{what}: v{} is {ta:?} but v{} is {tb:?}", a.0, b.0));
+            // alloc: Cold
         }
         Ok(ta)
     };
-    let check_edge = |e: &Edge, what: Site| -> Result<(), String> { // alloc: Cold
-        let tb = f.blocks.get(e.target.index()).ok_or_else(|| format!("{what}: b{} out of range", e.target.0))?; // alloc: Cold
+    let check_edge = |e: &Edge, what: Site| -> Result<(), String> {
+        // alloc: Cold
+        let tb = f
+            .blocks
+            .get(e.target.index())
+            .ok_or_else(|| format!("{what}: b{} out of range", e.target.0))?; // alloc: Cold
         if tb.params.len() != e.args.len() {
-            return Err(format!("{what}: edge to b{} has {} args, block has {} params", e.target.0, e.args.len(), tb.params.len())); // alloc: Cold
+            return Err(format!(
+                "{what}: edge to b{} has {} args, block has {} params",
+                e.target.0,
+                e.args.len(),
+                tb.params.len()
+            )); // alloc: Cold
         }
         for (&a, &p) in e.args.iter().zip(tb.params.iter()) {
             same(a, p, what)?;
@@ -469,16 +540,19 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
         for (ii, inst) in b.insts.iter().enumerate() {
             let what = Site::Inst(bi, ii);
             let result_ty = inst.result.map(ty).transpose()?;
-            let need = |t: Option<Type>| -> Result<(), String> { // alloc: Cold
+            let need = |t: Option<Type>| -> Result<(), String> {
+                // alloc: Cold
                 if result_ty != t {
-                    return Err(format!("{what}: result type {result_ty:?}, expected {t:?}")); // alloc: Cold
+                    return Err(format!("{what}: result type {result_ty:?}, expected {t:?}"));
+                    // alloc: Cold
                 }
                 Ok(())
             };
             match &inst.op {
                 Op::Const { ty: t, .. } => {
                     if t.is_vector() {
-                        return Err(format!("{what}: no vector constants (use vsplat)")); // alloc: Cold
+                        return Err(format!("{what}: no vector constants (use vsplat)"));
+                        // alloc: Cold
                     }
                     need(Some(*t))?
                 }
@@ -488,7 +562,9 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                     if !(t.is_int() || (logical && t == Type::Bool)) {
                         return Err(format!("{what}: int op on {t:?}")); // alloc: Cold
                     }
-                    if matches!(op, IntBinOp::Smulh | IntBinOp::Umulh | IntBinOp::Rotl) && t != Type::I64 {
+                    if matches!(op, IntBinOp::Smulh | IntBinOp::Umulh | IntBinOp::Rotl)
+                        && t != Type::I64
+                    {
                         return Err(format!("{what}: {op:?} on {t:?}")); // alloc: Cold
                     }
                     need(Some(t))?;
@@ -538,18 +614,29 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                 Op::Conv { op, to, a } => {
                     let from = ty(*a)?;
                     let ok = match op {
-                        ConvOp::Sext | ConvOp::Zext => to.is_int() && (from == Type::Bool || (from.is_int() && to.bytes() > from.bytes())),
+                        ConvOp::Sext | ConvOp::Zext => {
+                            to.is_int()
+                                && (from == Type::Bool
+                                    || (from.is_int() && to.bytes() > from.bytes()))
+                        }
                         ConvOp::Trunc => from.is_int() && to.is_int() && to.bytes() < from.bytes(),
                         ConvOp::SintToFloat | ConvOp::UintToFloat => from.is_int() && to.is_float(),
                         ConvOp::FloatToSint | ConvOp::FloatToUint => from.is_float() && to.is_int(),
                         ConvOp::Fpromote => from == Type::F32 && *to == Type::F64,
                         ConvOp::Fdemote => from == Type::F64 && *to == Type::F32,
-                        ConvOp::Bitcast => from.bytes() == to.bytes() && from != *to && from != Type::Ptr && *to != Type::Ptr && from.is_vector() == to.is_vector(),
+                        ConvOp::Bitcast => {
+                            from.bytes() == to.bytes()
+                                && from != *to
+                                && from != Type::Ptr
+                                && *to != Type::Ptr
+                                && from.is_vector() == to.is_vector()
+                        }
                         ConvOp::PtrToInt => from == Type::Ptr && *to == Type::I64,
                         ConvOp::IntToPtr => from == Type::I64 && *to == Type::Ptr,
                     };
                     if !ok {
-                        return Err(format!("{what}: invalid {op:?} from {from:?} to {to:?}")); // alloc: Cold
+                        return Err(format!("{what}: invalid {op:?} from {from:?} to {to:?}"));
+                        // alloc: Cold
                     }
                     need(Some(*to))?;
                 }
@@ -557,20 +644,23 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                     expect(*cond, Type::Bool, what)?;
                     let t = same(*a, *b, what)?;
                     if t.is_vector() {
-                        return Err(format!("{what}: select on {t:?} (use vselect)")); // alloc: Cold
+                        return Err(format!("{what}: select on {t:?} (use vselect)"));
+                        // alloc: Cold
                     }
                     need(Some(t))?;
                 }
                 Op::Load { ty: t, ptr, .. } => {
                     if t.is_vector() {
-                        return Err(format!("{what}: load of {t:?} (use vload)")); // alloc: Cold
+                        return Err(format!("{what}: load of {t:?} (use vload)"));
+                        // alloc: Cold
                     }
                     expect(*ptr, Type::Ptr, what)?;
                     need(Some(*t))?;
                 }
                 Op::LoadZext { ty: t, ptr, .. } => {
                     if !matches!(t, Type::I8 | Type::I16 | Type::I32) {
-                        return Err(format!("{what}: load_zext needs a narrow integer type")); // alloc: Cold
+                        return Err(format!("{what}: load_zext needs a narrow integer type"));
+                        // alloc: Cold
                     }
                     expect(*ptr, Type::Ptr, what)?;
                     need(Some(Type::I64))?;
@@ -578,7 +668,8 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                 Op::Store { ptr, value, .. } => {
                     expect(*ptr, Type::Ptr, what)?;
                     if ty(*value)?.is_vector() {
-                        return Err(format!("{what}: store of a vector (use vstore)")); // alloc: Cold
+                        return Err(format!("{what}: store of a vector (use vstore)"));
+                        // alloc: Cold
                     }
                     need(None)?;
                 }
@@ -609,17 +700,27 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                     need(Some(Type::Ptr))?;
                 }
                 Op::Call { callee, args } => {
-                    let c = p.funcs.get(callee.index()).ok_or_else(|| format!("{what}: callee out of range"))?; // alloc: Cold
+                    let c = p
+                        .funcs
+                        .get(callee.index())
+                        .ok_or_else(|| format!("{what}: callee out of range"))?; // alloc: Cold
                     check_args(what, args, &c.params, &ty)?;
                     let ret = match c.returns.as_slice() {
                         [] => None,
                         [t] => Some(*t),
-                        _ => return Err(format!("{what}: multi-value call results not supported in Op::Call")), // alloc: Cold
+                        _ => {
+                            return Err(format!(
+                                "{what}: multi-value call results not supported in Op::Call"
+                            ))
+                        } // alloc: Cold
                     };
                     need(ret)?;
                 }
                 Op::CallHost { callee, args } => {
-                    let c = p.host_fns.get(callee.index()).ok_or_else(|| format!("{what}: host fn out of range"))?; // alloc: Cold
+                    let c = p
+                        .host_fns
+                        .get(callee.index())
+                        .ok_or_else(|| format!("{what}: host fn out of range"))?; // alloc: Cold
                     check_args(what, args, &c.params, &ty)?;
                     need(c.ret)?;
                 }
@@ -643,7 +744,9 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                         VecBinOp::And | VecBinOp::Or | VecBinOp::Xor => t.is_vector(),
                         VecBinOp::Mul => t.is_vector() && t != Type::V2I64,
                         VecBinOp::Add | VecBinOp::Sub => t.is_vector(),
-                        VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax => t.is_int_vector(),
+                        VecBinOp::Smin | VecBinOp::Smax | VecBinOp::Umin | VecBinOp::Umax => {
+                            t.is_int_vector()
+                        }
                     };
                     if !ok {
                         return Err(format!("{what}: {op:?} on {t:?}")); // alloc: Cold
@@ -656,7 +759,9 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                         return Err(format!("{what}: vector shift on {t:?}")); // alloc: Cold
                     }
                     if u32::from(*count) >= t.lane().bytes() * 8 {
-                        return Err(format!("{what}: shift count {count} exceeds the lane width")); // alloc: Cold
+                        return Err(format!(
+                            "{what}: shift count {count} exceeds the lane width"
+                        )); // alloc: Cold
                     }
                     need(Some(t))?;
                 }
@@ -701,26 +806,32 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
                 Op::VecExtract { a, lane } => {
                     let t = ty(*a)?;
                     if !t.is_vector() || u32::from(*lane) >= t.lanes() {
-                        return Err(format!("{what}: vextract lane {lane} of {t:?}")); // alloc: Cold
+                        return Err(format!("{what}: vextract lane {lane} of {t:?}"));
+                        // alloc: Cold
                     }
                     need(Some(t.lane()))?;
                 }
                 Op::VecInsert { a, lane, value } => {
                     let t = ty(*a)?;
                     if !t.is_vector() || u32::from(*lane) >= t.lanes() {
-                        return Err(format!("{what}: vinsert lane {lane} of {t:?}")); // alloc: Cold
+                        return Err(format!("{what}: vinsert lane {lane} of {t:?}"));
+                        // alloc: Cold
                     }
                     expect(*value, t.lane(), what)?;
                     need(Some(t))?;
                 }
                 Op::VecWiden { a, .. } => {
                     let t = ty(*a)?;
-                    let r = t.widened().ok_or_else(|| format!("{what}: vwiden of {t:?}"))?; // alloc: Cold
+                    let r = t
+                        .widened()
+                        .ok_or_else(|| format!("{what}: vwiden of {t:?}"))?; // alloc: Cold
                     need(Some(r))?;
                 }
                 Op::VecNarrow { a, b } => {
                     let t = same(*a, *b, what)?;
-                    let r = t.narrowed().ok_or_else(|| format!("{what}: vnarrow of {t:?}"))?; // alloc: Cold
+                    let r = t
+                        .narrowed()
+                        .ok_or_else(|| format!("{what}: vnarrow of {t:?}"))?; // alloc: Cold
                     need(Some(r))?;
                 }
             }
@@ -728,19 +839,28 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
         let what = Site::Term(bi);
         match &b.term {
             Terminator::Br(e) => check_edge(e, what)?,
-            Terminator::CondBr { cond, then_edge, else_edge } => {
+            Terminator::CondBr {
+                cond,
+                then_edge,
+                else_edge,
+            } => {
                 expect(*cond, Type::Bool, what)?;
                 check_edge(then_edge, what)?;
                 check_edge(else_edge, what)?;
             }
-            Terminator::Switch { value, cases, default } => {
+            Terminator::Switch {
+                value,
+                cases,
+                default,
+            } => {
                 let t = ty(*value)?;
                 if !t.is_int() {
                     return Err(format!("{what}: switch on {t:?}")); // alloc: Cold
                 }
                 for (i, c) in cases.iter().enumerate() {
                     if cases[..i].iter().any(|d| d.value == c.value) {
-                        return Err(format!("{what}: duplicate case {}", c.value)); // alloc: Cold
+                        return Err(format!("{what}: duplicate case {}", c.value));
+                        // alloc: Cold
                     }
                     check_edge(&c.edge, what)?;
                 }
@@ -748,7 +868,11 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
             }
             Terminator::Return(vals) => {
                 if vals.len() != f.returns.len() {
-                    return Err(format!("{what}: returns {} values, function declares {}", vals.len(), f.returns.len())); // alloc: Cold
+                    return Err(format!(
+                        "{what}: returns {} values, function declares {}",
+                        vals.len(),
+                        f.returns.len()
+                    )); // alloc: Cold
                 }
                 for (&v, &t) in vals.iter().zip(&f.returns) {
                     expect(v, t, what)?;
@@ -760,14 +884,25 @@ fn verify_function(p: &Program, f: &Function, m: Mcx<'_>) -> Result<(), String> 
     Ok(())
 }
 
-fn check_args(what: Site, args: &[Value], params: &[Type], ty: &dyn Fn(Value) -> Result<Type, String>) -> Result<(), String> { // alloc: Cold
+fn check_args(
+    what: Site,
+    args: &[Value],
+    params: &[Type],
+    ty: &dyn Fn(Value) -> Result<Type, String>,
+) -> Result<(), String> {
+    // alloc: Cold
     if args.len() != params.len() {
-        return Err(format!("{what}: {} args, callee has {} params", args.len(), params.len())); // alloc: Cold
+        return Err(format!(
+            "{what}: {} args, callee has {} params",
+            args.len(),
+            params.len()
+        )); // alloc: Cold
     }
     for (&a, &t) in args.iter().zip(params) {
         let got = ty(a)?;
         if got != t {
-            return Err(format!("{what}: arg v{} is {got:?}, expected {t:?}", a.0)); // alloc: Cold
+            return Err(format!("{what}: arg v{} is {got:?}, expected {t:?}", a.0));
+            // alloc: Cold
         }
     }
     Ok(())
@@ -809,12 +944,24 @@ enum Event {
 /// mask names the cell and every `Call`, memory holds the content.
 /// `report` supplies which cells were promoted and which appended
 /// parameter stands for which cell; both are checked here.
-pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], report: &Report, host_state: &[StateMask]) -> Result<(), String> { // alloc: Cold
+pub fn verify_carried(
+    m: &Mint,
+    f0: &Function,
+    f1: &Function,
+    cells: &[Cell],
+    report: &Report,
+    host_state: &[StateMask],
+) -> Result<(), String> {
+    // alloc: Cold
     let n0 = f0.values.len();
     let nb0 = f0.blocks.len();
     if report.promoted == 0 {
         // Nothing carried: the pass left the function alone.
-        return if f0 == f1 { Ok(()) } else { Err(String::from("no cell promoted, yet the function changed")) }; // alloc: Cold
+        return if f0 == f1 {
+            Ok(())
+        } else {
+            Err(String::from("no cell promoted, yet the function changed"))
+        }; // alloc: Cold
     }
     if f1.blocks.len() < nb0 {
         return Err(format!("blocks removed: {} -> {}", nb0, f1.blocks.len())); // alloc: Cold
@@ -827,7 +974,11 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
         }
         match &b.term {
             Terminator::Br(e) if e.target.index() < nb0 => {}
-            _ => return Err(format!("b{bi}: an appended block must branch to an original block")), // alloc: Cold
+            _ => {
+                return Err(format!(
+                    "b{bi}: an appended block must branch to an original block"
+                ))
+            } // alloc: Cold
         }
     }
     if f0.entry != f1.entry {
@@ -845,7 +996,16 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
             crate::promote::Root::LoadedFrom { ptr, offset } => {
                 for b in &f0.blocks {
                     for i in &b.insts {
-                        if let (Some(r), Op::Load { ty: Type::Ptr, ptr: p, offset: o, .. }) = (i.result, &i.op) {
+                        if let (
+                            Some(r),
+                            Op::Load {
+                                ty: Type::Ptr,
+                                ptr: p,
+                                offset: o,
+                                ..
+                            },
+                        ) = (i.result, &i.op)
+                        {
                             if *p == ptr && *o == offset {
                                 root_bits0[r.index()] |= 1 << ci;
                             }
@@ -870,7 +1030,16 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
             crate::promote::Root::LoadedFrom { ptr, offset } => {
                 for b in &f1.blocks {
                     for i in &b.insts {
-                        if let (Some(r), Op::Load { ty: Type::Ptr, ptr: p, offset: o, .. }) = (i.result, &i.op) {
+                        if let (
+                            Some(r),
+                            Op::Load {
+                                ty: Type::Ptr,
+                                ptr: p,
+                                offset: o,
+                                ..
+                            },
+                        ) = (i.result, &i.op)
+                        {
                             if *p == ptr && *o == offset {
                                 root_bits1[r.index()] |= 1 << ci;
                             }
@@ -886,8 +1055,12 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
     };
     let access0 = |op: &Op| -> Option<(usize, Option<Value>)> {
         match op {
-            Op::Load { ptr, offset, .. } | Op::LoadZext { ptr, offset, .. } => cell_of0(*ptr, *offset).map(|c| (c, None)),
-            Op::Store { ptr, offset, value, .. } => cell_of0(*ptr, *offset).map(|c| (c, Some(*value))),
+            Op::Load { ptr, offset, .. } | Op::LoadZext { ptr, offset, .. } => {
+                cell_of0(*ptr, *offset).map(|c| (c, None))
+            }
+            Op::Store {
+                ptr, offset, value, ..
+            } => cell_of0(*ptr, *offset).map(|c| (c, Some(*value))),
             _ => None,
         }
     };
@@ -901,7 +1074,8 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
         }
     }
     // The appended parameters, by block: (value, cell).
-    let mut appended: IrVec<IrVec<(Value, usize)>> = m.collect((0..f1.blocks.len()).map(|_| m.vec()));
+    let mut appended: IrVec<IrVec<(Value, usize)>> =
+        m.collect((0..f1.blocks.len()).map(|_| m.vec()));
     // An f1 edge into an appended block stands for the edge that block
     // branches to; the arguments live on the appended block's `Br`.
     let through = |e: &Edge| -> Edge {
@@ -914,7 +1088,8 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
     };
     for &(b, v, c) in &report.params {
         if !promoted(c) {
-            return Err(format!("b{}: parameter for an unpromoted cell {c}", b.0)); // alloc: Cold
+            return Err(format!("b{}: parameter for an unpromoted cell {c}", b.0));
+            // alloc: Cold
         }
         appended[b.index()].push((v, c));
     }
@@ -925,18 +1100,39 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
         }
         let app = m.collect(appended[bi].iter().map(|&(v, _)| v));
         if b1.params[n..] != app[..] {
-            return Err(format!("b{bi}: appended parameters {:?} are not the reported {:?}", &b1.params[n..], app)); // alloc: Cold
+            return Err(format!(
+                "b{bi}: appended parameters {:?} are not the reported {:?}",
+                &b1.params[n..],
+                app
+            )); // alloc: Cold
         }
     }
     // ---- structural diff -> events per block, the value map ----
-    let mut map = m.collect((0..n0).map(|i| if deleted_load[i] { None } else { Some(Value(i as u32)) }));
+    let mut map = m.collect((0..n0).map(|i| {
+        if deleted_load[i] {
+            None
+        } else {
+            Some(Value(i as u32))
+        }
+    }));
     let mut events: IrVec<IrVec<Event>> = m.vec_with_capacity(f0.blocks.len());
     // Deferred operand bindings: (f0 value, f1 value) learned at a match.
     // `what` names the place for an error only: formatted when the binding fails, never on the way through
-    let bind = |a0: Value, a1: Value, map: &mut IrVec<Option<Value>>, what: &dyn Fn() -> String| -> Result<(), String> { // alloc: Cold
+    let bind = |a0: Value,
+                a1: Value,
+                map: &mut IrVec<Option<Value>>,
+                what: &dyn Fn() -> String|
+     -> Result<(), String> {
+        // alloc: Cold
         match map[a0.index()] {
             Some(m) if m == a1 => Ok(()),
-            Some(m) => Err(format!("{}: v{} stands for v{} here but v{} elsewhere", what(), a1.0, a0.0, m.0)), // alloc: Cold
+            Some(m) => Err(format!(
+                "{}: v{} stands for v{} here but v{} elsewhere",
+                what(),
+                a1.0,
+                a0.0,
+                m.0
+            )), // alloc: Cold
             None => {
                 map[a0.index()] = Some(a1);
                 Ok(())
@@ -948,11 +1144,19 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
     let (mut vs0, mut vs1): (IrVec<Value>, IrVec<Value>) = (m.vec(), m.vec());
     for b in f1.blocks.iter() {
         let mut mark = |v: Value| used1[v.index()] = true;
-        b.insts.iter().for_each(|i| i.op.for_each_operand(&mut mark));
+        b.insts
+            .iter()
+            .for_each(|i| i.op.for_each_operand(&mut mark));
         b.term.for_each_operand(&mut mark);
-        b.term.edges().for_each(|e| e.args.iter().for_each(|&v| mark(v)));
+        b.term
+            .edges()
+            .for_each(|e| e.args.iter().for_each(|&v| mark(v)));
     }
-    let empty = BasicBlock { params: m.slice_from(&[]), insts: m.vec(), term: Terminator::Unreachable };
+    let empty = BasicBlock {
+        params: m.slice_from(&[]),
+        insts: m.vec(),
+        term: Terminator::Unreachable,
+    };
     // f0's unreachable blocks are emptied by the pass: diffed as empty.
     let mut live0 = m.vec_filled(false, nb0);
     for b in crate::promote::rpo(f0, m) {
@@ -962,8 +1166,12 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
         let b0 = match f0.blocks.get(bi) {
             Some(b) if live0[bi] => b,
             Some(b) => {
-                if !b1.insts.is_empty() || b1.term != Terminator::Unreachable || b1.params != b.params {
-                    return Err(format!("b{bi}: an unreachable block was not emptied")); // alloc: Cold
+                if !b1.insts.is_empty()
+                    || b1.term != Terminator::Unreachable
+                    || b1.params != b.params
+                {
+                    return Err(format!("b{bi}: an unreachable block was not emptied"));
+                    // alloc: Cold
                 }
                 &empty
             }
@@ -976,19 +1184,36 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
             // promoted cell. A reload (after a host) or a conv precedes the
             // deleted accesses that follow it; a write-back (before a host
             // or a return) follows the deleted accesses before it.
-            let inserted = b1.insts.get(i1).map(|inst1| match (inst1.result, &inst1.op) {
-                (Some(r), _) if r.index() >= n0 => true,
-                (None, Op::Store { ptr, offset, .. }) => cell_of1(*ptr, *offset).is_some_and(promoted),
-                _ => false,
-            });
-            let deleted0 = b0.insts.get(i0).and_then(|inst0| access0(&inst0.op)).is_some_and(|(c, _)| promoted(c));
+            let inserted = b1
+                .insts
+                .get(i1)
+                .map(|inst1| match (inst1.result, &inst1.op) {
+                    (Some(r), _) if r.index() >= n0 => true,
+                    (None, Op::Store { ptr, offset, .. }) => {
+                        cell_of1(*ptr, *offset).is_some_and(promoted)
+                    }
+                    _ => false,
+                });
+            let deleted0 = b0
+                .insts
+                .get(i0)
+                .and_then(|inst0| access0(&inst0.op))
+                .is_some_and(|(c, _)| promoted(c));
             if inserted == Some(true) {
                 let inst1 = &b1.insts[i1];
                 let is_store = matches!(inst1.op, Op::Store { .. });
                 if !(is_store && deleted0) {
                     match &inst1.op {
-                        Op::Load { .. } | Op::Store { .. } | Op::Conv { op: ConvOp::Zext, .. } => {}
-                        other => return Err(format!("b{bi}: inserted instruction of an unexpected kind: {other:?}")), // alloc: Cold
+                        Op::Load { .. }
+                        | Op::Store { .. }
+                        | Op::Conv {
+                            op: ConvOp::Zext, ..
+                        } => {}
+                        other => {
+                            return Err(format!(
+                                "b{bi}: inserted instruction of an unexpected kind: {other:?}"
+                            ))
+                        } // alloc: Cold
                     }
                     ev.push(Event::Inst(i1));
                     i1 += 1;
@@ -997,7 +1222,8 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
             }
             if i0 >= b0.insts.len() {
                 if i1 < b1.insts.len() {
-                    return Err(format!("b{bi}: extra instruction {:?}", b1.insts[i1])); // alloc: Cold
+                    return Err(format!("b{bi}: extra instruction {:?}", b1.insts[i1]));
+                    // alloc: Cold
                 }
                 break;
             }
@@ -1008,11 +1234,17 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
                     match stored {
                         Some(v) => {
                             if map[v.index()].is_none() {
-                                return Err(format!("b{bi}: store of v{} whose stand-in is unknown", v.0)); // alloc: Cold
+                                return Err(format!(
+                                    "b{bi}: store of v{} whose stand-in is unknown",
+                                    v.0
+                                )); // alloc: Cold
                             }
                             ev.push(Event::Ghost { cell, value: v });
                         }
-                        None => ev.push(Event::Read { cell, result: inst0.result.expect("load result") }),
+                        None => ev.push(Event::Read {
+                            cell,
+                            result: inst0.result.expect("load result"),
+                        }),
                     }
                     i0 += 1;
                     continue;
@@ -1021,23 +1253,30 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
             // A pure instruction nothing reads any more (its user was a
             // deleted access) may be gone.
             if let Some(r) = inst0.result {
-                let gone = crate::promote::pure(&inst0.op) && !used1[r.index()] && b1.insts.get(i1).is_none_or(|i| i.result != Some(r));
+                let gone = crate::promote::pure(&inst0.op)
+                    && !used1[r.index()]
+                    && b1.insts.get(i1).is_none_or(|i| i.result != Some(r));
                 if gone {
                     i0 += 1;
                     continue;
                 }
             }
             // Must match f1[i1].
-            let Some(inst1) = b1.insts.get(i1) else { return Err(format!("b{bi}: missing instruction {:?}", inst0)) }; // alloc: Cold
+            let Some(inst1) = b1.insts.get(i1) else {
+                return Err(format!("b{bi}: missing instruction {:?}", inst0));
+            }; // alloc: Cold
             if inst0.result != inst1.result {
-                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1)); // alloc: Cold
+                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1));
+                // alloc: Cold
             }
             // (`operands_into` visits the operands in `op_values_mut`'s order)
-vs0.clear(); vs1.clear();
+            vs0.clear();
+            vs1.clear();
             inst0.op.for_each_operand(|v| vs0.push(v));
             inst1.op.for_each_operand(|v| vs1.push(v));
             if vs0.len() != vs1.len() {
-                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1)); // alloc: Cold
+                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1));
+                // alloc: Cold
             }
             for (&a0, &a1) in vs0.iter().zip(&vs1) {
                 bind(a0, a1, &mut map, &|| format!("b{bi}: {:?}", inst0))?; // alloc: Cold
@@ -1055,7 +1294,8 @@ vs0.clear(); vs1.clear();
                 o0 == inst1.op
             };
             if !same {
-                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1)); // alloc: Cold
+                return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1));
+                // alloc: Cold
             }
             ev.push(Event::Inst(i1));
             i0 += 1;
@@ -1079,7 +1319,11 @@ vs0.clear(); vs1.clear();
             *e1 = through(e1);
             let want = e.args.len() + appended[e.target.index()].len();
             if e1.args.len() != want {
-                return Err(format!("b{bi}: edge {ei} to b{} carries {} arguments, expected {want}", e.target.0, e1.args.len())); // alloc: Cold
+                return Err(format!(
+                    "b{bi}: edge {ei} to b{} carries {} arguments, expected {want}",
+                    e.target.0,
+                    e1.args.len()
+                )); // alloc: Cold
             }
             e1.args = m.slice_from(&e1.args[..e.args.len()]);
         }
@@ -1115,10 +1359,13 @@ vs0.clear(); vs1.clear();
     let order = crate::promote::rpo(f1, m);
     let mut done = m.vec_filled(false, nb);
     let mut out_dirty: IrVec<IrVec<bool>> = m.collect((0..nb).map(|_| m.vec_filled(false, nc)));
-    let mut out_content: IrVec<IrVec<Content>> = m.collect((0..nb).map(|_| m.vec_filled(Content::Initial, nc)));
+    let mut out_content: IrVec<IrVec<Content>> =
+        m.collect((0..nb).map(|_| m.vec_filled(Content::Initial, nc)));
     let call_mask = |op: &Op| -> Option<StateMask> {
         match op {
-            Op::CallHost { callee, .. } => Some(host_state[callee.index()]).filter(|m| *m != StateMask::NONE),
+            Op::CallHost { callee, .. } => {
+                Some(host_state[callee.index()]).filter(|m| *m != StateMask::NONE)
+            }
             Op::Call { .. } => Some(StateMask::ALL),
             _ => None,
         }
@@ -1137,7 +1384,10 @@ vs0.clear(); vs1.clear();
                 dirty[ci] = live.iter().any(|&&(p, _)| out_dirty[p.index()][ci]);
                 if let Some(&(pv, _)) = appended[bi].iter().find(|&&(_, c)| c == ci) {
                     let n = f0.blocks[bi].params.len();
-                    let k = f1.blocks[bi].params[n..].iter().position(|&v| v == pv).expect("appended param");
+                    let k = f1.blocks[bi].params[n..]
+                        .iter()
+                        .position(|&v| v == pv)
+                        .expect("appended param");
                     for &&(p, ei) in &live {
                         let e = f1.blocks[p.index()].term.edges().nth(ei).expect("edge");
                         // An appended block's `Br` carries the original edge's
@@ -1145,9 +1395,21 @@ vs0.clear(); vs1.clear();
                         // one into the appended block.
                         let n_orig = if p.index() >= nb0 {
                             let (q, qi) = split_origin(f1, nb0, p);
-                            f0.blocks[q.index()].term.edges().nth(qi).expect("edge").args.len()
+                            f0.blocks[q.index()]
+                                .term
+                                .edges()
+                                .nth(qi)
+                                .expect("edge")
+                                .args
+                                .len()
                         } else {
-                            f0.blocks[p.index()].term.edges().nth(ei).expect("edge").args.len()
+                            f0.blocks[p.index()]
+                                .term
+                                .edges()
+                                .nth(ei)
+                                .expect("edge")
+                                .args
+                                .len()
                         };
                         let arg = e.args[n_orig + k];
                         match out_content[p.index()][ci] {
@@ -1179,10 +1441,21 @@ vs0.clear(); vs1.clear();
                     Event::Read { cell, result } => {
                         if let Some(s) = map[result.index()] {
                             // A narrow cell's zext stand-in: the conv's operand is the content.
-                            let s = f1.blocks[bi].insts.iter().find_map(|i| match (i.result, &i.op) {
-                                (Some(r), Op::Conv { op: ConvOp::Zext, a, .. }) if r == s && r.index() >= n0 => Some(*a),
-                                _ => None,
-                            }).unwrap_or(s);
+                            let s = f1.blocks[bi]
+                                .insts
+                                .iter()
+                                .find_map(|i| match (i.result, &i.op) {
+                                    (
+                                        Some(r),
+                                        Op::Conv {
+                                            op: ConvOp::Zext,
+                                            a,
+                                            ..
+                                        },
+                                    ) if r == s && r.index() >= n0 => Some(*a),
+                                    _ => None,
+                                })
+                                .unwrap_or(s);
                             match content[*cell] {
                                 Content::Val(v) if v == s => {}
                                 other => return Err(format!("b{bi}: cell {}: a read stands in v{} but the content is {other:?}", cell, s.0)), // alloc: Cold
@@ -1192,15 +1465,20 @@ vs0.clear(); vs1.clear();
                     Event::Inst(ii) => {
                         let inst = &f1.blocks[bi].insts[*ii];
                         match &inst.op {
-                            Op::Load { ptr, offset, .. } if cell_of1(*ptr, *offset).is_some_and(promoted) => {
+                            Op::Load { ptr, offset, .. }
+                                if cell_of1(*ptr, *offset).is_some_and(promoted) =>
+                            {
                                 let c = cell_of1(*ptr, *offset).unwrap();
                                 content[c] = Content::Val(inst.result.unwrap());
                                 dirty[c] = false;
                             }
-                            Op::Store { ptr, offset, value, .. } if cell_of1(*ptr, *offset).is_some_and(promoted) => {
+                            Op::Store {
+                                ptr, offset, value, ..
+                            } if cell_of1(*ptr, *offset).is_some_and(promoted) => {
                                 let c = cell_of1(*ptr, *offset).unwrap();
                                 if content[c] != Content::Val(*value) {
-                                    return Err(format!("b{bi}: cell {c}: write-back of v{} but the content is {:?}", value.0, content[c])); // alloc: Cold
+                                    return Err(format!("b{bi}: cell {c}: write-back of v{} but the content is {:?}", value.0, content[c]));
+                                    // alloc: Cold
                                 }
                                 dirty[c] = false;
                             }
@@ -1211,7 +1489,8 @@ vs0.clear(); vs1.clear();
                                             continue;
                                         }
                                         if dirty[ci] {
-                                            return Err(format!("b{bi}: cell {ci}: host call {op:?} sees memory behind the content {:?}", content[ci])); // alloc: Cold
+                                            return Err(format!("b{bi}: cell {ci}: host call {op:?} sees memory behind the content {:?}", content[ci]));
+                                            // alloc: Cold
                                         }
                                         content[ci] = Content::Stale;
                                     }
@@ -1224,7 +1503,10 @@ vs0.clear(); vs1.clear();
             if let Terminator::Return(_) = f1.blocks[bi].term {
                 for ci in 0..nc {
                     if promoted(ci) && dirty[ci] {
-                        return Err(format!("b{bi}: cell {ci}: returns with memory behind the content {:?}", content[ci])); // alloc: Cold
+                        return Err(format!(
+                            "b{bi}: cell {ci}: returns with memory behind the content {:?}",
+                            content[ci]
+                        )); // alloc: Cold
                     }
                 }
             }

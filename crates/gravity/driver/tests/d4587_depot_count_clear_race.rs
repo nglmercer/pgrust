@@ -26,7 +26,9 @@ fn the_depot_count_never_wraps_under_takes_puts_and_clears() {
         threads.push(std::thread::spawn(move || {
             let mut i = 0usize;
             while !stop.load(Ordering::Relaxed) {
-                let buf = REGIONS.take(REGION_MIN * (1 + (i + t) % 4), None).expect("a region");
+                let buf = REGIONS
+                    .take(REGION_MIN * (1 + (i + t) % 4), None)
+                    .expect("a region");
                 REGIONS.put(buf);
                 i += 1;
             }
@@ -53,12 +55,23 @@ fn the_depot_count_never_wraps_under_takes_puts_and_clears() {
         reads += 1;
     }
     stop.store(true, Ordering::Relaxed);
-    let panicked = threads.into_iter().map(|h| h.join().is_err()).filter(|&p| p).count();
+    let panicked = threads
+        .into_iter()
+        .map(|h| h.join().is_err())
+        .filter(|&p| p)
+        .count();
     let cleared = clears.join().expect("the clearing thread");
     let s = REGIONS.stats();
     eprintln!("d4587: {} takes + puts, {cleared} clears, {reads} reads: {wrapped} wrapped, {panicked} thread(s) panicked; at the end {} entries, {} B", ops.load(Ordering::Relaxed), s.entries, s.bytes);
     assert_eq!((wrapped, panicked), (0, 0), "the depot's count went below zero ({wrapped} reads past 2^62; a put's add overflowed in {panicked} thread(s))");
-    assert!(s.bytes < WRAPPED && (s.entries == 0) == (s.bytes == 0), "at rest the count is the parked regions' bytes: {s:?}");
+    assert!(
+        s.bytes < WRAPPED && (s.entries == 0) == (s.bytes == 0),
+        "at rest the count is the parked regions' bytes: {s:?}"
+    );
     REGIONS.trim();
-    assert_eq!((REGIONS.stats().entries, REGIONS.stats().bytes), (0, 0), "trimmed: nothing parked, nothing counted");
+    assert_eq!(
+        (REGIONS.stats().entries, REGIONS.stats().bytes),
+        (0, 0),
+        "trimmed: nothing parked, nothing counted"
+    );
 }

@@ -17,18 +17,17 @@
 //! G2(e), S1u: a child that is a settled union the eager form refuses is pulled arm after arm (`union_reader`).
 //! D3498: a Result's one row the eager form refuses (rerun/spool/form.rs `result_child`) is pulled with no site, its
 //! position a word of the reader's own.
+use gravity_decompose::graph::Bound;
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::append::AppendDesc;
-use gravity_decompose::graph::Bound;
 use gravity_decompose::{Op, Source};
-use mcx::{CollectIn, Mcx, PgBox, PgRc, PgVec};
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, IntBinOp, IntCond, Type, Value};
 use gravity_program::{NumTypmod, Pipeline, Rep, Until};
+use mcx::{CollectIn, Mcx, PgBox, PgRc, PgVec};
 use types_nodes::list::NodeList;
 
-use crate::rerun::spool::child::Child;
-use crate::rerun::spool::rec::Rec;
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{At, Cell, CellHome, CellLife, Nullable, Row};
 use crate::face::end::EndMech;
 use crate::face::kinds::{Face, KindId};
@@ -40,11 +39,19 @@ use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{Px, WordKey, DRAFT_SITE};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
-use crate::pipes::{spool_fill, LOUD_CHILD, MANY_READERS, PGRC_CHILD};
-use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;
+use crate::pipes::{spool_fill, LOUD_CHILD, MANY_READERS, PGRC_CHILD};
+use crate::rerun::spool::child::Child;
+use crate::rerun::spool::rec::Rec;
 
-pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestSpool, &SourceMaker(make_source)), (KindId::NestSpool, &StepMaker(make_step)), (KindId::NestSpool, &EndMaker(make_end))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    kinds: &[
+        (KindId::NestSpool, &SourceMaker(make_source)),
+        (KindId::NestSpool, &StepMaker(make_step)),
+        (KindId::NestSpool, &EndMaker(make_end)),
+    ],
+    ..crate::ops::NONE
+};
 
 fn shape(node: i32, why: &'static str) -> ! {
     crate::refuse!(node, Reason::Shape { why: ShapeWhy(why) })
@@ -58,7 +65,10 @@ fn bug(node: i32, payload: &'static str) -> ! {
 fn form(px: &Px<'_, '_>, k: usize) -> (usize, bool) {
     match spool_fill(px.gx, k) {
         Ok(f) => f,
-        Err("") => bug(px.gx.pipelines()[k].node_id, "a nest.spool fill that is no plan Material's"),
+        Err("") => bug(
+            px.gx.pipelines()[k].node_id,
+            "a nest.spool fill that is no plan Material's",
+        ),
         Err(why) => shape(px.gx.pipelines()[k].node_id, why),
     }
 }
@@ -67,7 +77,13 @@ fn form(px: &Px<'_, '_>, k: usize) -> (usize, bool) {
 struct Pass;
 
 impl StepMech for Pass {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         next(b, env, row)
     }
 }
@@ -76,8 +92,14 @@ fn make_step<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn S
     if matches!(px.gx.pipelines()[k].ops.get(j), Some(Op::Append(_))) {
         return crate::rerun::union_arms::step(px, k, j); // S2a: a settled union's Feed / Union (source/append.rs hands them here)
     }
-    if !matches!(px.gx.pipelines()[k].ops.get(j), Some(Op::Join(JoinDesc::Spool))) {
-        bug(px.gx.pipelines()[k].node_id, "a nest.spool step over another op");
+    if !matches!(
+        px.gx.pipelines()[k].ops.get(j),
+        Some(Op::Join(JoinDesc::Spool))
+    ) {
+        bug(
+            px.gx.pipelines()[k].node_id,
+            "a nest.spool step over another op",
+        );
     }
     form(px, k);
     mcx::pg_box_dyn!(px.mcx(), Pass => dyn StepMech + 'g)
@@ -93,7 +115,13 @@ impl EndMech for Fused {
         b.switch_to(dead);
     }
 
-    fn lower<'e>(&self, _b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        _b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         row.carry.copy_in(env.mcx)
     }
 }
@@ -110,7 +138,9 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     let raises = gravity_decompose::effects::Effects::RAISES;
     let mut ahead = None;
     if crate::rerun::spool::form::eager_licensed(px.gx, k) {
-        ahead = px.run_ahead(k, raises).or_else(|| px.ahead_unchecked(k, raises));
+        ahead = px
+            .run_ahead(k, raises)
+            .or_else(|| px.ahead_unchecked(k, raises));
         if ahead.is_none() {
             shape(px.gx.pipelines()[k].node_id, LOUD_CHILD);
         }
@@ -119,19 +149,26 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     if crate::lifetime::material::refilled_ahead(px.gx, k) {
         let refilled = px.ahead_unchecked(k, raises);
         if refilled.is_none() {
-            shape(px.gx.pipelines()[k].node_id, crate::rerun::spool::form::REFILL_CHILD);
+            shape(
+                px.gx.pipelines()[k].node_id,
+                crate::rerun::spool::form::REFILL_CHILD,
+            );
         }
         ahead = ahead.or(refilled);
     }
     let p = &px.gx.pipelines()[k];
-    let Some(Op::Project(cols)) = p.ops.iter().rev().nth(1) else { shape(p.node_id, LOUD_CHILD) };
+    let Some(Op::Project(cols)) = p.ops.iter().rev().nth(1) else {
+        shape(p.node_id, LOUD_CHILD)
+    };
     // D1108's held form (rerun/spool/form.rs `held`): the fill's error deferred by its merge (exec ops/sort/held.rs stamps
     // the Material slot's region RUN_HELD) and raised by the reader at the record the fill stopped at (`Reader::held`)
-    if let Some(held) = crate::rerun::spool::form::held(px.gx, k).filter(|_| !px.held_sort.contains(&k)) {
+    if let Some(held) =
+        crate::rerun::spool::form::held(px.gx, k).filter(|_| !px.held_sort.contains(&k))
+    {
         ahead = ahead.or(Some(held));
         px.held_sort.push(k); // alloc: Program
-        // D1108: its reader nest inside an embedded inner, the fill runs in pipeline order, its feeders and it serially on
-        // the leader, PostgreSQL's heap order (form.rs `held_serial`)
+                              // D1108: its reader nest inside an embedded inner, the fill runs in pipeline order, its feeders and it serially on
+                              // the leader, PostgreSQL's heap order (form.rs `held_serial`)
         for q in crate::rerun::spool::form::held_serial(px.gx, k) {
             if !px.serial.contains(&q) {
                 px.serial.push(q); // alloc: Program
@@ -148,7 +185,12 @@ fn make_end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g
     }
     let (rec, _) = Rec::declare(px, k, k, p.node_id, cols, 0);
     // D1107's eager refill (rerun/spool/form.rs `refilled`): a rerun set's member runs at every re-open of its owner
-    let refill = px.gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(k as u16)));
+    let refill = px
+        .gx
+        .graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(k as u16)));
     mcx::pg_box_dyn!(px.mcx(), Fill { rec, refill, fresh: None, ahead } => dyn EndMech + 'g)
 }
 
@@ -166,15 +208,38 @@ pub(crate) fn fill_fresh<'g>(mcx: Mcx<'g>, rec: Rec<'g>, w: i32) -> PgBox<'g, dy
 }
 
 /// S2a: the eager reader of a settled union's record, emit pipeline `k`'s source (its position a per-open frame word).
-pub(crate) fn eager<'g>(px: &mut Px<'g, '_>, k: usize, rec: Rec<'g>, node: i32) -> PgBox<'g, dyn SourceMech + 'g> {
-    let w_j = px.frame_word(WordKey::Open { face: Face::Nest, k, j: u64::MAX, i: 2 }) as i32 * 8;
+pub(crate) fn eager<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    rec: Rec<'g>,
+    node: i32,
+) -> PgBox<'g, dyn SourceMech + 'g> {
+    let w_j = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k,
+        j: u64::MAX,
+        i: 2,
+    }) as i32
+        * 8;
     mcx::pg_box_dyn!(px.mcx(), Reader { child: None, arms: None, rec, st: 0, w_j, node, held: None, fresh: None, cap: None } => dyn SourceMech + 'g)
 }
 
 /// D3614: `eager` over a held union's record whose feeds empty it by frame word `w` (`fill_fresh`): its open empties the
 /// record when no feed opened in this run (every arm pruned) and clears `w` for the next run's first feed.
-pub(crate) fn eager_fresh<'g>(px: &mut Px<'g, '_>, k: usize, rec: Rec<'g>, node: i32, w: i32) -> PgBox<'g, dyn SourceMech + 'g> {
-    let w_j = px.frame_word(WordKey::Open { face: Face::Nest, k, j: u64::MAX, i: 2 }) as i32 * 8;
+pub(crate) fn eager_fresh<'g>(
+    px: &mut Px<'g, '_>,
+    k: usize,
+    rec: Rec<'g>,
+    node: i32,
+    w: i32,
+) -> PgBox<'g, dyn SourceMech + 'g> {
+    let w_j = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k,
+        j: u64::MAX,
+        i: 2,
+    }) as i32
+        * 8;
     mcx::pg_box_dyn!(px.mcx(), Reader { child: None, arms: None, rec, st: 0, w_j, node, held: None, fresh: Some(w), cap: None } => dyn SourceMech + 'g)
 }
 
@@ -210,7 +275,13 @@ struct Fill<'g> {
 impl EndMech for Fill<'_> {
     fn pipeline_desc(&self, _px: &Px<'_, '_>, _k: usize, d: Pipeline) -> Pipeline {
         match gravity_program::step_serial(&gravity_program::StepShape::MaterialFill) {
-            Some(reason) => Pipeline { parallel: gravity_program::Parallel::Ineligible { site: d.driving_site, reason }, ..d },
+            Some(reason) => Pipeline {
+                parallel: gravity_program::Parallel::Ineligible {
+                    site: d.driving_site,
+                    reason,
+                },
+                ..d
+            },
             None => d,
         }
     }
@@ -224,7 +295,13 @@ impl EndMech for Fill<'_> {
         }
     }
 
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, _x: &Exits) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        _x: &Exits,
+    ) -> Carry<'e> {
         self.rec.append(b, env, row);
         row.carry.copy_in(env.mcx)
     }
@@ -233,7 +310,11 @@ impl EndMech for Fill<'_> {
 /// A source kind nest.spool makes: the inner's reader over a Material's breaker, or the pulled fill pipeline's own.
 fn make_source<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     match px.gx.pipelines()[k].source {
-        Source::Breaker { .. } if crate::rerun::union_arms::union_of(&px.gx.pipelines()[k]).is_some() => crate::rerun::union_arms::source(px, k),
+        Source::Breaker { .. }
+            if crate::rerun::union_arms::union_of(&px.gx.pipelines()[k]).is_some() =>
+        {
+            crate::rerun::union_arms::source(px, k)
+        }
         Source::Breaker { slot } => make_reader(px, k, slot),
         _ => {
             form(px, k);
@@ -255,27 +336,62 @@ fn empty<'g>(px: &Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     if matches!(p.source, Source::Const) {
         return mcx::pg_box_dyn!(px.mcx(), Empty { cols: PgVec::new_in(px.mcx()) } => dyn SourceMech + 'g);
     }
-    let Some((_, relid, _)) = p.source.relation() else { bug(p.node_id, "a pulled Material child without its relation") };
+    let Some((_, relid, _)) = p.source.relation() else {
+        bug(p.node_id, "a pulled Material child without its relation")
+    };
     let natts = gx.facts.rel(relid).map_or(0, |r| r.natts.max(0) as usize);
-    let cols = (1..=natts as i16).map(|a| match gx.facts.att(relid, a) {
-        Some(f) if f.byval => (f.typid, Rep::Word { bytes: f.typlen.clamp(1, 8) as u8 }),
-        Some(f) if f.typlen > 0 => (f.typid, Rep::FixedPtr { len: f.typlen as u16 }),
-        Some(f) => (f.typid, Rep::VarlenaPtr),
-        None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
-    }).collect_in(px.mcx());
+    let cols = (1..=natts as i16)
+        .map(|a| match gx.facts.att(relid, a) {
+            Some(f) if f.byval => (
+                f.typid,
+                Rep::Word {
+                    bytes: f.typlen.clamp(1, 8) as u8,
+                },
+            ),
+            Some(f) if f.typlen > 0 => (
+                f.typid,
+                Rep::FixedPtr {
+                    len: f.typlen as u16,
+                },
+            ),
+            Some(f) => (f.typid, Rep::VarlenaPtr),
+            None => (types_core::INT8OID, Rep::Word { bytes: 8 }),
+        })
+        .collect_in(px.mcx());
     mcx::pg_box_dyn!(px.mcx(), Empty { cols } => dyn SourceMech + 'g)
 }
 
 /// G2(e), S1u: a pulled union's emit source (rerun/union_arms.rs `source`): it reads nothing (the Material's reader pulls
 /// the arms). Its row, in dead code only, carries the union's columns (first feed `f0`'s projection) as NULL cells so the
 /// emit's ops still lower.
-pub(crate) fn union_empty<'g>(px: &Px<'g, '_>, k: usize, f0: usize) -> PgBox<'g, dyn SourceMech + 'g> {
+pub(crate) fn union_empty<'g>(
+    px: &Px<'g, '_>,
+    k: usize,
+    f0: usize,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
     let p = &gx.pipelines()[f0];
-    let Some(Op::Project(cols)) = p.ops.iter().rev().nth(1) else { shape(gx.pipelines()[k].node_id, LOUD_CHILD) };
-    let rep = |t: u32| gravity_decompose::catalog::typefacts::facts_of(gx.facts, t).map_or(Rep::Word { bytes: 8 }, |f| Rep::of_storage(f.typlen, f.byval));
-    let ty = |n: types_nodes::Node<'_>| gravity_decompose::catalog::expr_type::type_of(n).unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(n));
-    let cols = cols.iter().map(|n| n.as_target_entry().map_or(types_core::INT8OID, |te| ty(te.expr))).map(|t| (t, rep(t))).collect_in(px.mcx());
+    let Some(Op::Project(cols)) = p.ops.iter().rev().nth(1) else {
+        shape(gx.pipelines()[k].node_id, LOUD_CHILD)
+    };
+    let rep = |t: u32| {
+        gravity_decompose::catalog::typefacts::facts_of(gx.facts, t)
+            .map_or(Rep::Word { bytes: 8 }, |f| {
+                Rep::of_storage(f.typlen, f.byval)
+            })
+    };
+    let ty = |n: types_nodes::Node<'_>| {
+        gravity_decompose::catalog::expr_type::type_of(n)
+            .unwrap_or_else(|| gravity_decompose::catalog::expr_type::result_type(n))
+    };
+    let cols = cols
+        .iter()
+        .map(|n| {
+            n.as_target_entry()
+                .map_or(types_core::INT8OID, |te| ty(te.expr))
+        })
+        .map(|t| (t, rep(t)))
+        .collect_in(px.mcx());
     mcx::pg_box_dyn!(px.mcx(), Empty { cols } => dyn SourceMech + 'g)
 }
 
@@ -288,15 +404,53 @@ impl<'g> SourceMech for Empty<'g> {
         b.br(l_eof, &[env.zero]);
         let dead = b.create_block(&[]);
         b.switch_to(dead);
-        Win { cursor: env.zero, end: env.zero, facts: WinConds::default() }
+        Win {
+            cursor: env.zero,
+            end: env.zero,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
-        let life = CellLife { until: Until::Row, home: CellHome::FrameSlot };
-        let cells = self.cols.iter().enumerate().map(|(c, &(typid, rep))| Cell { rep, typid, num: NumTypmod::NONE, life, at: At::Slot(c as u16), null: Nullable::Maybe }).collect_in(env.mcx);
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
+        let life = CellLife {
+            until: Until::Row,
+            home: CellHome::FrameSlot,
+        };
+        let cells = self
+            .cols
+            .iter()
+            .enumerate()
+            .map(|(c, &(typid, rep))| Cell {
+                rep,
+                typid,
+                num: NumTypmod::NONE,
+                life,
+                at: At::Slot(c as u16),
+                null: Nullable::Maybe,
+            })
+            .collect_in(env.mcx);
         let t = b.bconst(true);
-        let vals = self.cols.iter().map(|_| (env.zero, Some(t))).collect_in(env.mcx);
-        RowVals { row: Row { cells }, cols: (0..self.cols.len() as u16).map(Some).collect_in(env.mcx), vals, carry, next, at: j }
+        let vals = self
+            .cols
+            .iter()
+            .map(|_| (env.zero, Some(t)))
+            .collect_in(env.mcx);
+        RowVals {
+            row: Row { cells },
+            cols: (0..self.cols.len() as u16).map(Some).collect_in(env.mcx),
+            vals,
+            carry,
+            next,
+            at: j,
+        }
     }
 }
 
@@ -325,17 +479,33 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
     let ip = &gx.pipelines()[ik];
     let node = ip.node_id;
     let d = &ip.desc;
-    let life = d.consumes.iter().position(|&s| s == slot).and_then(|j| d.consumes_from.get(j).copied());
-    let Some(kf) = life.map(|l| l.0 as usize) else { shape(node, MANY_READERS) };
+    let life = d
+        .consumes
+        .iter()
+        .position(|&s| s == slot)
+        .and_then(|j| d.consumes_from.get(j).copied());
+    let Some(kf) = life.map(|l| l.0 as usize) else {
+        shape(node, MANY_READERS)
+    };
     let (reader, pull) = form(px, kf);
     // rowsecurity#343: or a later arm's nest copy over the record the first arm's fill declared (readers.rs `copies`)
-    if reader != ik && (pull || !crate::rerun::spool::readers::copies(gx, kf).is_some_and(|c| c.contains(&ik))) {
+    if reader != ik
+        && (pull || !crate::rerun::spool::readers::copies(gx, kf).is_some_and(|c| c.contains(&ik)))
+    {
         shape(node, MANY_READERS);
     }
     let fp = &gx.pipelines()[kf];
     let body = &fp.ops[..fp.ops.len() - 1];
-    let Some(Op::Project(cols)) = body.last() else { shape(node, LOUD_CHILD) };
-    let w_j = px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: u64::MAX, i: 2 }) as i32 * 8;
+    let Some(Op::Project(cols)) = body.last() else {
+        shape(node, LOUD_CHILD)
+    };
+    let w_j = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k: ik,
+        j: u64::MAX,
+        i: 2,
+    }) as i32
+        * 8;
     if pull && crate::rerun::union_arms::union_of(fp).is_some() {
         return union_reader(px, (ik, kf), cols, w_j, node);
     }
@@ -364,12 +534,26 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
     let st_at = PgRc::new_in(std::cell::Cell::new(0u16), px.mcx());
     let (mut src, steps, gates) = px.making(kf, ident, |px| {
         let src = (crate::frame::iface::kind_impl::<SourceMaker>(&fp.node_id, kind).0)(px, kf);
-        let gates = if one { crate::rerun::inner_arms_gate::compile(px, fp, kf) } else { Vec::new() };
-        (src, child_steps(px, kf, body.len(), locked.then(|| st_at.clone())), gates)
+        let gates = if one {
+            crate::rerun::inner_arms_gate::compile(px, fp, kf)
+        } else {
+            Vec::new()
+        };
+        (
+            src,
+            child_steps(px, kf, body.len(), locked.then(|| st_at.clone())),
+            gates,
+        )
     });
     src.in_order();
     let at = if one {
-        Ok(px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: u64::MAX, i: 3 }) as i32 * 8)
+        Ok(px.frame_word(WordKey::Open {
+            face: Face::Nest,
+            k: ik,
+            j: u64::MAX,
+            i: 3,
+        }) as i32
+            * 8)
     } else {
         let draft = px.making(kf, ident, |px| {
             let mut d = px.take_site(kf).or_else(|| src.site_desc(px.arena));
@@ -378,14 +562,19 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
             }
             d
         });
-        let Some(draft) = draft else { shape(node, LOUD_CHILD) };
+        let Some(draft) = draft else {
+            shape(node, LOUD_CHILD)
+        };
         // numbered here, where exec admit pairs it with the fill pipeline's own source (nest/spool_site.rs)
         let site = crate::rerun::spool::site::walk_site(px, ik, kf, draft);
         px.set_pipeline_site(kf, Some(site)); // a row mark's recheck finds the marked relation's producer here (marks.rs)
         Err(site)
     };
     let site = at.err().map_or(-1, |s| s as i16);
-    for p in px.protos[protos..].iter_mut().filter(|p| p.site == DRAFT_SITE) {
+    for p in px.protos[protos..]
+        .iter_mut()
+        .filter(|p| p.site == DRAFT_SITE)
+    {
         p.site = site;
     }
     if src.covers() != 0 {
@@ -396,7 +585,13 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
     }
     let mut words = OpenWords::new_in(px.mcx());
     if let Ok(o) = at {
-        words.declare(OpenWord::open("nest.spool result child position", Base::Words, o, Type::I64, gravity_kernels::util::RESUME_OPEN));
+        words.declare(OpenWord::open(
+            "nest.spool result child position",
+            Base::Words,
+            o,
+            Type::I64,
+            gravity_kernels::util::RESUME_OPEN,
+        ));
     }
     src.open_words(&mut words);
     steps.iter().for_each(|s| s.open_words(&mut words));
@@ -405,10 +600,19 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
     }
     let (rec, st) = Rec::declare(px, ik, kf, node, cols, if locked { 4 } else { 2 });
     st_at.set(st);
-    let cap = body.iter().filter(|_| locked).find_map(|o| match crate::frame::iface::demand(o) {
-        Some(d) => if let Bound::Const(n) = d.count { Some(*n) } else { None },
-        None => None,
-    });
+    let cap = body
+        .iter()
+        .filter(|_| locked)
+        .find_map(|o| match crate::frame::iface::demand(o) {
+            Some(d) => {
+                if let Bound::Const(n) = d.count {
+                    Some(*n)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        });
     // D2780: a calm fill reads on to its window's end at each pull (fires: spool.pull.reads_on)
     let rest = crate::lifetime::material::pull_reads_on(gx, kf);
     if rest {
@@ -420,21 +624,38 @@ fn make_reader<'g, 'p>(px: &mut Px<'g, 'p>, ik: usize, slot: u8) -> PgBox<'g, dy
 /// The steps of the Material's fill pipeline `kf`'s first `n` ops (its child's, or a pulled union's `Union`, filters and
 /// projections), made under the reader's identity (the caller's `Px::making`). D4204: a LOCK-FILL child's LIMIT is a
 /// `PulledLimit` over the record's words `st` names.
-fn child_steps<'g>(px: &mut Px<'g, '_>, kf: usize, n: usize, st: Option<PgRc<'g, std::cell::Cell<u16>>>) -> PgVec<'g, PgBox<'g, dyn StepMech + 'g>> {
+fn child_steps<'g>(
+    px: &mut Px<'g, '_>,
+    kf: usize,
+    n: usize,
+    st: Option<PgRc<'g, std::cell::Cell<u16>>>,
+) -> PgVec<'g, PgBox<'g, dyn StepMech + 'g>> {
     let (gx, node) = (px.gx, px.gx.pipelines()[kf].node_id);
     let ops = &gx.pipelines()[kf].ops;
     let mcx = px.mcx();
     // D3498: a Result child's gates are the child's open checks (`make_reader`), never steps
-    let gate = |j: usize| matches!(gx.pipelines()[kf].source, Source::Const) && matches!(ops[j], Op::Gate(_));
+    let gate = |j: usize| {
+        matches!(gx.pipelines()[kf].source, Source::Const) && matches!(ops[j], Op::Gate(_))
+    };
     let pulled = |j: usize| match (crate::frame::iface::demand(&ops[j]), &st) {
-        (Some(d), Some(st)) => Some(PulledLimit { offset: if let Bound::Const(m) = d.offset { *m } else { 0 }, st: st.clone(), mcx }),
+        (Some(d), Some(st)) => Some(PulledLimit {
+            offset: if let Bound::Const(m) = d.offset {
+                *m
+            } else {
+                0
+            },
+            st: st.clone(),
+            mcx,
+        }),
         _ => None,
     };
     (0..n)
         .filter(|&j| !gate(j))
         .map(|j| match pulled(j) {
             Some(l) => mcx::pg_box_dyn!(mcx, l => dyn StepMech + 'g),
-            None => (crate::frame::iface::kind_impl::<StepMaker>(&node, gx.step_need(kf, j)).0)(px, kf, j),
+            None => (crate::frame::iface::kind_impl::<StepMaker>(&node, gx.step_need(kf, j)).0)(
+                px, kf, j,
+            ),
         })
         .collect_in(mcx)
 }
@@ -450,9 +671,20 @@ struct PulledLimit<'g> {
 }
 
 impl<'g> StepMech for PulledLimit<'g> {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         let st = self.st.get();
-        let types: PgVec<'_, Type> = row.carry.params().iter().map(|&v| b.value_type(v)).collect_in(self.mcx);
+        let types: PgVec<'_, Type> = row
+            .carry
+            .params()
+            .iter()
+            .map(|&v| b.value_type(v))
+            .collect_in(self.mcx);
         let l_cont = b.create_block(&types[..]);
         if self.offset > 0 {
             let sk = b.load(Type::I64, env.params, (st + 3) as i32 * 8);
@@ -490,13 +722,27 @@ struct Pulled<'g> {
 /// Append: each child PostgreSQL pruned at its executor start keeps its skip bit (append/prune.rs, declared here in arm
 /// order) and is never opened; a row is made when a reader first reaches it, appended to the record, and read back at
 /// every re-open (S1's window rule).
-fn union_reader<'g>(px: &mut Px<'g, '_>, (ik, kf): (usize, usize), cols: &NodeList<'_>, w_j: i32, node: i32) -> PgBox<'g, dyn SourceMech + 'g> {
+fn union_reader<'g>(
+    px: &mut Px<'g, '_>,
+    (ik, kf): (usize, usize),
+    cols: &NodeList<'_>,
+    w_j: i32,
+    node: i32,
+) -> PgBox<'g, dyn SourceMech + 'g> {
     let gx = px.gx;
-    let feeds = crate::rerun::spool::form::union_pull(gx, kf).unwrap_or_else(|why| shape(node, why));
+    let feeds =
+        crate::rerun::spool::form::union_pull(gx, kf).unwrap_or_else(|why| shape(node, why));
     let fp = &gx.pipelines()[kf];
     let skips = crate::rerun::union_arms::pull_skips(px, kf, &feeds, node);
     // D3612: a run-time pruning over InitPlans that may raise or act, decided at the first pull
-    let late = match fp.ops.first() { Some(Op::Append(AppendDesc::Union { prune: Some(d), .. })) if crate::rerun::spool::form::pull_late(gx, kf) => Some(d), _ => None };
+    let late = match fp.ops.first() {
+        Some(Op::Append(AppendDesc::Union { prune: Some(d), .. }))
+            if crate::rerun::spool::form::pull_late(gx, kf) =>
+        {
+            Some(d)
+        }
+        _ => None,
+    };
     let src = crate::rerun::inner_arms::pulled(px, ik, &feeds, skips, late, node);
     let body = &fp.ops[..fp.ops.len() - 1];
     let ident = px.ident(ik);
@@ -504,10 +750,18 @@ fn union_reader<'g>(px: &mut Px<'g, '_>, (ik, kf): (usize, usize), cols: &NodeLi
     let mut words = OpenWords::new_in(px.mcx());
     src.open_words(&mut words);
     steps.iter().for_each(|s| s.open_words(&mut words));
-    if words.words.iter().any(|w| w.base == Base::State) || steps.iter().any(|s| s.expand().is_some()) {
+    if words.words.iter().any(|w| w.base == Base::State)
+        || steps.iter().any(|s| s.expand().is_some())
+    {
         shape(node, LOUD_CHILD);
     }
-    let pos = px.frame_word(WordKey::Open { face: Face::Nest, k: ik, j: u64::MAX, i: 3 }) as i32 * 8;
+    let pos = px.frame_word(WordKey::Open {
+        face: Face::Nest,
+        k: ik,
+        j: u64::MAX,
+        i: 3,
+    }) as i32
+        * 8;
     let (rec, st) = Rec::declare(px, ik, kf, node, cols, 2);
     mcx::pg_box_dyn!(px.mcx(), Reader { child: None, arms: Some(Pulled { src, steps, words, pos }), rec, st, w_j, node, held: None, fresh: None, cap: None } => dyn SourceMech + 'g)
 }
@@ -531,7 +785,13 @@ impl SourceMech for Reader<'_> {
     }
 
     fn open_words(&self, w: &mut OpenWords) {
-        w.declare(OpenWord::open("nest.spool position", Base::Words, self.w_j, Type::I64, 0));
+        w.declare(OpenWord::open(
+            "nest.spool position",
+            Base::Words,
+            self.w_j,
+            Type::I64,
+            0,
+        ));
     }
 
     /// The re-open writes the position (its open word); the child opens at its first read. D3614: a fresh word's emit
@@ -557,13 +817,25 @@ impl SourceMech for Reader<'_> {
             let done = b.icmp(IntCond::Ne, ended, env.zero);
             b.cond_br(done, (l_eof, &[env.zero]), (l_fill, &[]));
             b.switch_to(l_fill);
-            crate::rerun::spool::child::fill(b, env, (&*a.src, &a.steps, &a.words), Ok(a.pos), (self.st, self.node), (l_eof, l_ready), &mut |b, env, r| {
-                self.rec.append(b, env, r);
-                Carry::new(env.one, env.mcx)
-            });
+            crate::rerun::spool::child::fill(
+                b,
+                env,
+                (&*a.src, &a.steps, &a.words),
+                Ok(a.pos),
+                (self.st, self.node),
+                (l_eof, l_ready),
+                &mut |b, env, r| {
+                    self.rec.append(b, env, r);
+                    Carry::new(env.one, env.mcx)
+                },
+            );
             b.switch_to(l_ready);
             let end = self.rec.count(b, env);
-            return Win { cursor: j, end, facts: WinConds::default() };
+            return Win {
+                cursor: j,
+                end,
+                facts: WinConds::default(),
+            };
         }
         // the eager form's spool is whole: its count is its end (D1108's held form: or the record its fill raised at)
         let Some(c) = self.child.as_ref() else {
@@ -573,7 +845,11 @@ impl SourceMech for Reader<'_> {
             b.br(l_eof, &[env.zero]);
             b.switch_to(l_ready);
             let end = self.rec.count(b, env);
-            return Win { cursor: j, end, facts: WinConds::default() };
+            return Win {
+                cursor: j,
+                end,
+                facts: WinConds::default(),
+            };
         };
         let (ended, l_fill) = (self.word(b, env, 0), b.create_block(&[]));
         let done = b.icmp(IntCond::Ne, ended, env.zero);
@@ -587,16 +863,36 @@ impl SourceMech for Reader<'_> {
             b.cond_br(met, (l_eof, &[env.zero]), (l_go, &[]));
             b.switch_to(l_go);
         }
-        c.fill(b, env, self.st, self.node, l_eof, l_ready, &mut |b, env, r| {
-            self.rec.append(b, env, r);
-            Carry::new(env.one, env.mcx)
-        });
+        c.fill(
+            b,
+            env,
+            self.st,
+            self.node,
+            l_eof,
+            l_ready,
+            &mut |b, env, r| {
+                self.rec.append(b, env, r);
+                Carry::new(env.one, env.mcx)
+            },
+        );
         b.switch_to(l_ready);
         let end = self.rec.count(b, env);
-        Win { cursor: j, end, facts: WinConds::default() }
+        Win {
+            cursor: j,
+            end,
+            facts: WinConds::default(),
+        }
     }
 
-    fn row<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, _win: &Win, j: Value, carry: Carry<'e>, next: Value) -> RowVals<'e> {
+    fn row<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        _win: &Win,
+        j: Value,
+        carry: Carry<'e>,
+        next: Value,
+    ) -> RowVals<'e> {
         self.rec.read(b, env, j, carry, next)
     }
 
@@ -612,11 +908,26 @@ fn raise_held(b: &mut FunctionBuilder<'_>, env: &mut Env, i: u64) {
     use gravity_abi::status::raise;
     use gravity_ir::HostFlags;
     use gravity_kernels::host_abi::m11_run_held;
-    let flags = HostFlags { may_error: true, ..HostFlags::default() };
-    let h = b.declare_host_once("m11_run_held", &[Type::Ptr, Type::I64], Some(Type::I64), gravity_abi::host_words!(m11_run_held(ctx, k)), flags);
+    let flags = HostFlags {
+        may_error: true,
+        ..HostFlags::default()
+    };
+    let h = b.declare_host_once(
+        "m11_run_held",
+        &[Type::Ptr, Type::I64],
+        Some(Type::I64),
+        gravity_abi::host_words!(m11_run_held(ctx, k)),
+        flags,
+    );
     let i = b.iconst(Type::I64, i as i64);
-    let st = b.call_host(h, &[env.ctx, i], Some(Type::I64)).expect("m11_run_held returns its answer");
-    let (held, l_raise, l_on) = (b.icmp(IntCond::Ne, st, env.zero), b.create_block(&[]), b.create_block(&[]));
+    let st = b
+        .call_host(h, &[env.ctx, i], Some(Type::I64))
+        .expect("m11_run_held returns its answer");
+    let (held, l_raise, l_on) = (
+        b.icmp(IntCond::Ne, st, env.zero),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.cond_br(held, (l_raise, &[]), (l_on, &[]));
     b.switch_to(l_raise);
     b.mark_cold(l_raise);

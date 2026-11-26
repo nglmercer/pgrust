@@ -30,12 +30,22 @@ struct Publish {
 }
 
 impl StepMech for Publish {
-    fn lower<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, next: Next<'_, 'e>) -> Carry<'e> {
+    fn lower<'e>(
+        &self,
+        b: &mut FunctionBuilder<'_>,
+        env: &mut Env<'e, '_>,
+        row: &RowVals,
+        next: Next<'_, 'e>,
+    ) -> Carry<'e> {
         if let Some(c) = row.cols.get(CTID_AT as usize - 1).copied().flatten() {
             // the ItemPointerData image (bi_hi, bi_lo, ip_posid) into the site's 12-byte position (`ScanPos`): flags |
             // offset << 16, the relation, the block
             let v = row.vals[c as usize].0;
-            let img = if b.value_type(v) == Type::Ptr { v } else { b.conv(ConvOp::IntToPtr, Type::Ptr, v) };
+            let img = if b.value_type(v) == Type::Ptr {
+                v
+            } else {
+                b.conv(ConvOp::IntToPtr, Type::Ptr, v)
+            };
             let bi = b.load(Type::I32, img, 0);
             let sixteen = b.iconst(Type::I32, 16);
             let hi = b.int_bin(IntBinOp::Shl, bi, sixteen);
@@ -70,14 +80,30 @@ pub fn insert<'g>(px: &mut Px<'g, '_>, mechs: &mut [Mechs<'g>], publish: bool) {
     let (gx, mcx) = (px.gx, px.mcx());
     let n = gx.pipelines().len();
     let mut site: Option<Rc<core::cell::Cell<usize>>> = None;
-    for m in mechs.iter_mut().filter(|m| m.k < n && ends_in_sink(gx, m.k)) {
-        let Some(s) = m.site.filter(|_| m.source.covers() == 0 && m.source.late_at() == 0 && !m.source.once()) else { continue };
-        let Some(relid) = px.sites.get(s).map(|d| d.relation).filter(|&r| r != 0) else { continue };
-        let at = site.get_or_insert_with(|| px.add_late_site(SiteDesc::row_of(px.arena, s as u16, relid))).clone();
-        m.steps.push_in(mcx::pg_box_dyn!(mcx, Publish { site: at, relid } => dyn StepMech + 'g));
+    for m in mechs
+        .iter_mut()
+        .filter(|m| m.k < n && ends_in_sink(gx, m.k))
+    {
+        let Some(s) = m
+            .site
+            .filter(|_| m.source.covers() == 0 && m.source.late_at() == 0 && !m.source.once())
+        else {
+            continue;
+        };
+        let Some(relid) = px.sites.get(s).map(|d| d.relation).filter(|&r| r != 0) else {
+            continue;
+        };
+        let at = site
+            .get_or_insert_with(|| px.add_late_site(SiteDesc::row_of(px.arena, s as u16, relid)))
+            .clone();
+        m.steps
+            .push_in(mcx::pg_box_dyn!(mcx, Publish { site: at, relid } => dyn StepMech + 'g));
         m.steps.rotate_right(1); // first, as `insert(0, ..)` (a raising push, then the turn)
         if m.desc.is_eligible() {
-            m.desc.parallel = Parallel::Ineligible { site: m.desc.driving_site, reason: Reason::Host };
+            m.desc.parallel = Parallel::Ineligible {
+                site: m.desc.driving_site,
+                reason: Reason::Host,
+            };
         }
     }
 }

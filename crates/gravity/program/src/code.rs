@@ -12,7 +12,10 @@ pub use gravity_abi::program::{Entry, InterpRun};
 pub enum Owner {
     Hand,
     Mapped(Box<dyn Any + Send + Sync>),
-    Interp { state: Box<dyn Any + Send + Sync>, run: InterpRun },
+    Interp {
+        state: Box<dyn Any + Send + Sync>,
+        run: InterpRun,
+    },
     /// Tier 0 (H16 (d)): a code-cache miss's interpreted code, compiled (`Tiered::promote`) at the start of the program's
     /// second execution, or at its first when the driver's gate says the statement is not a tier-0 one.
     Tiered(Box<Tiered>),
@@ -78,7 +81,12 @@ pub mod stage_memo {
 
     pub fn tag(shape: u128, root: i32, k: usize) -> u64 {
         let mut m = gravity_abi::hash::Mix128::new();
-        for w in [shape as u64, (shape >> 64) as u64, root as u32 as u64, k as u64] {
+        for w in [
+            shape as u64,
+            (shape >> 64) as u64,
+            root as u32 as u64,
+            k as u64,
+        ] {
             m.word(w);
         }
         (m.key128() as u64 & !3) | 4
@@ -230,23 +238,64 @@ const _: () = assert!(core::mem::align_of::<Code>() <= 8);
 
 impl Code {
     pub fn hand(entry: Entry) -> Code {
-        Code { entry, bytes: 0, owner: Owner::Hand, id: None, mapping: 0, staged: None }
+        Code {
+            entry,
+            bytes: 0,
+            owner: Owner::Hand,
+            id: None,
+            mapping: 0,
+            staged: None,
+        }
     }
 
     pub fn mapped(entry: Entry, bytes: usize, owner: Box<dyn Any + Send + Sync>) -> Code {
-        Code { entry, bytes, owner: Owner::Mapped(owner), id: None, mapping: 0, staged: None }
+        Code {
+            entry,
+            bytes,
+            owner: Owner::Mapped(owner),
+            id: None,
+            mapping: 0,
+            staged: None,
+        }
     }
 
     /// Tier-0 code: `run(state, ctx)` interprets the program held in `state` (the data pointer of the box).
     pub fn interp(run: InterpRun, state: Box<dyn Any + Send + Sync>) -> Code {
-        Code { entry: interp_identity, bytes: 0, owner: Owner::Interp { state, run }, id: None, mapping: 0, staged: None }
+        Code {
+            entry: interp_identity,
+            bytes: 0,
+            owner: Owner::Interp { state, run },
+            id: None,
+            mapping: 0,
+            staged: None,
+        }
     }
 
     /// Tier-0 code over `interp`; `up` compiles (the process code cache) at the promotion; `cap` is the gate's row cap.
-    pub fn tiered(interp: Code, cap: u64, up: Box<dyn Fn() -> Result<Code, String> + Send + Sync>) -> Code {
+    pub fn tiered(
+        interp: Code,
+        cap: u64,
+        up: Box<dyn Fn() -> Result<Code, String> + Send + Sync>,
+    ) -> Code {
         TIER0_LIVE.store(true, Ordering::Relaxed);
-        let t = Tiered { interp, compiled: OnceLock::new(), failure: OnceLock::new(), runs: AtomicU64::new(0), cap, bound: u64::MAX, module: 0, up };
-        Code { entry: interp_identity, bytes: 0, owner: Owner::Tiered(Box::new(t)), id: None, mapping: 0, staged: None } // alloc: Program
+        let t = Tiered {
+            interp,
+            compiled: OnceLock::new(),
+            failure: OnceLock::new(),
+            runs: AtomicU64::new(0),
+            cap,
+            bound: u64::MAX,
+            module: 0,
+            up,
+        };
+        Code {
+            entry: interp_identity,
+            bytes: 0,
+            owner: Owner::Tiered(Box::new(t)),
+            id: None,
+            mapping: 0,
+            staged: None,
+        } // alloc: Program
     }
 
     /// D3867: a tier-0 code's bound on the rows the statement's plan nodes emit (`Tiered::bound`); other code unchanged.
@@ -350,7 +399,7 @@ impl Code {
     }
 
     /// The owner's name: `hand`, `mapped`, `interp`, or `tier0` until a tier-0 code's promotion (then its compiled code's;
-/// `tier0failed` once its promotion failed, the code interpreted for good)
+    /// `tier0failed` once its promotion failed, the code interpreted for good)
     /// (the `Debug` form's word; the served line's `code=`).
     pub fn kind(&self) -> &'static str {
         match &self.owner {
@@ -394,7 +443,9 @@ impl Code {
     /// As `call`.
     unsafe fn enter(&self, ctx: *mut Ctx) -> i64 {
         let r = match &self.owner {
-            Owner::Interp { state, run } => run(&**state as *const (dyn Any + Send + Sync) as *const (), ctx),
+            Owner::Interp { state, run } => {
+                run(&**state as *const (dyn Any + Send + Sync) as *const (), ctx)
+            }
             Owner::Tiered(t) => match t.compiled.get() {
                 Some(c) => c.call(ctx),
                 None => t.interp.call(ctx),
@@ -409,13 +460,25 @@ impl Code {
 
 impl fmt::Debug for crate::program::Program {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Program({:?}, {} sites, {:?})", self.key, self.sites.len(), self.code())
+        write!(
+            f,
+            "Program({:?}, {} sites, {:?})",
+            self.key,
+            self.sites.len(),
+            self.code()
+        )
     }
 }
 
 impl fmt::Debug for Code {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Code({}, {:p}, {} bytes)", self.kind(), self.entry as *const (), self.bytes)
+        write!(
+            f,
+            "Code({}, {:p}, {} bytes)",
+            self.kind(),
+            self.entry as *const (),
+            self.bytes
+        )
     }
 }
 
@@ -430,14 +493,25 @@ mod tests {
         stage_memo::lowered(t);
         assert_eq!(stage_memo::split(t), Split::Want);
         stage_memo::chose(t);
-        assert_eq!([stage_memo::split(t), stage_memo::split(t)], [Split::Lower, Split::Lower]);
+        assert_eq!(
+            [stage_memo::split(t), stage_memo::split(t)],
+            [Split::Lower, Split::Lower]
+        );
         stage_memo::lowered(t);
-        assert_eq!(stage_memo::split(t), Split::Lower, "a chosen shape stays chosen");
+        assert_eq!(
+            stage_memo::split(t),
+            Split::Lower,
+            "a chosen shape stays chosen"
+        );
         let d = stage_memo::tag(0x99, 1, 0);
         assert_eq!(stage_memo::split(d), Split::Lower);
         stage_memo::dead(d);
         assert_eq!(stage_memo::split(d), Split::Plain);
-        assert_ne!(stage_memo::tag(0x99, 1, 0), stage_memo::tag(0x99, 1, 1), "a pipeline of its own");
+        assert_ne!(
+            stage_memo::tag(0x99, 1, 0),
+            stage_memo::tag(0x99, 1, 1),
+            "a pipeline of its own"
+        );
     }
 
     /// D4875: a lowering that stopped after its `split` answered `Lower` and before the staged function's lowering knew
@@ -448,8 +522,16 @@ mod tests {
     #[test]
     fn a_split_whose_lowering_stopped_leaves_no_want() {
         let t = stage_memo::tag(0xd487_5000_0000_0000_0000_0000_0000_0001, 2, 3);
-        assert_eq!(stage_memo::split(t), Split::Lower, "the shape's first lowering");
+        assert_eq!(
+            stage_memo::split(t),
+            Split::Lower,
+            "the shape's first lowering"
+        );
         // that lowering stopped here: neither the staged function's outcome nor `dead` was recorded
-        assert_eq!(stage_memo::split(t), Split::Lower, "the lowering again lowers the staged function, never Want");
+        assert_eq!(
+            stage_memo::split(t),
+            Split::Lower,
+            "the lowering again lowers the staged function, never Want"
+        );
     }
 }

@@ -19,7 +19,10 @@ crate::strategies! {
     CODE_SPARSE = 76, "code.sparse", CodeFilterTopk;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(CODE_SPARSE, &VerdictImpl(&CodeSparse))], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(CODE_SPARSE, &VerdictImpl(&CodeSparse))],
+    ..crate::ops::NONE
+};
 
 struct CodeSparse;
 

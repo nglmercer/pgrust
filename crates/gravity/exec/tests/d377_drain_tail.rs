@@ -30,14 +30,30 @@ impl Sink for Client {
 /// Eight 10-row claims buffered in the leader's leg, drained; the interrupt lands at the client's `at`-th push.
 fn drain(at: u32, keys: &[i16]) -> (Result<u64>, u64) {
     init_small::globals::SetAbortPending(false);
-    let mut client = Client { rows: 0, pushes: 0, at };
+    let mut client = Client {
+        rows: 0,
+        pushes: 0,
+        at,
+    };
     let r = {
         let mut legs = LegSink::new(&mut client, 1, 0, 0, true, !keys.is_empty(), &[0], None);
         for c in 0..8u64 {
             let lo = c * 10;
-            legs.leg(0).expect("the leader's leg").claim_begin(MorselRange::new(lo, lo + 10));
+            legs.leg(0)
+                .expect("the leader's leg")
+                .claim_begin(MorselRange::new(lo, lo + 10));
             let v: Vec<u64> = (lo..lo + 10).rev().collect();
-            Sink::push(&mut legs, BorrowedBatch { natts: 1, rows: 10, values: &v, isnull: &[0; 10], region: &[] }).unwrap();
+            Sink::push(
+                &mut legs,
+                BorrowedBatch {
+                    natts: 1,
+                    rows: 10,
+                    values: &v,
+                    isnull: &[0; 10],
+                    region: &[],
+                },
+            )
+            .unwrap();
             legs.leg(0).expect("the leader's leg").claim_end(true);
         }
         legs.drain(keys)
@@ -59,7 +75,10 @@ fn an_interrupt_during_the_drains_last_send_ends_this_statement() {
     );
     // sorted (a Sort root over the legs): the last row's send
     let (r, rows) = drain(80, &[0]);
-    assert_eq!(rows, 80, "sorted: every row was sent before the timeout landed");
+    assert_eq!(
+        rows, 80,
+        "sorted: every row was sent before the timeout landed"
+    );
     assert!(
         matches!(r, Err(Error::Cancelled)),
         "sorted: a timeout landing during the last row's send must end this statement, got {:?}",
@@ -67,7 +86,15 @@ fn an_interrupt_during_the_drains_last_send_ends_this_statement() {
     );
     // the connection's next statement: nothing left pending, every row is sent and the drain succeeds
     let (r, rows) = drain(0, &[]);
-    assert_eq!((r.ok(), rows), (Some(80), 80), "the next statement's drain completes");
+    assert_eq!(
+        (r.ok(), rows),
+        (Some(80), 80),
+        "the next statement's drain completes"
+    );
     let (r, rows) = drain(0, &[0]);
-    assert_eq!((r.ok(), rows), (Some(80), 80), "the next statement's sorted drain completes");
+    assert_eq!(
+        (r.ok(), rows),
+        (Some(80), 80),
+        "the next statement's sorted drain completes"
+    );
 }

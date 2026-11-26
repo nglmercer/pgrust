@@ -80,9 +80,14 @@ fn verbatim_fixture() -> BuiltFixture {
         db: 5,
         relfilenumber: 7321,
         schema: vec![text_col(1)],
-        oracle: vec![(0..ROWS).map(|i| Some(OracleVal::Bytes(value(i)))).collect()],
+        oracle: vec![(0..ROWS)
+            .map(|i| Some(OracleVal::Bytes(value(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
     };
     let cands = CodecCandidates::new(ColumnPosture::default());
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
@@ -97,18 +102,35 @@ fn verbatim_fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
-    BuiltFixture { fx, files, manifest }
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// Every row of the column read as code lanes (each part's dictionary built at its first window): the rows read, or the
 /// first error. `ino`: the parts' inode numbers (a fresh part identity a call, so no cached table serves it).
 fn read_codes(bf: &BuiltFixture, ino: u64) -> Result<u64, Box<types_error::PgError>> {
     // a host's PostgreSQL error is stashed on the thread (`gravity_hosts::stash`) behind the driver's error
-    let pg = |e: gravity_driver::Error| take_error().unwrap_or_else(|| Box::new(types_error::PgError::error(format!("no stashed error: {e:?}"))));
+    let pg = |e: gravity_driver::Error| {
+        take_error().unwrap_or_else(|| {
+            Box::new(types_error::PgError::error(format!(
+                "no stashed error: {e:?}"
+            )))
+        })
+    };
     let list = part_list_at(bf, ino);
     let total = list.granules();
-    let recipe = GranuleRecipe::for_test_codes(REL_TEXT + 21, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)));
+    let recipe = GranuleRecipe::for_test_codes(
+        REL_TEXT + 21,
+        &[1],
+        &[1],
+        Arc::new(PartRegistry::new(64 << 20)),
+    );
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).map_err(pg)?;
@@ -121,7 +143,11 @@ fn read_codes(bf: &BuiltFixture, ino: u64) -> Result<u64, Box<types_error::PgErr
         match src.window(&mut w) {
             Ok(0) => break Ok(rows),
             Ok(n) => {
-                assert_eq!(w.lanes()[0].kind, gravity_abi::ctx::lane::KIND_CODES, "a verbatim part publishes ranked codes");
+                assert_eq!(
+                    w.lanes()[0].kind,
+                    gravity_abi::ctx::lane::KIND_CODES,
+                    "a verbatim part publishes ranked codes"
+                );
                 rows += n as u64;
             }
             Err(e) => break Err(pg(e)),
@@ -146,5 +172,8 @@ fn a_verbatim_parts_fingerprint_table_is_built_inside_a_cache_scope() {
     assert_eq!(r.expect("served"), ROWS);
     // the sort's zeroed scratch stays outside on purpose (transient, on the general arenas)
     assert!(inside >= 2, "each part's zeroed code array came from the cache arena (inside {inside}, outside {outside})");
-    assert!(!memledger::arena::in_cache_scope(), "the scope ends with the build");
+    assert!(
+        !memledger::arena::in_cache_scope(),
+        "the scope ends with the build"
+    );
 }

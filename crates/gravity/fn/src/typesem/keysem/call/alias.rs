@@ -37,13 +37,19 @@ impl Alias {
     /// Whether the user and the search path are the ones the alias was read under.
     #[inline]
     pub(super) fn current(&self) -> bool {
-        self.user == miscinit_seams::get_user_id::call() && namespace_seams::active_path_generation::call().is_ok_and(|g| g == self.path) && !hooked()
+        self.user == miscinit_seams::get_user_id::call()
+            && namespace_seams::active_path_generation::call().is_ok_and(|g| g == self.path)
+            && !hooked()
     }
 
     /// Tests: an alias of `perm` that is always current (`current` is never asked of it).
     #[cfg(test)]
     pub(super) fn for_test(perm: [u8; 2]) -> Alias {
-        Alias { perm, user: 0, path: 0 }
+        Alias {
+            perm,
+            user: 0,
+            path: 0,
+        }
     }
 }
 
@@ -86,14 +92,30 @@ pub(super) fn read(proc: u32) -> Option<(u32, Alias)> {
     let body = body_call(cx.mcx(), f);
     drop(cx);
     let (b, perm) = body.ok().flatten()?;
-    let s = syscache_seams::lookup_pg_proc_shape::call(b).ok().flatten()?;
-    if !super::super::builtin(b) || s.prolang != INTERNAL_LANGUAGE || s.proretset || s.pronargs != 2 || s.prosecdef || !s.proconfig_isnull {
+    let s = syscache_seams::lookup_pg_proc_shape::call(b)
+        .ok()
+        .flatten()?;
+    if !super::super::builtin(b)
+        || s.prolang != INTERNAL_LANGUAGE
+        || s.proretset
+        || s.pronargs != 2
+        || s.prosecdef
+        || !s.proconfig_isnull
+    {
         return None;
     }
     if !super::raw::verdict().is_some_and(|v| v(f, b)) {
         return None;
     }
-    if aclchk_seams::object_aclcheck::call(types_core::catalog::PROCEDURE_RELATION_ID, b, user, ACL_EXECUTE).ok()? != ACLCHECK_OK {
+    if aclchk_seams::object_aclcheck::call(
+        types_core::catalog::PROCEDURE_RELATION_ID,
+        b,
+        user,
+        ACL_EXECUTE,
+    )
+    .ok()?
+        != ACLCHECK_OK
+    {
         return None;
     }
     let id = crate::resolved::resolve(b).ok()?.ok()?;
@@ -109,21 +131,41 @@ fn hooked() -> bool {
 
 /// SQL comparator `f`'s body as the planner inlines it, read as one built-in call (`one_call`).
 fn body_call(mcx: mcx::Mcx<'_>, f: Oid) -> types_error::PgResult<Option<(Oid, [u8; 2])>> {
-    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else { return Ok(None) };
-    if p.prolang != SQL_LANGUAGE || p.prokind != b'f' as i8 || p.prosecdef || p.proretset || !p.proconfig_isnull || p.pronargs != 2 || p.prorettype != INT4 {
+    let Some(p) = syscache_seams::lookup_pg_proc_shape::call(f)? else {
+        return Ok(None);
+    };
+    if p.prolang != SQL_LANGUAGE
+        || p.prokind != b'f' as i8
+        || p.prosecdef
+        || p.proretset
+        || !p.proconfig_isnull
+        || p.pronargs != 2
+        || p.prorettype != INT4
+    {
         return Ok(None);
     }
-    let Some((ret, argtypes)) = syscache_seams::lookup_pg_proc_signature::call(mcx, f)? else { return Ok(None) };
+    let Some((ret, argtypes)) = syscache_seams::lookup_pg_proc_signature::call(mcx, f)? else {
+        return Ok(None);
+    };
     if argtypes.len() != 2 {
         return Ok(None);
     }
     let mut params = Vec::with_capacity(2); // alloc: Cold
     for (i, &t) in argtypes.iter().enumerate() {
-        let param = Param { paramkind: ParamKind::PARAM_EXTERN, paramid: i as i32 + 1, paramtype: t, paramtypmod: -1, location: -1, ..Default::default() };
+        let param = Param {
+            paramkind: ParamKind::PARAM_EXTERN,
+            paramid: i as i32 + 1,
+            paramtype: t,
+            paramtypmod: -1,
+            location: -1,
+            ..Default::default()
+        };
         params.push(Node::mk(mcx, param)?);
     }
     let args = types_nodes::NodeList::from_slice(mcx, &params)?;
-    let Some(body) = clauses_seams::inline_sql_function::call(mcx, f, ret, 0, 0, &args)? else { return Ok(None) };
+    let Some(body) = clauses_seams::inline_sql_function::call(mcx, f, ret, 0, 0, &args)? else {
+        return Ok(None);
+    };
     Ok(one_call(body, ret))
 }
 

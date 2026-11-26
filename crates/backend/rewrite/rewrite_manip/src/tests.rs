@@ -1,5 +1,5 @@
 use mcx::MemoryContext;
-use types_nodes::parsenodes::{Query, RangeTblEntry, RangeTblFunction, RTEKind, WindowClause};
+use types_nodes::parsenodes::{Query, RTEKind, RangeTblEntry, RangeTblFunction, WindowClause};
 use types_nodes::primnodes::{Aggref, SubLink, SubLinkType, Var};
 use types_nodes::{Node, NodeList, NodeTag};
 
@@ -64,7 +64,12 @@ fn bare_aggref_matches_its_level() {
 fn target_var(mcx: mcx::Mcx<'_>) -> Node<'_> {
     Node::mk(
         mcx,
-        Var { varno: 1, varattno: 1, vartype: 23, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            ..Default::default()
+        },
     )
     .unwrap()
 }
@@ -90,7 +95,10 @@ fn replace_vars_rewrites_window_frame_offsets() {
     q.windowClause = NodeList::make1(mcx, wc).unwrap();
     let qnode = q.seal();
 
-    let target_rte = RangeTblEntry { rtekind: RTEKind::RTE_RELATION, ..Default::default() };
+    let target_rte = RangeTblEntry {
+        rtekind: RTEKind::RTE_RELATION,
+        ..Default::default()
+    };
     let tlist = replacement_tlist(mcx);
     ReplaceVarsFromTargetList(
         mcx,
@@ -136,7 +144,10 @@ fn replace_vars_rewrites_function_and_group_rtes() {
     q.rtable = rtable;
     let qnode = q.seal();
 
-    let target_rte = RangeTblEntry { rtekind: RTEKind::RTE_RELATION, ..Default::default() };
+    let target_rte = RangeTblEntry {
+        rtekind: RTEKind::RTE_RELATION,
+        ..Default::default()
+    };
     let tlist = replacement_tlist(mcx);
     ReplaceVarsFromTargetList(
         mcx,
@@ -152,7 +163,11 @@ fn replace_vars_rewrites_function_and_group_rtes() {
     .unwrap();
     let q = qnode.as_query().unwrap();
     let func_rte = q.rtable.nth(0).as_range_tbl_entry().unwrap();
-    let rtf = func_rte.functions.nth(0).as_variant::<RangeTblFunction>().unwrap();
+    let rtf = func_rte
+        .functions
+        .nth(0)
+        .as_variant::<RangeTblFunction>()
+        .unwrap();
     assert_eq!(rtf.funcexpr.unwrap().node_tag(), NodeTag::T_Const);
     let group_rte = q.rtable.nth(1).as_range_tbl_entry().unwrap();
     assert_eq!(group_rte.groupexprs.nth(0).node_tag(), NodeTag::T_Const);
@@ -170,7 +185,13 @@ fn map_variable_attnos_recurses_into_sublinks() {
     // rewrite it through the SubLink.
     let outer_var = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 1, vartype: 23, varlevelsup: 1, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            varlevelsup: 1,
+            ..Default::default()
+        },
     )
     .unwrap();
     let tle = Node::mk_target_entry(mcx, outer_var, 1, None, false).unwrap();
@@ -190,8 +211,7 @@ fn map_variable_attnos_recurses_into_sublinks() {
     .unwrap();
 
     let attnums: [i16; 1] = [3];
-    let (mapped, found_whole_row) =
-        crate::map_variable_attnos(mcx, sl, 1, 0, &attnums, 0).unwrap();
+    let (mapped, found_whole_row) = crate::map_variable_attnos(mcx, sl, 1, 0, &attnums, 0).unwrap();
     assert!(!found_whole_row);
     let sub = mapped.as_sub_link().unwrap().subselect.as_query().unwrap();
     let v = sub
@@ -208,7 +228,13 @@ fn map_variable_attnos_recurses_into_sublinks() {
     // remapped by an outer-level mapping.
     let local_var = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 1, vartype: 23, varlevelsup: 0, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            varlevelsup: 0,
+            ..Default::default()
+        },
     )
     .unwrap();
     let tle = Node::mk_target_entry(mcx, local_var, 1, None, false).unwrap();
@@ -266,27 +292,51 @@ fn map_variable_attnos_bad_attno_is_catchable_internal_error() {
     // attno 2 maps to a dropped column (0 entry).
     let dropped = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 2, vartype: 23, varlevelsup: 0, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 2,
+            vartype: 23,
+            varlevelsup: 0,
+            ..Default::default()
+        },
     )
     .unwrap();
     let err = crate::map_variable_attnos(mcx, dropped, 1, 0, &attnums, 0)
         .expect_err("dropped-column attno must be an error");
-    assert_eq!(err.message(), "unexpected varattno 2 in expression to be mapped");
+    assert_eq!(
+        err.message(),
+        "unexpected varattno 2 in expression to be mapped"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     // attno 5 exceeds maplen.
     let beyond = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 5, vartype: 23, varlevelsup: 0, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 5,
+            vartype: 23,
+            varlevelsup: 0,
+            ..Default::default()
+        },
     )
     .unwrap();
     let err = crate::map_variable_attnos(mcx, beyond, 1, 0, &attnums, 0)
         .expect_err("out-of-range attno must be an error");
-    assert_eq!(err.message(), "unexpected varattno 5 in expression to be mapped");
+    assert_eq!(
+        err.message(),
+        "unexpected varattno 5 in expression to be mapped"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     // A valid attno still maps.
     let ok = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 1, vartype: 23, varlevelsup: 0, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            varlevelsup: 0,
+            ..Default::default()
+        },
     )
     .unwrap();
     let (mapped, _) = crate::map_variable_attnos(mcx, ok, 1, 0, &attnums, 0).unwrap();

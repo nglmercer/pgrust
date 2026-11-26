@@ -11,14 +11,20 @@ use std::sync::{Arc, Mutex};
 use granule_fixtures::*;
 use gravity_abi::Lane;
 use gravity_driver::{blank_site, Source, Window};
-use gravity_hosts::dict::text_hosts::{fp_cache_drop_all, fp_memo_shared, fp_seed, fp_tables_resident, TableFn, TableSpec};
-use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
+use gravity_hosts::dict::text_hosts::{
+    fp_cache_drop_all, fp_memo_shared, fp_seed, fp_tables_resident, TableFn, TableSpec,
+};
+use gravity_hosts::ops::scan::pgrc::granule_source::{
+    GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved,
+};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{BuiltFixture, Fixture, OracleVal};
 use pgrc_qa::text_col;
 use pgrc_read::{MemPartIo, OpenPart, PartExpect, PartRegistry};
 use pgrc_write::dict::TextSemantics;
-use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates};
+use pgrc_write::elect::{
+    CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates,
+};
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::WriteVfs;
 
@@ -79,7 +85,10 @@ fn a_run_leaves_nothing_behind() {
     let out = child.wait_with_output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "child failed: {stdout}");
-    assert!(stdout.contains(&format!("data dir {}", dd.display())), "the child never made its data dir: {stdout}");
+    assert!(
+        stdout.contains(&format!("data dir {}", dd.display())),
+        "the child never made its data dir: {stdout}"
+    );
     assert!(!dd.exists(), "{} left behind", dd.display());
 }
 
@@ -99,11 +108,23 @@ fn fixture() -> BuiltFixture {
         db: 5,
         relfilenumber: 3206,
         schema: vec![text_col(1)],
-        oracle: vec![(0..NROWS).map(|i| Some(OracleVal::Bytes(word(i)))).collect()],
+        oracle: vec![(0..NROWS)
+            .map(|i| Some(OracleVal::Bytes(word(i))))
+            .collect()],
         plans: vec![],
-        policy: PartCutPolicy { max_rows: 20_000, ..PartCutPolicy::default() },
+        policy: PartCutPolicy {
+            max_rows: 20_000,
+            ..PartCutPolicy::default()
+        },
     };
-    let posture = ColumnPosture { dict: Some(DictPolicy { ndv_cap: 100_000, exec_ok: true, sem: TextSemantics::BytesOnly }), ..ColumnPosture::default() };
+    let posture = ColumnPosture {
+        dict: Some(DictPolicy {
+            ndv_cap: 100_000,
+            exec_ok: true,
+            sem: TextSemantics::BytesOnly,
+        }),
+        ..ColumnPosture::default()
+    };
     let cands = CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, posture);
     let sources: [&dyn CandidateSource; 2] = [&cands, &ReferenceCandidates];
     let mut vfs = pgrc_qa::simvfs::SimVfs::new();
@@ -117,22 +138,63 @@ fn fixture() -> BuiltFixture {
     w.publish(&mut vfs, &probe).expect("publish");
     probe.mark(fxid, TxnVerdict::Committed);
     let files = vfs.snapshot_dir(&fx.dir);
-    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").expect("committed generation");
+    let manifest = effective_manifest(&mut vfs, &fx.dir, &probe, None)
+        .expect("effective")
+        .expect("committed generation");
     assert_eq!(manifest.parts.len(), 1, "one part");
-    BuiltFixture { fx, files, manifest }
+    BuiltFixture {
+        fx,
+        files,
+        manifest,
+    }
 }
 
 /// The part in memory, held open by the list for the list's life.
 fn mem_list(bf: &BuiltFixture) -> Arc<PartList> {
     let rec = &bf.manifest.parts[0];
-    let bytes = bf.files.get(&part_file_name(rec.part_no)).expect("part file").clone();
-    let part = Some(Arc::new(OpenPart::open(Box::new(MemPartIo::new(bytes.clone(), DEV, INO)), &PartExpect::none()).expect("open")));
-    Arc::new(PartList::new(vec![PartSpec { io: PartIoSpec::Mem { bytes: Arc::from(bytes.as_slice()), dev: DEV, ino: INO }, expect: PartExpect::none(), rows: NROWS, granules: rec.granule_count, deletes: None, part }]))
+    let bytes = bf
+        .files
+        .get(&part_file_name(rec.part_no))
+        .expect("part file")
+        .clone();
+    let part = Some(Arc::new(
+        OpenPart::open(
+            Box::new(MemPartIo::new(bytes.clone(), DEV, INO)),
+            &PartExpect::none(),
+        )
+        .expect("open"),
+    ));
+    Arc::new(PartList::new(vec![PartSpec {
+        io: PartIoSpec::Mem {
+            bytes: Arc::from(bytes.as_slice()),
+            dev: DEV,
+            ino: INO,
+        },
+        expect: PartExpect::none(),
+        rows: NROWS,
+        granules: rec.granule_count,
+        deletes: None,
+        part,
+    }]))
 }
 
 fn recipe(rel: u32) -> GranuleRecipe {
-    let tables = vec![TableSpec { over: 0, func: TableFn::Fingerprint }, TableSpec { over: 0, func: TableFn::Like { pattern: b"w1%".to_vec(), ilike: false, negated: false } }];
-    GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20))).with_tables(tables)
+    let tables = vec![
+        TableSpec {
+            over: 0,
+            func: TableFn::Fingerprint,
+        },
+        TableSpec {
+            over: 0,
+            func: TableFn::Like {
+                pattern: b"w1%".to_vec(),
+                ilike: false,
+                negated: false,
+            },
+        },
+    ];
+    GranuleRecipe::for_test_codes(rel, &[1], &[1], Arc::new(PartRegistry::new(64 << 20)))
+        .with_tables(tables)
 }
 
 /// One source of the statement `resolved` over the whole list: the fingerprints and LIKE 'w1%' verdicts its lanes gave the
@@ -152,7 +214,11 @@ fn pass(resolved: &Resolved, rel: u32, list: &Arc<PartList>) -> BTreeSet<([u64; 
         }
         let codes = w.lanes()[0];
         let (mut t, mut b) = (Lane::NONE, Lane::NONE);
-        assert_eq!(src.lane(2, &[], &mut t).unwrap(), 1, "the fingerprint lane fills");
+        assert_eq!(
+            src.lane(2, &[], &mut t).unwrap(),
+            1,
+            "the fingerprint lane fills"
+        );
         assert_eq!(src.lane(3, &[], &mut b).unwrap(), 1, "the LIKE lane fills");
         let table = unsafe { gravity_dict::Fp128::from_lane(&t) }.expect("fp128");
         let bits = unsafe { gravity_dict::Bits::from_lane(&b) }.expect("bits");
@@ -167,7 +233,14 @@ fn pass(resolved: &Resolved, rel: u32, list: &Arc<PartList>) -> BTreeSet<([u64; 
 }
 
 fn expected() -> BTreeSet<([u64; 2], bool)> {
-    (0..WORDS).map(|i| (gravity_dict::fp::fp128(&word(i)).expect("seeded"), word(i).starts_with(b"w1"))).collect()
+    (0..WORDS)
+        .map(|i| {
+            (
+                gravity_dict::fp::fp128(&word(i)).expect("seeded"),
+                word(i).starts_with(b"w1"),
+            )
+        })
+        .collect()
 }
 
 fn built() -> u64 {
@@ -247,10 +320,18 @@ fn a_memo_capped_at_zero_keeps_a_table_only_while_a_source_pins_it() {
     let b0 = built();
     assert_eq!(pass(&stmt, rel, &list), want);
     assert_eq!(built() - b0, 2);
-    assert_eq!(stmt.fp_memo().held(), (0, 0), "nothing held past a zero cap");
+    assert_eq!(
+        stmt.fp_memo().held(),
+        (0, 0),
+        "nothing held past a zero cap"
+    );
     // the first source is gone (its pins with it), the process cache emptied: the next source builds
     fp_cache_drop_all();
     let b1 = built();
     assert_eq!(pass(&stmt, rel, &list), want);
-    assert_eq!(built() - b1, 2, "an unpinned table past the cap is built again");
+    assert_eq!(
+        built() - b1,
+        2,
+        "an unpinned table past the cap is built again"
+    );
 }

@@ -33,7 +33,11 @@ fn turn_registered() {
 pub(crate) fn stmt_ends_registered() {
     use gravity_hosts::ops::modifytable::trigger_stmt as ts;
     if gravity_driver::STMT_ENDS.get().is_none() {
-        let _ = gravity_driver::STMT_ENDS.set(gravity_driver::StmtEnds { mark: ts::pending_mark, tag: ts::tag_since, end: stmt_end });
+        let _ = gravity_driver::STMT_ENDS.set(gravity_driver::StmtEnds {
+            mark: ts::pending_mark,
+            tag: ts::tag_since,
+            end: stmt_end,
+        });
     }
 }
 
@@ -58,7 +62,11 @@ fn eoxact_registered() {
 fn eoxact(event: types_core::xact::XactEvent, _arg: datum::Datum) -> PgResult<()> {
     use types_core::xact::XactEvent::*;
     match event {
-        XACT_EVENT_COMMIT | XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_ABORT | XACT_EVENT_PARALLEL_ABORT | XACT_EVENT_PREPARE => gravity_hosts::ops::modifytable::trigger_stmt::at_eoxact(),
+        XACT_EVENT_COMMIT
+        | XACT_EVENT_PARALLEL_COMMIT
+        | XACT_EVENT_ABORT
+        | XACT_EVENT_PARALLEL_ABORT
+        | XACT_EVENT_PREPARE => gravity_hosts::ops::modifytable::trigger_stmt::at_eoxact(),
         XACT_EVENT_PRE_COMMIT | XACT_EVENT_PARALLEL_PRE_COMMIT | XACT_EVENT_PRE_PREPARE => {}
     }
     Ok(())
@@ -106,19 +114,29 @@ pub enum TriggerReport {
 
 /// The write's trigger report under `instrument_options` (the result relations as ExecInitModifyTable opens them).
 pub fn trigger_report(pstmt: &PlannedStmt<'_>, instrument_options: i32) -> PgResult<TriggerReport> {
-    if pstmt.resultRelations.iter().next().is_none() || !relcache_seams::relation_get_trigger_desc::is_installed() {
+    if pstmt.resultRelations.iter().next().is_none()
+        || !relcache_seams::relation_get_trigger_desc::is_installed()
+    {
         return Ok(TriggerReport::None);
     }
     let mut first = None;
     let mut count = 0usize;
     let mut fires = false;
     for rti in pstmt.resultRelations.iter() {
-        let Some(rte) = pstmt.rtable.iter().nth(rti as usize - 1).and_then(|n| n.as_range_tbl_entry()) else { continue };
+        let Some(rte) = pstmt
+            .rtable
+            .iter()
+            .nth(rti as usize - 1)
+            .and_then(|n| n.as_range_tbl_entry())
+        else {
+            continue;
+        };
         if rte.relid == 0 {
             continue;
         }
         let desc = relcache_seams::relation_get_trigger_desc::call(rte.relid as Oid)?;
-        let partitioned = lsyscache::relation::get_rel_relkind(rte.relid as Oid)? as u8 == types_rel::RELKIND_PARTITIONED_TABLE;
+        let partitioned = lsyscache::relation::get_rel_relkind(rte.relid as Oid)? as u8
+            == types_rel::RELKIND_PARTITIONED_TABLE;
         fires |= desc.is_some();
         if count == 0 {
             first = Some((rte.relid as Oid, desc, partitioned));

@@ -72,7 +72,9 @@ fn full_ipci_bringup() -> &'static str {
     mbutils_seams::get_database_encoding::set(|| 6);
     file_seams::with_allocated_dir::set(|dirname, cb| {
         let mut ret = false;
-        let Ok(entries) = std::fs::read_dir(dirname) else { return Ok(false) };
+        let Ok(entries) = std::fs::read_dir(dirname) else {
+            return Ok(false);
+        };
         for entry in entries {
             ret = cb(entry.unwrap().file_name().to_str().unwrap())?;
             if ret {
@@ -169,7 +171,11 @@ fn remove_data_dir_at_exit() {
 #[test]
 fn a_run_leaves_nothing_behind() {
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "startup_failure_in_pm_startup_waits_for_live_children", "--nocapture"])
+        .args([
+            "--exact",
+            "startup_failure_in_pm_startup_waits_for_live_children",
+            "--nocapture",
+        ])
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
@@ -242,7 +248,9 @@ fn startup_failure_in_pm_startup_waits_for_live_children() {
         Ok(Ok(())) => {}
         Ok(Err(e)) => panic!("process_pm_child_exit failed: {e:?}"),
         Err(payload) => {
-            let code = payload.downcast_ref::<ipc::ProcExitThread>().map(|p| p.code);
+            let code = payload
+                .downcast_ref::<ipc::ProcExitThread>()
+                .map(|p| p.code);
             panic!(
                 "pre-fix shortcut: the postmaster exited (ExitPostmaster, code {code:?}) \
                  with a live checkpointer instead of waiting for it"
@@ -255,13 +263,19 @@ fn startup_failure_in_pm_startup_waits_for_live_children() {
         StartupStatusEnum::Crashed,
         "a FATAL startup exit is catastrophic: STARTUP_CRASHED, never reinitialize"
     );
-    assert!(with_pm(|pm| pm.fatal_error), "the startup failure runs HandleFatalError");
+    assert!(
+        with_pm(|pm| pm.fatal_error),
+        "the startup failure runs HandleFatalError"
+    );
     assert_eq!(
         with_pm(|pm| pm.pm_state),
         PMState::PM_WAIT_BACKENDS,
         "HandleFatalError must route PM_STARTUP to PM_WAIT_BACKENDS (no assertion arm)"
     );
-    assert!(with_pm(|pm| pm.startup.is_none()), "the startup child's record is reaped");
+    assert!(
+        with_pm(|pm| pm.startup.is_none()),
+        "the startup child's record is reaped"
+    );
 
     // terminate-all: the live checkpointer observes SIGQUIT/PMQUIT_FOR_CRASH.
     announce_tx.send(()).unwrap();
@@ -283,7 +297,10 @@ fn startup_failure_in_pm_startup_waits_for_live_children() {
             let exit = payload
                 .downcast_ref::<ipc::ProcExitThread>()
                 .unwrap_or_else(|| panic!("expected ExitPostmaster's ProcExitThread unwind"));
-            assert_eq!(exit.code, 1, "startup failure exits the postmaster with status 1");
+            assert_eq!(
+                exit.code, 1,
+                "startup failure exits the postmaster with status 1"
+            );
         }
         Ok(r) => panic!("expected ExitPostmaster(1) from PM_NO_CHILDREN, got {r:?}"),
     }

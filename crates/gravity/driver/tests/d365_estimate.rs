@@ -10,7 +10,10 @@
 
 use gravity_driver_rig as common;
 
-use gravity_abi::breaker::{opened_bits, Breaker, BreakerKind, Budget, KeyKind, RecordLayout, SlotKind, Spill, T1, t1_default_bytes};
+use gravity_abi::breaker::{
+    opened_bits, t1_default_bytes, Breaker, BreakerKind, Budget, KeyKind, RecordLayout, SlotKind,
+    Spill, T1,
+};
 use gravity_driver::{share, Grant};
 use gravity_program::cost::breaker::POOL_PART_BYTES;
 use gravity_program::cost::{grant_need, spill_bits, HELD_TABLES, PARTITION_BYTES};
@@ -21,9 +24,23 @@ use gravity_program::{End, OwnerDesc, Program};
 fn program(rows: u64, groups: u64, layout: RecordLayout) -> (Program, u8) {
     let mut p = common::p_group_spill(16);
     let b = p.pipelines[0].breaker().expect("the fixture's breaker");
-    assert!(matches!(b, Breaker { kind: BreakerKind::HashAgg, budget: Budget::Share, spill: Spill::Partitioned { .. }, .. }), "{b:?}");
+    assert!(
+        matches!(
+            b,
+            Breaker {
+                kind: BreakerKind::HashAgg,
+                budget: Budget::Share,
+                spill: Spill::Partitioned { .. },
+                ..
+            }
+        ),
+        "{b:?}"
+    );
     let bits = spill_bits(groups, layout.size());
-    p.pipelines[0].ends_in = End::Breaker(Breaker { spill: Spill::Partitioned { bits }, ..b });
+    p.pipelines[0].ends_in = End::Breaker(Breaker {
+        spill: Spill::Partitioned { bits },
+        ..b
+    });
     p.pipelines[0].predicted_rows = rows;
     p.pipelines[0].owner = Some(OwnerDesc::generic(layout, 0, 0));
     (p, bits)
@@ -53,10 +70,23 @@ fn a_partitioned_record_table_is_granted_the_records_its_workers_hold() {
         // the worker's T1 over its share (the kernels' layout): its pool's records against the rows its claims evict
         let mut region = vec![0u64; worker as usize / 8];
         // SAFETY: `region` is `worker` zeroed, 8-aligned bytes; the header prefix is zero, so `at` lays the table out.
-        let t = unsafe { T1::at(region.as_mut_ptr() as *mut u8, &layout, bits, t1_default_bytes(), worker) };
+        let t = unsafe {
+            T1::at(
+                region.as_mut_ptr() as *mut u8,
+                &layout,
+                bits,
+                t1_default_bytes(),
+                worker,
+            )
+        };
         // the records a worker is asked for: its rows, up to `HELD_TABLES` of the bits' table
-        let asked = ROWS.min(HELD_TABLES * (PARTITION_BYTES << bits) / rec).div_ceil(w as u64);
-        let (held, rows) = (t.nblocks as u64 * t.block_recs as u64, ROWS.div_ceil(w as u64));
+        let asked = ROWS
+            .min(HELD_TABLES * (PARTITION_BYTES << bits) / rec)
+            .div_ceil(w as u64);
+        let (held, rows) = (
+            t.nblocks as u64 * t.block_recs as u64,
+            ROWS.div_ceil(w as u64),
+        );
         eprintln!("W{w}: rec {rec} B, bits {bits}, ask {} MiB, worker {} MiB, holds {held} of {rows} rows ({asked} asked)", ask >> 20, worker >> 20);
         assert!(held >= asked, "W{w}: a {worker} B share (asked {ask} B) holds {held} of the {asked} records ({rec} B) a worker is asked to hold ({rows} rows): it scatters");
     }
@@ -65,18 +95,28 @@ fn a_partitioned_record_table_is_granted_the_records_its_workers_hold() {
 #[test]
 fn a_few_group_partitioned_record_table_asks_within_its_bound() {
     // A few-group scan: 4 groups over 60 M rows (bits floored at 3); the rows alone would ask the grant cap
-    let layout = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumI128, SlotKind::SumI128, SlotKind::Count]);
+    let layout = RecordLayout::new(
+        &[KeyKind::I64, KeyKind::I64],
+        &[SlotKind::SumI128, SlotKind::SumI128, SlotKind::Count],
+    );
     let (p, bits) = program(60_000_000, 4, layout);
     let bound = (HELD_TABLES * (PARTITION_BYTES << bits) * 5 / 4) * p.slots.max_live.max(1) as u64;
     for w in [1u64, 8, 16] {
         let ask = grant_need(&p, w as u16).unwrap();
-        assert!(ask <= pool_ask(&p, bits, w).max(bound), "W{w}: {ask} B past HELD_TABLES x the bits' table");
+        assert!(
+            ask <= pool_ask(&p, bits, w).max(bound),
+            "W{w}: {ask} B past HELD_TABLES x the bits' table"
+        );
         // DR-6 (B): at W >= 8 a share is the pool of the 6 bits the kernels open (12 MiB), 17 of them at W16
         assert!(ask <= 256 << 20, "W{w}: {ask} B for 4 groups");
     }
     // under its partition buffers the rows add nothing: the ask is the pool's
     let (small, bits) = program(1_000, 4, layout);
     for w in [1u64, 8, 16] {
-        assert_eq!(grant_need(&small, w as u16), Some(pool_ask(&small, bits, w)), "W{w}");
+        assert_eq!(
+            grant_need(&small, w as u16),
+            Some(pool_ask(&small, bits, w)),
+            "W{w}"
+        );
     }
 }

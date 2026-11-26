@@ -19,13 +19,13 @@ use mcx::{GrowIn, PgVec};
 use types_nodes::primnodes::{VarReturningType, INNER_VAR, OUTER_VAR};
 use types_nodes::{Node, NodeTag};
 
-use crate::ops::modifytable::ret_sys::{image, may_move, old_sys, sys_served, sys_site};
+use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::cell::{Cell, Nullable};
 use crate::face::end::TABLEOID_AT;
 use crate::frame::row::RowVals;
 use crate::frame::site::CTID_AT;
 use crate::graph::Gx;
-use crate::admit::refusal::{Reason, ShapeWhy};
+use crate::ops::modifytable::ret_sys::{image, may_move, old_sys, sys_served, sys_site};
 
 /// D774: a whole-row OLD / NEW is served where its image is always a row: the row written (an INSERT's NEW, a DELETE's
 /// OLD) or both of an UPDATE's; ON CONFLICT DO UPDATE's OLD through its flag (`conflict_flag`: NULL for an inserted row).
@@ -47,7 +47,12 @@ fn whole_image(rt: VarReturningType, w: &WriteDesc<'_>, t: &Target<'_>) -> bool 
 /// target `t`'s RETURNING list tests it (a ReturningExpr over OLD, a whole-row OLD) write.returning lays a boolean cell
 /// after the OLD image that says which, as ExecProcessReturning sets EEO_FLAG_OLD_IS_NULL per row (`images`' old_flag).
 pub(crate) fn conflict_flag(w: &WriteDesc<'_>, t: &Target<'_>) -> bool {
-    let tests = |x: Node<'_>| x.as_returning_expr().is_some_and(|r| r.retold) || x.as_var().is_some_and(|v| v.varattno == 0 && v.varreturningtype == VarReturningType::VAR_RETURNING_OLD);
+    let tests = |x: Node<'_>| {
+        x.as_returning_expr().is_some_and(|r| r.retold)
+            || x.as_var().is_some_and(|v| {
+                v.varattno == 0 && v.varreturningtype == VarReturningType::VAR_RETURNING_OLD
+            })
+    };
     w.cmd == Cmd::Insert
         && w.on_conflict.as_ref().is_some_and(|c| c.update)
         && t.returning.is_some_and(|l| {
@@ -81,9 +86,14 @@ pub(crate) fn walk<'p>(node: Node<'p>, f: &mut dyn FnMut(Node<'p>) -> bool) -> b
 pub(crate) fn outer(list: &types_nodes::NodeList<'_>) -> Vec<i16> {
     let mut out = Vec::new(); // alloc: Program
     for n in list.iter() {
-        let Some(te) = n.as_target_entry() else { continue };
+        let Some(te) = n.as_target_entry() else {
+            continue;
+        };
         walk(te.expr, &mut |x| {
-            if let Some(v) = x.as_var().filter(|v| v.varno == OUTER_VAR && v.varattno > 0 && v.varlevelsup == 0) {
+            if let Some(v) = x
+                .as_var()
+                .filter(|v| v.varno == OUTER_VAR && v.varattno > 0 && v.varlevelsup == 0)
+            {
                 out.push(v.varattno); // alloc: Program
             }
             true
@@ -115,17 +125,31 @@ pub(crate) fn outer_at(w: &WriteDesc<'_>, t: &Target<'_>) -> i16 {
 /// by action, so both are the inner row's (OLD at 1..=natts, NEW after), `merge_action()`'s text cell last (`lower_merge`).
 /// D669: the child's row's columns the list reads (another relation's, `OUTER_VAR`) follow in the inner row, at their resnos
 /// past the images the continuation lays there (`outer_at`).
-pub(crate) fn images(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<gravity_expr::nodes::Returning> {
+pub(crate) fn images(
+    gx: &Gx<'_, '_>,
+    k: usize,
+    j: usize,
+) -> Option<gravity_expr::nodes::Returning> {
     use gravity_expr::nodes::Returning;
     use gravity_expr::Source;
     let p = gx.pipelines().get(k)?;
     // D1112: op `j` the RETURNING projection, or a SubPlan step of its list before it (its arguments read the images too)
     let wi = crate::ops::modifytable::returning::ret_write(p, j)?;
-    let Some(Op::Project(l)) = p.ops.get(crate::ops::modifytable::returning::proj_at(p, wi)) else { return None };
-    let Some(Op::Write(w)) = p.ops.get(wi) else { return None };
+    let Some(Op::Project(l)) = p
+        .ops
+        .get(crate::ops::modifytable::returning::proj_at(p, wi))
+    else {
+        return None;
+    };
+    let Some(Op::Write(w)) = p.ops.get(wi) else {
+        return None;
+    };
     let action = w.merge.as_ref().is_some_and(|m| m.returning_action);
     // R5: an arm's own target's list (its natts)
-    let t = w.targets.iter().find(|t| t.returning.is_some_and(|r| core::ptr::eq(r, *l)))?;
+    let t = w
+        .targets
+        .iter()
+        .find(|t| t.returning.is_some_and(|r| core::ptr::eq(r, *l)))?;
     let reads_outer = !outer(l).is_empty();
     if !(w.old_new.old || w.old_new.new || action || reads_outer) {
         return None;
@@ -136,17 +160,74 @@ pub(crate) fn images(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<gravity_expr
     // INSERT's OLD by ON CONFLICT DO UPDATE's row (its flag after the OLD image where the list tests it, `conflict_flag`).
     // D883: a MERGE without a DELETE action has NEW = the written row (offset 0)
     let old_flag = conflict_flag(w, t).then_some((Source::Inner, n + 1));
-    let (conflict, del) =(w.on_conflict.as_ref().is_some_and(|c| c.update), w.merge.as_ref().is_none_or(|m| m.actions.iter().any(|a| a.cmd == Some(Cmd::Delete))));
+    let (conflict, del) = (
+        w.on_conflict.as_ref().is_some_and(|c| c.update),
+        w.merge
+            .as_ref()
+            .is_none_or(|m| m.actions.iter().any(|a| a.cmd == Some(Cmd::Delete))),
+    );
     // V4R-501: OLD's system columns at the OLD image's lanes (write/returning.rs lays them from the old site)
-    let old_sys = crate::ops::modifytable::ret_sys::sys_old_plan_at(gx, k, w).then_some(gravity_program::protos::SYS_AT_BASE);
+    let old_sys = crate::ops::modifytable::ret_sys::sys_old_plan_at(gx, k, w)
+        .then_some(gravity_program::protos::SYS_AT_BASE);
     // D3379 UNION-OLD: under the union form OLD's tableoid is the replaced version's (`old_sys`), not the first target's
-    let old_tableoid = w.route.filter(|_| !crate::ops::modifytable::ret_sys::union_old(gx, k, w)).map(|_| t.relid);
+    let old_tableoid = w
+        .route
+        .filter(|_| !crate::ops::modifytable::ret_sys::union_old(gx, k, w))
+        .map(|_| t.relid);
     Some(match w.cmd {
-        Cmd::Merge => Returning { old: (Source::Inner, 0), new: if del { (Source::Inner, n) } else { (Source::Scan, 0) }, action: Some((Source::Inner, 2 * n + 1)), old_exists: None, new_exists: None, old_flag: Some((Source::Inner, 2 * n + 2)), new_flag: Some((Source::Inner, 2 * n + 3)), outer, old_tableoid: None, old_sys: None },
-        Cmd::Delete => Returning { old: (Source::Scan, 0), new: (Source::Inner, 0), action: None, old_exists: Some(true), new_exists: Some(false), old_flag: None, new_flag: None, outer, old_tableoid: None, old_sys: None },
+        Cmd::Merge => Returning {
+            old: (Source::Inner, 0),
+            new: if del {
+                (Source::Inner, n)
+            } else {
+                (Source::Scan, 0)
+            },
+            action: Some((Source::Inner, 2 * n + 1)),
+            old_exists: None,
+            new_exists: None,
+            old_flag: Some((Source::Inner, 2 * n + 2)),
+            new_flag: Some((Source::Inner, 2 * n + 3)),
+            outer,
+            old_tableoid: None,
+            old_sys: None,
+        },
+        Cmd::Delete => Returning {
+            old: (Source::Scan, 0),
+            new: (Source::Inner, 0),
+            action: None,
+            old_exists: Some(true),
+            new_exists: Some(false),
+            old_flag: None,
+            new_flag: None,
+            outer,
+            old_tableoid: None,
+            old_sys: None,
+        },
         // R4c: under a root, OLD's tableoid is the arm's target (a moved row's source leaf), never the written row's
-        Cmd::Update => Returning { old: (Source::Inner, 0), new: (Source::Scan, 0), action: None, old_exists: Some(true), new_exists: Some(true), old_flag: None, new_flag: None, outer, old_tableoid, old_sys },
-        _ => Returning { old: (Source::Inner, 0), new: (Source::Scan, 0), action: None, old_exists: (!conflict).then_some(false), new_exists: Some(true), old_flag, new_flag: None, outer, old_tableoid: None, old_sys },
+        Cmd::Update => Returning {
+            old: (Source::Inner, 0),
+            new: (Source::Scan, 0),
+            action: None,
+            old_exists: Some(true),
+            new_exists: Some(true),
+            old_flag: None,
+            new_flag: None,
+            outer,
+            old_tableoid,
+            old_sys,
+        },
+        _ => Returning {
+            old: (Source::Inner, 0),
+            new: (Source::Scan, 0),
+            action: None,
+            old_exists: (!conflict).then_some(false),
+            new_exists: Some(true),
+            old_flag,
+            new_flag: None,
+            outer,
+            old_tableoid: None,
+            old_sys,
+        },
     })
 }
 
@@ -154,12 +235,34 @@ pub(crate) fn images(gx: &Gx<'_, '_>, k: usize, j: usize) -> Option<gravity_expr
 /// inner row's attnos `at + r` after `map`'s (`images`' outer). Each is that row's cell as it is, its own `At` and value (a
 /// lane cell's value is its element's address, read through the lane; never re-read as a datum), so the projection reads
 /// the source row's column as the child produced it.
-pub(crate) fn lay_outer(node: i32, row: &RowVals, (resnos, at): &(Vec<i16>, i16), map: &mut PgVec<'_, Option<u16>>, cells: &mut PgVec<'_, Cell>, vals: &mut PgVec<'_, (Value, Option<Value>)>) {
+pub(crate) fn lay_outer(
+    node: i32,
+    row: &RowVals,
+    (resnos, at): &(Vec<i16>, i16),
+    map: &mut PgVec<'_, Option<u16>>,
+    cells: &mut PgVec<'_, Cell>,
+    vals: &mut PgVec<'_, (Value, Option<Value>)>,
+) {
     if map.len() != *at as usize {
-        crate::refuse!(node, Reason::Bug { payload: "RETURNING: the inner row's images are not where the child's columns start" });
+        crate::refuse!(
+            node,
+            Reason::Bug {
+                payload:
+                    "RETURNING: the inner row's images are not where the child's columns start"
+            }
+        );
     }
     for &r in resnos {
-        let Some(c) = row.col(r) else { crate::refuse!(node, Reason::Shape { why: ShapeWhy("RETURNING: a column of another relation the child's row does not carry") }) };
+        let Some(c) = row.col(r) else {
+            crate::refuse!(
+                node,
+                Reason::Shape {
+                    why: ShapeWhy(
+                        "RETURNING: a column of another relation the child's row does not carry"
+                    )
+                }
+            )
+        };
         let k = (at + r) as usize;
         map.resize_in(map.len().max(k), None);
         map[k - 1] = Some(cells.len() as u16);
@@ -184,15 +287,45 @@ impl SysMap for PgVec<'_, Option<u16>> {
 /// D774: six system-column cells (ctid, xmin, cmin, xmax, cmax, tableoid) at their lane attnos of `map` (the written
 /// row's by attno, CTID_AT .. TABLEOID_AT; V4R-501 the OLD image's inner row too): `null`, the old site's NULL flags (no
 /// replaced version: an inserted row), else never NULL.
-pub(crate) fn lay_sys(sys: &[(Value, Value)], null: bool, map: &mut impl SysMap, cells: &mut PgVec<'_, Cell>, vals: &mut PgVec<'_, (Value, Option<Value>)>) {
+pub(crate) fn lay_sys(
+    sys: &[(Value, Value)],
+    null: bool,
+    map: &mut impl SysMap,
+    cells: &mut PgVec<'_, Cell>,
+    vals: &mut PgVec<'_, (Value, Option<Value>)>,
+) {
     use types_core::catalog::{CIDOID, OIDOID, TIDOID, XIDOID};
     let map = map.grown();
-    let word = |typid| ExprOut { rep: Rep::of_storage(4, true), typid, life: ExprLife::Row };
-    let tid = ExprOut { rep: gravity_program::OutCol::new("", TIDOID, -1, 6, false).rep, typid: TIDOID, life: ExprLife::Row };
-    let lanes = [(CTID_AT, tid), (XMIN_AT, word(XIDOID)), (CMIN_AT, word(CIDOID)), (XMAX_AT, word(XIDOID)), (CMAX_AT, word(CIDOID)), (TABLEOID_AT, word(OIDOID))];
+    let word = |typid| ExprOut {
+        rep: Rep::of_storage(4, true),
+        typid,
+        life: ExprLife::Row,
+    };
+    let tid = ExprOut {
+        rep: gravity_program::OutCol::new("", TIDOID, -1, 6, false).rep,
+        typid: TIDOID,
+        life: ExprLife::Row,
+    };
+    let lanes = [
+        (CTID_AT, tid),
+        (XMIN_AT, word(XIDOID)),
+        (CMIN_AT, word(CIDOID)),
+        (XMAX_AT, word(XIDOID)),
+        (CMAX_AT, word(CIDOID)),
+        (TABLEOID_AT, word(OIDOID)),
+    ];
     for (&(d, isnull), (a, out)) in sys.iter().zip(lanes) {
         let at = cells.len() as u16;
-        cells.push_in(Cell::of_expr(out, at, at, if null { Nullable::Maybe } else { Nullable::Never }));
+        cells.push_in(Cell::of_expr(
+            out,
+            at,
+            at,
+            if null {
+                Nullable::Maybe
+            } else {
+                Nullable::Never
+            },
+        ));
         vals.push_in((d, null.then_some(isnull)));
         map[a as usize - 1] = Some(at);
     }
@@ -212,14 +345,18 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
             } else if img && v.varattno <= 0 && image(v, w).0 {
                 // D774: NULL (an image the command never has)
                 None
-            } else if img && v.varattno < 0 && image(v, w).1 && (sys_served(v, w, t) || sys_site(w)) {
+            } else if img && v.varattno < 0 && image(v, w).1 && (sys_served(v, w, t) || sys_site(w))
+            {
                 // D774: the written row's, as a default reference's (the sys site, or the plan-time tableoid)
                 None
             } else if img && v.varattno == -6 && w.cmd == Cmd::Update && may_move(w) {
                 // R4c (V4R-350): OLD's tableoid under a root is the arm's target (`images`: old_tableoid); D3379 UNION-OLD
                 // under the union form the replaced version's (ret_sys.rs `union_old`)
                 None
-            } else if img && v.varattno < 0 && v.varreturningtype == VarReturningType::VAR_RETURNING_OLD {
+            } else if img
+                && v.varattno < 0
+                && v.varreturningtype == VarReturningType::VAR_RETURNING_OLD
+            {
                 // V4R-501: the replaced version's, the old site's last six cells (write_ret_sys `old_sys`)
                 old_sys(v, w).err()
             } else if img && v.varattno < 0 {
@@ -239,7 +376,11 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
                 // D669: a column of another relation (UPDATE .. FROM, DELETE .. USING, MERGE's source), the child's row's
                 // at its resno: the continuation lays that row's cell beside the written row (`outer`)
                 None
-            } else if v.varno == OUTER_VAR || v.varno == INNER_VAR || v.varno != rti || v.varlevelsup != 0 {
+            } else if v.varno == OUTER_VAR
+                || v.varno == INNER_VAR
+                || v.varno != rti
+                || v.varlevelsup != 0
+            {
                 Some("RETURNING: a column of another relation (UPDATE ... FROM, DELETE ... USING)")
             } else if v.varattno == 0 {
                 // D774: the written row as the target's rowtype (expr.wholerow over the cells by attno, a dropped one NULL)
@@ -254,7 +395,9 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
             } else if gen == Some(b'v') {
                 // the rewriter expands a virtual column's references; one left would read the stored NULL
                 Some("RETURNING: a virtual generated column")
-            } else if gen.is_some() && !matches!(w.cmd, Cmd::Delete | Cmd::Insert | Cmd::Update | Cmd::Merge) {
+            } else if gen.is_some()
+                && !matches!(w.cmd, Cmd::Delete | Cmd::Insert | Cmd::Update | Cmd::Merge)
+            {
                 // the host computes it (ExecComputeStoredGenerated) after the IR stored the row; H-c (841186c66f1)
                 // hands it back through written() into the site. INSERT's and UPDATE's proofs are m4_returning's ret_gen
                 // and ret_gs (generated_stored#58's shape, several targets' through their leaf hosts); MERGE's actions run the same host row ops (v5 mergecmd_ret_stored_gen)

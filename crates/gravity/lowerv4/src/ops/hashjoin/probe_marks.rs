@@ -30,8 +30,18 @@ pub(crate) struct Reset;
 
 /// Whether probe `j` of pipeline `q` over build pipeline `b` marks a table kept across the re-runs of a set holding it.
 pub(crate) fn over_kept(gx: &Gx<'_, '_>, q: usize, j: usize, b: usize) -> bool {
-    let Some(Op::Join(JoinDesc::Probe { marks: true, catalog: false, .. })) = gx.pipelines()[q].ops.get(j) else { return false };
-    gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)) && !r.pipelines.contains(&(b as u16)))
+    let Some(Op::Join(JoinDesc::Probe {
+        marks: true,
+        catalog: false,
+        ..
+    })) = gx.pipelines()[q].ops.get(j)
+    else {
+        return false;
+    };
+    gx.graph
+        .reruns
+        .iter()
+        .any(|r| r.pipelines.contains(&(q as u16)) && !r.pipelines.contains(&(b as u16)))
 }
 
 impl Reset {
@@ -56,7 +66,10 @@ impl Reset {
         let placed = b.icmp(IntCond::Ne, at, env.zero);
         let ok = b.int_bin(IntBinOp::And, laid, marked);
         let ok = b.int_bin(IntBinOp::And, ok, placed);
-        let (n, kept) = (b.load(Type::I64, r, N as i32), b.load(Type::I64, r, KEPT as i32));
+        let (n, kept) = (
+            b.load(Type::I64, r, N as i32),
+            b.load(Type::I64, r, KEPT as i32),
+        );
         let len = b.int_bin(IntBinOp::Add, n, kept);
         let len = b.select(ok, len, env.zero);
         let p = b.ptr_add(r, at, 1, 0);
@@ -78,8 +91,17 @@ impl Reset {
 /// A loop storing `zero` (one `scale`-byte unit) at `p + scale * i` for `i` in `[from, to)`, entered from the current
 /// block; the block after it (not switched to). Bounded by the table's records (`env.bounded`, as a probe's chain walk or a
 /// function store's row loop): a store per unit, no call.
-fn zero_loop(b: &mut FunctionBuilder<'_>, env: &mut Env, (p, from, to, scale): (Value, Value, Value, u8), zero: Value) -> gravity_ir::Block {
-    let (l_head, l_body, l_out) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[]));
+fn zero_loop(
+    b: &mut FunctionBuilder<'_>,
+    env: &mut Env,
+    (p, from, to, scale): (Value, Value, Value, u8),
+    zero: Value,
+) -> gravity_ir::Block {
+    let (l_head, l_body, l_out) = (
+        b.create_block(&[Type::I64]),
+        b.create_block(&[]),
+        b.create_block(&[]),
+    );
     b.br(l_head, &[from]);
     b.switch_to(l_head);
     b.mark_loop_header(l_head);

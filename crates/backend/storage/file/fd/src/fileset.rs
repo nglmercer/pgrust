@@ -13,12 +13,12 @@ use ::types_core::{InvalidOid, Oid};
 use ::types_error::PgResult;
 use ::types_storage::File;
 
-use crate::vfd::{with_fd, FD_TEMP_FILE_LIMIT};
 use crate::temp::{
     GetTempTablespaces, PathNameCreateTemporaryDir, PathNameCreateTemporaryFile,
     PathNameDeleteTemporaryDir, PathNameDeleteTemporaryFile, PathNameDeleteTemporaryFilesWith,
     PathNameOpenTemporaryFile, TempTablespacePath,
 };
+use crate::vfd::{with_fd, FD_TEMP_FILE_LIMIT};
 
 const PG_TEMP_FILE_PREFIX: &str = "pgsql_tmp";
 
@@ -73,7 +73,10 @@ impl FileSetKey {
         let mut file = PathNameCreateTemporaryFile(&path, false)?;
         if file.0 <= 0 {
             let tablespace = self.choose_tablespace(name);
-            PathNameCreateTemporaryDir(&TempTablespacePath(tablespace), &self.dir_path(tablespace))?;
+            PathNameCreateTemporaryDir(
+                &TempTablespacePath(tablespace),
+                &self.dir_path(tablespace),
+            )?;
             file = PathNameCreateTemporaryFile(&path, true)?;
         }
         if self.for_life {
@@ -113,10 +116,15 @@ impl FileSetKey {
         Ok(())
     }
 
-    pub fn delete_files_with(&self, min_bytes: u64, fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync))) -> PgResult<(usize, u64, bool)> {
+    pub fn delete_files_with(
+        &self,
+        min_bytes: u64,
+        fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync)),
+    ) -> PgResult<(usize, u64, bool)> {
         let mut all = (0, 0, false);
         for &tblspc in &self.tablespaces[..self.ntablespaces] {
-            let (n, bytes, fanned) = PathNameDeleteTemporaryFilesWith(&self.dir_path(tblspc), min_bytes, fan)?;
+            let (n, bytes, fanned) =
+                PathNameDeleteTemporaryFilesWith(&self.dir_path(tblspc), min_bytes, fan)?;
             all = (all.0 + n, all.1 + bytes, all.2 || fanned);
         }
         Ok(all)
@@ -198,7 +206,11 @@ impl FileSet {
         self.key.delete_all()
     }
 
-    pub fn delete_files_with(&self, min_bytes: u64, fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync))) -> PgResult<(usize, u64, bool)> {
+    pub fn delete_files_with(
+        &self,
+        min_bytes: u64,
+        fan: &dyn Fn(usize, &(dyn Fn(usize) + Sync)),
+    ) -> PgResult<(usize, u64, bool)> {
         if !crate::vfd::fd_tls_alive() {
             return Ok((0, 0, false));
         }

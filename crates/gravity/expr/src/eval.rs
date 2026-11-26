@@ -26,8 +26,18 @@ pub enum Cols<'a> {
     None,
     /// The incumbent's slot arrays; `types` (the descriptor's attribute types, 0 for a dropped
     /// column, empty when unchecked) and `tdtypeid` give `Var` the slot-compatibility check.
-    Slot { values: &'a [Datum], nulls: &'a [bool], types: &'a [Oid], tdtypeid: Oid, desc: Option<&'a TupleDescData<'a>>, slot: Option<&'a SlotData<'a>> },
-    Lanes { lanes: &'a [Lane], index: usize },
+    Slot {
+        values: &'a [Datum],
+        nulls: &'a [bool],
+        types: &'a [Oid],
+        tdtypeid: Oid,
+        desc: Option<&'a TupleDescData<'a>>,
+        slot: Option<&'a SlotData<'a>>,
+    },
+    Lanes {
+        lanes: &'a [Lane],
+        index: usize,
+    },
 }
 
 impl Cols<'_> {
@@ -41,7 +51,10 @@ impl Cols<'_> {
                 if i >= values.len() {
                     return None;
                 }
-                Some(NullableDatum { value: values[i], isnull: nulls[i] })
+                Some(NullableDatum {
+                    value: values[i],
+                    isnull: nulls[i],
+                })
             }
             Cols::Lanes { lanes, index } => {
                 let l = lanes.get(i)?;
@@ -54,7 +67,10 @@ impl Cols<'_> {
                         lane::KIND_BYREF => *(l.ptr.ptr() as *const u64).add(index),
                         _ => l.datum(index),
                     };
-                    Some(NullableDatum { value: Datum::from_u64(word), isnull: false })
+                    Some(NullableDatum {
+                        value: Datum::from_u64(word),
+                        isnull: false,
+                    })
                 }
             }
         }
@@ -71,14 +87,48 @@ pub struct Row<'a> {
 }
 
 impl<'a> Row<'a> {
-    pub const EMPTY: Row<'static> = Row { scan: Cols::None, inner: Cols::None, outer: Cols::None, aggs: &[] };
+    pub const EMPTY: Row<'static> = Row {
+        scan: Cols::None,
+        inner: Cols::None,
+        outer: Cols::None,
+        aggs: &[],
+    };
 
     pub fn scan(values: &'a [Datum], nulls: &'a [bool]) -> Row<'a> {
-        Row { scan: Cols::Slot { values, nulls, types: &[], tdtypeid: 0, desc: None, slot: None }, inner: Cols::None, outer: Cols::None, aggs: &[] }
+        Row {
+            scan: Cols::Slot {
+                values,
+                nulls,
+                types: &[],
+                tdtypeid: 0,
+                desc: None,
+                slot: None,
+            },
+            inner: Cols::None,
+            outer: Cols::None,
+            aggs: &[],
+        }
     }
 
-    pub fn scan_typed(values: &'a [Datum], nulls: &'a [bool], types: &'a [Oid], tdtypeid: Oid) -> Row<'a> {
-        Row { scan: Cols::Slot { values, nulls, types, tdtypeid, desc: None, slot: None }, inner: Cols::None, outer: Cols::None, aggs: &[] }
+    pub fn scan_typed(
+        values: &'a [Datum],
+        nulls: &'a [bool],
+        types: &'a [Oid],
+        tdtypeid: Oid,
+    ) -> Row<'a> {
+        Row {
+            scan: Cols::Slot {
+                values,
+                nulls,
+                types,
+                tdtypeid,
+                desc: None,
+                slot: None,
+            },
+            inner: Cols::None,
+            outer: Cols::None,
+            aggs: &[],
+        }
     }
 
     pub fn with_aggs(self, aggs: &'a [NullableDatum]) -> Row<'a> {
@@ -87,14 +137,49 @@ impl<'a> Row<'a> {
 
     /// A slot with its descriptor (the whole-row `Var` forms its tuple from it) and the column
     /// types for the compatibility check.
-    pub fn scan_desc(values: &'a [Datum], nulls: &'a [bool], types: &'a [Oid], desc: &'a TupleDescData<'a>) -> Row<'a> {
-        Row { scan: Cols::Slot { values, nulls, types, tdtypeid: desc.tdtypeid, desc: Some(desc), slot: None }, inner: Cols::None, outer: Cols::None, aggs: &[] }
+    pub fn scan_desc(
+        values: &'a [Datum],
+        nulls: &'a [bool],
+        types: &'a [Oid],
+        desc: &'a TupleDescData<'a>,
+    ) -> Row<'a> {
+        Row {
+            scan: Cols::Slot {
+                values,
+                nulls,
+                types,
+                tdtypeid: desc.tdtypeid,
+                desc: Some(desc),
+                slot: None,
+            },
+            inner: Cols::None,
+            outer: Cols::None,
+            aggs: &[],
+        }
     }
 
     /// The incumbent's slot itself (its deformed arrays, its descriptor, and the tuple the
     /// system-column var reads through `slot_getsysattr`).
-    pub fn scan_slot(values: &'a [Datum], nulls: &'a [bool], types: &'a [Oid], desc: &'a TupleDescData<'a>, slot: &'a SlotData<'a>) -> Row<'a> {
-        Row { scan: Cols::Slot { values, nulls, types, tdtypeid: desc.tdtypeid, desc: Some(desc), slot: Some(slot) }, inner: Cols::None, outer: Cols::None, aggs: &[] }
+    pub fn scan_slot(
+        values: &'a [Datum],
+        nulls: &'a [bool],
+        types: &'a [Oid],
+        desc: &'a TupleDescData<'a>,
+        slot: &'a SlotData<'a>,
+    ) -> Row<'a> {
+        Row {
+            scan: Cols::Slot {
+                values,
+                nulls,
+                types,
+                tdtypeid: desc.tdtypeid,
+                desc: Some(desc),
+                slot: Some(slot),
+            },
+            inner: Cols::None,
+            outer: Cols::None,
+            aggs: &[],
+        }
     }
 
     #[inline(always)]
@@ -118,13 +203,30 @@ pub struct Cx<'c, 'a> {
 }
 
 impl<'c, 'a> Cx<'c, 'a> {
-    pub fn new(row: &'c Row<'a>, region: &'c mut Region, params: &'c ParamBind<'a>, callback_arg: *mut ()) -> Self {
-        Cx { row, region, params, callback_arg, casetest: NullableDatum::null(), domainval: NullableDatum::null() }
+    pub fn new(
+        row: &'c Row<'a>,
+        region: &'c mut Region,
+        params: &'c ParamBind<'a>,
+        callback_arg: *mut (),
+    ) -> Self {
+        Cx {
+            row,
+            region,
+            params,
+            callback_arg,
+            casetest: NullableDatum::null(),
+            domainval: NullableDatum::null(),
+        }
     }
 }
 
 /// Evaluate node `id`: the dispatcher; each family's `eval` is in its file.
-pub fn eval(p: &Prog<'_, '_>, st: &mut St<'_>, id: NodeId, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval(
+    p: &Prog<'_, '_>,
+    st: &mut St<'_>,
+    id: NodeId,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     crate::stack_check();
     match &p.nodes[id.0 as usize] {
         ExprNode::Var(n) if n.attno == 0 => nodes::tuple::eval_whole_row(n, st, cx),
@@ -132,7 +234,9 @@ pub fn eval(p: &Prog<'_, '_>, st: &mut St<'_>, id: NodeId, cx: &mut Cx<'_, '_>) 
         ExprNode::Const(n) => Ok(n.read()),
         ExprNode::Imm(n) => Ok(NullableDatum::value(Datum::from_i64(n.value))),
         ExprNode::Param(n) => nodes::param::eval(n, cx),
-        ExprNode::Func(n) | ExprNode::Op(n) => nodes::func::eval_call(p, st, &p.sites[n.site.0 as usize], cx),
+        ExprNode::Func(n) | ExprNode::Op(n) => {
+            nodes::func::eval_call(p, st, &p.sites[n.site.0 as usize], cx)
+        }
         ExprNode::Distinct(n) => nodes::op::eval_distinct(p, st, &p.sites[n.site.0 as usize], cx),
         ExprNode::NullIf(n) => nodes::op::eval_nullif(p, st, &p.sites[n.site.0 as usize], cx),
         ExprNode::ScalarArrayOp(n) => nodes::op::eval_scalar_array_op(p, st, n, cx),

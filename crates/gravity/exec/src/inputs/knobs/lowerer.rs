@@ -46,7 +46,9 @@ pub fn mode() -> Mode {
 /// `pgrust.gravity_lowerer`'s check hook: `v1` (the rung ladder), `v2` (lowerv2) and `v3` (lowerv3) are removed from the build,
 /// an ERROR at SET. No lowerer is registered (`gravity_lower::set_lowerer`): lowerv4's M0 registers its `lower_graph` here.
 pub(crate) fn install_lowerer_check() {
-    gravity_lower::set_lowerer(gravity_lower::LowererHook { lower: gravity_lowerv4::lower_graph });
+    gravity_lower::set_lowerer(gravity_lower::LowererHook {
+        lower: gravity_lowerv4::lower_graph,
+    });
     gravity_lowerv4::frame::diag::set(super::diag::all_blockers());
     gravity_lowerv4::frame::program::set_gate_stamps(super::diag::ahead_trace());
     gravity_lowerv4::dict::face::set_front_runs(super::diag::front_runs());
@@ -55,7 +57,9 @@ pub(crate) fn install_lowerer_check() {
         let removed = match *v {
             guc_tables::consts::GRAVITY_LOWERER_V1 => "ladder removed; see tag ladder-final",
             guc_tables::consts::GRAVITY_LOWERER_V2 => "lowerv2 removed; see tag lowerv2-final",
-            guc_tables::consts::GRAVITY_LOWERER_V3 => "lowerv3 removed; see tags lowerv3-final, lowerv3-landed",
+            guc_tables::consts::GRAVITY_LOWERER_V3 => {
+                "lowerv3 removed; see tags lowerv3-final, lowerv3-landed"
+            }
             _ => return Ok(true),
         };
         guc_seams::guc_check_errdetail::call(removed.to_string()); // alloc: Cold
@@ -89,7 +93,8 @@ pub fn instrumented(v: bool) -> bool {
 pub fn relset_on() -> bool {
     let at = gravity_hosts::inputs::guc_store_mutations();
     if RELSET_AT.with(|c| c.replace(at)) != at {
-        let v = RELSET_SLOT.with(|slot| gravity_hosts::inputs::custom_guc_text_at(slot, RELSET_GUC));
+        let v =
+            RELSET_SLOT.with(|slot| gravity_hosts::inputs::custom_guc_text_at(slot, RELSET_GUC));
         RELSET.with(|c| c.set(relset_reads_on(v.as_deref())));
     }
     RELSET.with(Cell::get)
@@ -141,6 +146,12 @@ mod tests {
         for v in ["off", "false", "no", "0", "maybe"] {
             assert!(!relset_reads_on(Some(v)), "{v}: off");
         }
-        assert_eq!(KNOBS.iter().find(|k| k.name == RELSET_GUC).map(|k| k.default), Some("on"));
+        assert_eq!(
+            KNOBS
+                .iter()
+                .find(|k| k.name == RELSET_GUC)
+                .map(|k| k.default),
+            Some("on")
+        );
     }
 }

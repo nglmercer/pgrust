@@ -18,7 +18,11 @@ pub struct Ring {
 
 impl Default for Ring {
     fn default() -> Ring {
-        Ring { v: [0; RING], n: 0, at: 0 }
+        Ring {
+            v: [0; RING],
+            n: 0,
+            at: 0,
+        }
     }
 }
 
@@ -142,14 +146,25 @@ pub fn signals(now: u32, snap: &Snapshot, c: &Census) -> Signals {
             current: r.current,
             floor: r.floor,
             cap: r.cap,
-            reused: matches!(k, Consumer::PartCache | Consumer::FpTables).then_some(c.reused[k as usize]),
-            reused_evicted: k == Consumer::PartCache && c.reused_evicted_at != 0 && now.saturating_sub(c.reused_evicted_at) <= 300,
+            reused: matches!(k, Consumer::PartCache | Consumer::FpTables)
+                .then_some(c.reused[k as usize]),
+            reused_evicted: k == Consumer::PartCache
+                && c.reused_evicted_at != 0
+                && now.saturating_sub(c.reused_evicted_at) <= 300,
             // shared_buffers' configured size (its floor until BP1); the explicit part cache joins at step 7
-            minimum: if k == Consumer::SharedBuffers { r.floor } else { 0 },
+            minimum: if k == Consumer::SharedBuffers {
+                r.floor
+            } else {
+                0
+            },
             doors: None,
         };
     }
-    let fixed = snap.fixed.saturating_add(if c.unattributed_counted { c.unattributed_p90 } else { 0 });
+    let fixed = snap.fixed.saturating_add(if c.unattributed_counted {
+        c.unattributed_p90
+    } else {
+        0
+    });
     Signals {
         now: u64::from(now),
         b: snap.budget.b,
@@ -173,7 +188,13 @@ mod tests {
     #[test]
     fn the_policy_inputs_come_from_the_snapshot_and_the_census() {
         let mut rows = [Row::default(); CONSUMERS];
-        let reg = |current, floor, cap| Row { registered: true, current, floor, cap, target: None };
+        let reg = |current, floor, cap| Row {
+            registered: true,
+            current,
+            floor,
+            cap,
+            target: None,
+        };
         rows[Consumer::SharedBuffers as usize] = reg(2 * GIB, 2 * GIB, 2 * GIB);
         rows[Consumer::PartCache as usize] = reg(GIB, GIB / 4, 4 * GIB);
         rows[Consumer::FpTables as usize] = reg(0, 0, 4 * GIB);
@@ -181,38 +202,84 @@ mod tests {
         rows[Consumer::ProgramCaches as usize] = reg(GIB / 4, GIB / 4, GIB / 4);
         rows[Consumer::WorkPool as usize] = reg(3 * GIB, GIB, 20 * GIB);
         let snap = compose(Cfg::DEFAULT, 31 * GIB, 28 * GIB, 0, rows, 0);
-        let mut c = Census { work_p90: 2 * GIB, running_floor: GIB, queued: GIB / 2, unattributed_p90: GIB, ..Census::default() };
+        let mut c = Census {
+            work_p90: 2 * GIB,
+            running_floor: GIB,
+            queued: GIB / 2,
+            unattributed_p90: GIB,
+            ..Census::default()
+        };
         c.reused[Consumer::PartCache as usize] = [1, 2, 3];
         c.reused[Consumer::FpTables as usize] = [4, 5, 6];
         c.reused_evicted_at = 1000;
         let s = signals(1200, &snap, &c);
-        assert_eq!((s.b, s.r_high, s.now), (snap.budget.b, snap.budget.r_high, 1200));
-        assert_eq!(s.inputs[Consumer::PartCache as usize].reused, Some([1, 2, 3]));
-        assert_eq!(s.inputs[Consumer::FpTables as usize].reused, Some([4, 5, 6]));
+        assert_eq!(
+            (s.b, s.r_high, s.now),
+            (snap.budget.b, snap.budget.r_high, 1200)
+        );
+        assert_eq!(
+            s.inputs[Consumer::PartCache as usize].reused,
+            Some([1, 2, 3])
+        );
+        assert_eq!(
+            s.inputs[Consumer::FpTables as usize].reused,
+            Some([4, 5, 6])
+        );
         assert_eq!(s.inputs[Consumer::ZoneStore as usize].reused, None);
-        assert!(s.inputs[Consumer::PartCache as usize].reused_evicted, "evicted 200 s ago: inside 300 s");
+        assert!(
+            s.inputs[Consumer::PartCache as usize].reused_evicted,
+            "evicted 200 s ago: inside 300 s"
+        );
         assert!(!signals(1400, &snap, &c).inputs[Consumer::PartCache as usize].reused_evicted);
         assert_eq!(s.inputs[Consumer::SharedBuffers as usize].minimum, 2 * GIB);
         assert_eq!(s.inputs[Consumer::PartCache as usize].minimum, 0);
         assert!(!s.inputs[Consumer::BuildPool as usize].registered);
-        assert_eq!(s.work_demand, 2 * GIB + GIB / 2, "max(p90, running floor) + queued");
-        assert_eq!(s.fixed, GIB / 4, "the unattributed p90 counts only when the governor samples resident memory");
+        assert_eq!(
+            s.work_demand,
+            2 * GIB + GIB / 2,
+            "max(p90, running floor) + queued"
+        );
+        assert_eq!(
+            s.fixed,
+            GIB / 4,
+            "the unattributed p90 counts only when the governor samples resident memory"
+        );
         c.unattributed_counted = true;
         assert_eq!(signals(1200, &snap, &c).fixed, GIB / 4 + GIB);
     }
 
     #[test]
     fn the_work_sample_is_the_touched_bytes_when_the_governor_samples_resident_memory() {
-        assert_eq!(work_sample(12 * GIB, 3 * GIB, 0), 12 * GIB, "no resident sample: the held bytes");
-        assert_eq!(work_sample(12 * GIB, 3 * GIB, 4 * GIB), GIB, "resident past the other rows: what the pool touches");
-        assert_eq!(work_sample(GIB, 3 * GIB, 9 * GIB), GIB, "never past the held bytes");
-        assert_eq!(work_sample(GIB, 3 * GIB, 2 * GIB), 0, "the other rows hold more than is resident");
+        assert_eq!(
+            work_sample(12 * GIB, 3 * GIB, 0),
+            12 * GIB,
+            "no resident sample: the held bytes"
+        );
+        assert_eq!(
+            work_sample(12 * GIB, 3 * GIB, 4 * GIB),
+            GIB,
+            "resident past the other rows: what the pool touches"
+        );
+        assert_eq!(
+            work_sample(GIB, 3 * GIB, 9 * GIB),
+            GIB,
+            "never past the held bytes"
+        );
+        assert_eq!(
+            work_sample(GIB, 3 * GIB, 2 * GIB),
+            0,
+            "the other rows hold more than is resident"
+        );
         let mut r = Ring::default();
         assert_eq!(r.last(), 0);
         for x in 1..=(RING as u64 + 5) {
             r.push(x);
         }
-        assert_eq!(r.last(), RING as u64 + 5, "the latest sample, after the ring wrapped");
+        assert_eq!(
+            r.last(),
+            RING as u64 + 5,
+            "the latest sample, after the ring wrapped"
+        );
     }
 
     #[test]

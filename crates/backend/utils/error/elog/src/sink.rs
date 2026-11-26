@@ -162,7 +162,9 @@ pub fn set_server_log_defer(hook: Option<ServerLogDefer>) -> Option<ServerLogDef
 
 /// Whether this thread's [`ServerLogDefer`] took `bytes` (false with none installed: the caller writes them).
 pub(crate) fn defer_server_log(bytes: &[u8]) -> bool {
-    SERVER_LOG_DEFER.with(Cell::get).is_some_and(|hook| hook(bytes))
+    SERVER_LOG_DEFER
+        .with(Cell::get)
+        .is_some_and(|hook| hook(bytes))
 }
 
 // C's pq_redirect_to_shm_mq: while installed, client-bound reports go to the
@@ -290,15 +292,21 @@ impl Drop for DebugQueryStringScope<'_> {
         // can never retain a pointer into freed storage.
         let mine = DEBUG_QUERY_STACK.with(|s| {
             let mut st = s.borrow_mut();
-            let mine = st.iter().find(|&&(id, _, _)| id == self.id).map(|&(_, p, len)| (p, len));
+            let mine = st
+                .iter()
+                .find(|&&(id, _, _)| id == self.id)
+                .map(|&(_, p, len)| (p, len));
             st.retain(|&(id, _, _)| id != self.id);
-            if st.is_empty() { mine } else { None }
+            if st.is_empty() {
+                mine
+            } else {
+                None
+            }
         });
         if let Some((p, len)) = mine {
             // SAFETY: this guard is still alive, so its borrowed `&str` is.
-            let text = unsafe {
-                core::str::from_utf8_unchecked(core::slice::from_raw_parts(p, len))
-            };
+            let text =
+                unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(p, len)) };
             RETIRED_QUERY.with(|r| {
                 let mut r = r.borrow_mut();
                 r.clear();
@@ -318,7 +326,11 @@ pub fn clear_retired_debug_query_string() {
 pub(crate) fn retired_debug_query_string() -> Option<String> {
     RETIRED_QUERY.with(|r| {
         let r = r.borrow();
-        if r.is_empty() { None } else { Some(r.clone()) }
+        if r.is_empty() {
+            None
+        } else {
+            Some(r.clone())
+        }
     })
 }
 

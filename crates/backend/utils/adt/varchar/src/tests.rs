@@ -36,13 +36,21 @@ fn bpchar_input_typmod_minus_one_passthrough() {
 fn bpchar_input_truncates_trailing_spaces_only() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let v = bpchar_input(mcx, b"abc   ", typmod(3), None).unwrap().unwrap();
+    let v = bpchar_input(mcx, b"abc   ", typmod(3), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), b"abc");
     let err = bpchar_input(mcx, b"abcd", typmod(3), None).unwrap_err();
     assert_eq!(err.message(), "value too long for type character(3)");
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION
+    );
     let err = bpchar_input(mcx, b"abc d", typmod(3), None).unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION
+    );
 }
 
 #[test]
@@ -65,11 +73,15 @@ fn bpchar_input_multibyte_counts_characters() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     // "é" is 2 bytes, 1 character.
-    let v = bpchar_input(mcx, "éé".as_bytes(), typmod(3), None).unwrap().unwrap();
+    let v = bpchar_input(mcx, "éé".as_bytes(), typmod(3), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), "éé ".as_bytes());
     let err = bpchar_input(mcx, "ééé".as_bytes(), typmod(2), None).unwrap_err();
     assert_eq!(err.message(), "value too long for type character(2)");
-    let v = bpchar_input(mcx, "ééé".as_bytes(), typmod(4), None).unwrap().unwrap();
+    let v = bpchar_input(mcx, "ééé".as_bytes(), typmod(4), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), "ééé ".as_bytes());
 }
 
@@ -77,9 +89,13 @@ fn bpchar_input_multibyte_counts_characters() {
 fn varchar_input_clips_and_errors() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let v = varchar_input(mcx, b"abc", typmod(5), None).unwrap().unwrap();
+    let v = varchar_input(mcx, b"abc", typmod(5), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), b"abc");
-    let v = varchar_input(mcx, b"abc   ", typmod(3), None).unwrap().unwrap();
+    let v = varchar_input(mcx, b"abc   ", typmod(3), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), b"abc");
     let v = varchar_input(mcx, b"abc", -1, None).unwrap().unwrap();
     assert_eq!(v.data(), b"abc");
@@ -88,7 +104,10 @@ fn varchar_input_clips_and_errors() {
         err.message(),
         "value too long for type character varying(3)"
     );
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_STRING_DATA_RIGHT_TRUNCATION
+    );
 }
 
 #[test]
@@ -96,7 +115,9 @@ fn varchar_input_multibyte() {
     mbutils::SetDatabaseEncoding(wchar::PG_UTF8).unwrap();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let v = varchar_input(mcx, "ééé".as_bytes(), typmod(3), None).unwrap().unwrap();
+    let v = varchar_input(mcx, "ééé".as_bytes(), typmod(3), None)
+        .unwrap()
+        .unwrap();
     assert_eq!(v.data(), "ééé".as_bytes());
     let err = varchar_input(mcx, "ééé".as_bytes(), typmod(2), None).unwrap_err();
     assert_eq!(
@@ -145,8 +166,12 @@ fn varchar_cast_coercion() {
 fn varchar_int_min_typmod_returns_source() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    assert!(varchar(mcx, "é".as_bytes(), i32::MIN, true).unwrap().is_none());
-    assert!(varchar(mcx, "é".as_bytes(), i32::MIN, false).unwrap().is_none());
+    assert!(varchar(mcx, "é".as_bytes(), i32::MIN, true)
+        .unwrap()
+        .is_none());
+    assert!(varchar(mcx, "é".as_bytes(), i32::MIN, false)
+        .unwrap()
+        .is_none());
     // The whole invalid range behaves alike in C (maxlen < 0 or wrapped huge).
     assert!(varchar(mcx, b"abc", i32::MIN + 1, true).unwrap().is_none());
 }
@@ -276,7 +301,7 @@ fn cstring_array_1d(elems: &[&[u8]]) -> Vec<u8> {
     v.extend_from_slice(&types_core::CSTRINGOID.to_ne_bytes());
     v.extend_from_slice(&(elems.len() as i32).to_ne_bytes());
     v.extend_from_slice(&1i32.to_ne_bytes());
-    while ! v.len().is_multiple_of( 8) {
+    while !v.len().is_multiple_of(8) {
         v.push(0);
     }
     for e in elems {
@@ -370,8 +395,15 @@ fn bpchar_tie_law_fails_without_typmod() {
     let mcx = ctx.mcx();
     let a = bpchar_input(mcx, b"AIR", -1, None).unwrap().unwrap();
     let b = bpchar_input(mcx, b"AIR  ", -1, None).unwrap().unwrap();
-    assert!(bpchareq(a.data(), b.data(), C).unwrap(), "bpchareq strips trailing blanks");
-    assert_ne!(a.data(), b.data(), "but the unpadded images differ — no tie law");
+    assert!(
+        bpchareq(a.data(), b.data(), C).unwrap(),
+        "bpchareq strips trailing blanks"
+    );
+    assert_ne!(
+        a.data(),
+        b.data(),
+        "but the unpadded images differ — no tie law"
+    );
 }
 
 /// Task #53: bpcharin at extreme typmods. C (18.3 varchar.c bpchar_input)
@@ -386,23 +418,35 @@ fn bpchar_tie_law_fails_without_typmod() {
 fn bpchar_clip_huge_typmod_is_catchable_alloc_error() {
     // ASCII: request = len + (maxchars - charlen) + VARHDRSZ = typmod.
     let err = bpchar_clip(b"abc", i32::MAX, None).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483647");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483647"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
 
     // Empty input: same request (charlen = len = 0).
     let err = bpchar_clip(b"", i32::MAX, None).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483647");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483647"
+    );
 
     // Multibyte input under UTF-8 makes len > charlen and the request exceeds
     // i32 (2147483648) — size_t arithmetic in C, no wrap (18.3 declares
     // maxlen as size_t; ground-truthed on docker). The unit-test environment
     // runs single-byte, so charlen == len and the request equals the typmod.
     let err = bpchar_clip("é".as_bytes(), i32::MAX, None).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483647");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483647"
+    );
 
     // First failing boundary: request = MaxAllocSize + 1.
     let err = bpchar_clip(b"abc", 0x4000_0000, None).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 1073741824"
+    );
 
     // Last passing boundary: request = MaxAllocSize exactly — the clip
     // decision succeeds without allocating.
@@ -414,7 +458,10 @@ fn bpchar_clip_huge_typmod_is_catchable_alloc_error() {
     // failures are never soft).
     let mut esc = SoftErrorContext::default();
     let err = bpchar_clip(b"abc", i32::MAX, Some(&mut esc)).unwrap_err();
-    assert_eq!(err.message(), "invalid memory alloc request size 2147483647");
+    assert_eq!(
+        err.message(),
+        "invalid memory alloc request size 2147483647"
+    );
     assert!(!esc.error_occurred());
 }
 
@@ -422,7 +469,11 @@ fn bpchar_clip_huge_typmod_is_catchable_alloc_error() {
 fn bpchar_clip_negative_and_min_typmod_passthrough() {
     for tm in [-1, 0, i32::MIN, (VARHDRSZ as i32) - 1] {
         let clip = bpchar_clip(b"abc", tm, None).unwrap().unwrap();
-        assert_eq!((clip.copy, clip.total), (3, 3), "typmod {tm} is a passthrough");
+        assert_eq!(
+            (clip.copy, clip.total),
+            (3, 3),
+            "typmod {tm} is a passthrough"
+        );
     }
 }
 
@@ -456,8 +507,16 @@ fn bpcharin_varcharin_refuse_over_ceiling_typmod() {
     // atttypmod is INT32_MAX: maxchars = INT32_MAX - VARHDRSZ, and bpchar pads
     // the 1-byte input out to it, so the result would be ~2GiB.
     for (f, oid, name) in [
-        (crate::builtins::fc_bpcharin as ::types_fmgr::PGFunction, 1044u32, "bpcharin"),
-        (crate::builtins::fc_varcharin as ::types_fmgr::PGFunction, 1046u32, "varcharin"),
+        (
+            crate::builtins::fc_bpcharin as ::types_fmgr::PGFunction,
+            1044u32,
+            "bpcharin",
+        ),
+        (
+            crate::builtins::fc_varcharin as ::types_fmgr::PGFunction,
+            1046u32,
+            "varcharin",
+        ),
     ] {
         let cs = b"a\0";
         let mut flinfo = FmgrInfo::new(f, oid, 3, true, false);
@@ -521,8 +580,16 @@ fn fc_ceiling_fires_on_huge_input_arm() {
     *cs.last_mut().unwrap() = 0;
 
     for (f, oid, name) in [
-        (crate::builtins::fc_bpcharin as ::types_fmgr::PGFunction, 1044u32, "bpcharin"),
-        (crate::builtins::fc_varcharin as ::types_fmgr::PGFunction, 1046u32, "varcharin"),
+        (
+            crate::builtins::fc_bpcharin as ::types_fmgr::PGFunction,
+            1044u32,
+            "bpcharin",
+        ),
+        (
+            crate::builtins::fc_varcharin as ::types_fmgr::PGFunction,
+            1046u32,
+            "varcharin",
+        ),
     ] {
         // atttypmod = 0 is below VARHDRSZ, so both clip helpers take their
         // pass-through arm and neither bounds the length — the fc-level check
@@ -551,10 +618,21 @@ fn typmod_non_utf8_element_is_invalid_integer() {
     let mcx = ctx.mcx();
     let arr = cstring_array_1d(&[b"\xff"]);
     let err = varchartypmodin(mcx, &arr).unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
-    assert!(err.message().starts_with("invalid input syntax for type integer: \""), "{}", err.message());
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
+    assert!(
+        err.message()
+            .starts_with("invalid input syntax for type integer: \""),
+        "{}",
+        err.message()
+    );
     let err = bpchartypmodin(mcx, &arr).unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
 }
 
 // PG_GETARG_ARRAYTYPE_P detoasts: a typmod array that passed through a formed

@@ -7,7 +7,9 @@
 use gravity_fn::NullableDatum;
 use types_core::Oid;
 use types_error::{PgError, PgResult};
-use types_nodes::primnodes::{Aggref as AggrefTree, GroupingFunc as GroupingFuncTree, WindowFunc as WindowFuncTree};
+use types_nodes::primnodes::{
+    Aggref as AggrefTree, GroupingFunc as GroupingFuncTree, WindowFunc as WindowFuncTree,
+};
 
 use crate::eval::Cx;
 use crate::nodes::{unsupported, Builder, ExprNode, Kind, NodeId, Prog, St};
@@ -31,7 +33,10 @@ pub struct GroupingFunc {
     pub nargs: u16,
 }
 
-pub fn compile_aggref<'mcx>(b: &mut Builder<'_, 'mcx>, a: &AggrefTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_aggref<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    a: &AggrefTree<'mcx>,
+) -> CompileResult<NodeId> {
     match b.folded {
         true => crate::agg::Agg::folded_gate(a, b.aggorder)?,
         false => drop(crate::agg::Agg::compile_with(a, b.catalog, b.aggorder)?),
@@ -40,39 +45,72 @@ pub fn compile_aggref<'mcx>(b: &mut Builder<'_, 'mcx>, a: &AggrefTree<'mcx>) -> 
         return Err(no_cell(a.aggno));
     }
     b.prog.naggs = b.prog.naggs.max(a.aggno as u32 + 1);
-    Ok(b.push(ExprNode::Aggref(Aggref { aggno: a.aggno, typ: a.aggtype })))
+    Ok(b.push(ExprNode::Aggref(Aggref {
+        aggno: a.aggno,
+        typ: a.aggtype,
+    })))
 }
 
-pub fn compile_window_func<'mcx>(b: &mut Builder<'_, 'mcx>, w: &WindowFuncTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_window_func<'mcx>(
+    b: &mut Builder<'_, 'mcx>,
+    w: &WindowFuncTree<'mcx>,
+) -> CompileResult<NodeId> {
     let cell = b.prog.naggs as i32;
     b.prog.naggs += 1;
-    Ok(b.push(ExprNode::WindowFunc(WindowFunc { cell, winref: w.winref, typ: w.wintype })))
+    Ok(b.push(ExprNode::WindowFunc(WindowFunc {
+        cell,
+        winref: w.winref,
+        typ: w.wintype,
+    })))
 }
 
-pub fn compile_grouping_func<'mcx>(_b: &mut Builder<'_, 'mcx>, _g: &GroupingFuncTree<'mcx>) -> CompileResult<NodeId> {
+pub fn compile_grouping_func<'mcx>(
+    _b: &mut Builder<'_, 'mcx>,
+    _g: &GroupingFuncTree<'mcx>,
+) -> CompileResult<NodeId> {
     unsupported(Kind::GroupingFunc)
 }
 
-pub fn eval_aggref(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &Aggref, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_aggref(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &Aggref,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     match cx.row.aggs.get(n.aggno as usize) {
         Some(v) => Ok(*v),
         None => Err(no_cell(n.aggno).into()),
     }
 }
 
-pub fn eval_window_func(_p: &Prog<'_, '_>, _st: &mut St<'_>, n: &WindowFunc, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_window_func(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    n: &WindowFunc,
+    cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     match cx.row.aggs.get(n.cell as usize) {
         Some(v) => Ok(*v),
         None => Err(no_cell(n.cell).into()),
     }
 }
 
-pub fn eval_grouping_func(_p: &Prog<'_, '_>, _st: &mut St<'_>, _n: &GroupingFunc, _cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
+pub fn eval_grouping_func(
+    _p: &Prog<'_, '_>,
+    _st: &mut St<'_>,
+    _n: &GroupingFunc,
+    _cx: &mut Cx<'_, '_>,
+) -> PgResult<NullableDatum> {
     unreachable!("GroupingFunc is refused at compile")
 }
 
 #[cold]
 #[inline(never)]
 fn no_cell(aggno: i32) -> crate::CompileError {
-    crate::CompileError::Pg(Box::new(PgError::error(format!("gravity_expr: aggregate cell {aggno} is not bound to the row")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR))) // alloc: Cold
+    crate::CompileError::Pg(Box::new(
+        PgError::error(format!(
+            "gravity_expr: aggregate cell {aggno} is not bound to the row"
+        ))
+        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
+    )) // alloc: Cold
 }

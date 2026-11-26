@@ -75,7 +75,13 @@ struct Slot {
 }
 
 impl Slot {
-    const EMPTY: Slot = Slot { key: 0, mode: OFF, n: 0, nodes: [(0, 0); NODES_MAX], tags: None };
+    const EMPTY: Slot = Slot {
+        key: 0,
+        mode: OFF,
+        n: 0,
+        nodes: [(0, 0); NODES_MAX],
+        tags: None,
+    };
 }
 
 struct Notes {
@@ -85,14 +91,23 @@ struct Notes {
 }
 
 /// `NOTED`: a note was ever filed (a compile with the map never on reads no lock).
-static NOTES: pgsync::Mutex<Notes> = pgsync::Mutex::new(Notes { slots: [Slot::EMPTY; NOTES_MAX], next: 0 });
+static NOTES: pgsync::Mutex<Notes> = pgsync::Mutex::new(Notes {
+    slots: [Slot::EMPTY; NOTES_MAX],
+    next: 0,
+});
 static NOTED: AtomicBool = AtomicBool::new(false);
 
 /// Files the lowering's note of the module under `key` (the lowering's `Lowered::key`), replacing an older one of the
 /// key: `mode` the lowering session's, `funcs[i]` the function that runs plan node `nodes[i]` (the first `NODES_MAX`),
 /// `tags` the IR's (mode `TAGS`), adopted by the program caches' owner. Appends the sidecar's `lowered` line, the statement
 /// that lowered it. Called only while the map is on.
-pub fn note(key: u128, mode: u8, funcs: &[Func], nodes: &[i32], mut tags: Option<gravity_ir::JitTags>) {
+pub fn note(
+    key: u128,
+    mode: u8,
+    funcs: &[Func],
+    nodes: &[i32],
+    mut tags: Option<gravity_ir::JitTags>,
+) {
     if let Some(t) = &mut tags {
         t.set_owner(crate::cache::PROGRAM_CACHES);
     }
@@ -127,14 +142,21 @@ pub fn take_tags(key: u128) -> Option<gravity_ir::JitTags> {
         return None;
     }
     let mut q = NOTES.lock().unwrap_or_else(|e| e.into_inner());
-    q.slots.iter_mut().find(|s| s.mode == TAGS && s.key == key).and_then(|s| s.tags.take())
+    q.slots
+        .iter_mut()
+        .find(|s| s.mode == TAGS && s.key == key)
+        .and_then(|s| s.tags.take())
 }
 
 /// Puts `take_tags`' tags back in the note of `key` (dropped when the note was replaced meanwhile).
 pub fn put_tags(key: u128, tags: gravity_ir::JitTags) {
     let back = {
         let mut q = NOTES.lock().unwrap_or_else(|e| e.into_inner());
-        match q.slots.iter_mut().find(|s| s.mode == TAGS && s.key == key && s.tags.is_none()) {
+        match q
+            .slots
+            .iter_mut()
+            .find(|s| s.mode == TAGS && s.key == key && s.tags.is_none())
+        {
             Some(s) => s.tags.replace(tags),
             None => Some(tags),
         }
@@ -155,7 +177,9 @@ pub fn with_tags<R>(key: u128, f: impl FnOnce(Option<&gravity_ir::JitTags>) -> R
 
 /// The statement on the calling thread through the hooks ("unknown" without them).
 pub fn statement() -> String {
-    HOOKS.get().map_or_else(|| String::from("unknown"), |h| (h.statement)()) // alloc: Cold
+    HOOKS
+        .get()
+        .map_or_else(|| String::from("unknown"), |h| (h.statement)()) // alloc: Cold
 }
 
 /// One line of the map: the range `[start, start + size)` named `name` (none for an empty range).
@@ -168,7 +192,13 @@ fn line(out: &mut String, start: usize, size: usize, name: core::fmt::Arguments<
 /// The map's lines for `compiled` (`program`'s module under `key`): one per function, or, for a tagged compile
 /// (`gravity_tpde::Compiled::ranges`, mode `TAGS`), one per tagged range of it, `gravity:<key8>:<func>[:n<node>]:<tag>`:
 /// none overlapping, together the function's whole range. `nodes`: the note's `(function index, plan node id)`.
-pub fn lines(program: &Program, key: u128, compiled: &gravity_tpde::Compiled<'_>, nodes: &[(u32, i32)], tags: Option<&gravity_ir::JitTags>) -> String {
+pub fn lines(
+    program: &Program,
+    key: u128,
+    compiled: &gravity_tpde::Compiled<'_>,
+    nodes: &[(u32, i32)],
+    tags: Option<&gravity_ir::JitTags>,
+) -> String {
     let mut out = String::new(); // alloc: Cold
     let key8 = (key >> 96) as u32;
     let mut name = String::new(); // alloc: Cold
@@ -190,7 +220,12 @@ pub fn lines(program: &Program, key: u128, compiled: &gravity_tpde::Compiled<'_>
                         gravity_tpde::adaptor::JIT_EPILOGUE => "epilogue",
                         t2 => t.name(t2),
                     };
-                    line(&mut out, start + off as usize, end.saturating_sub(off as usize), format_args!("{name}:{tn}"));
+                    line(
+                        &mut out,
+                        start + off as usize,
+                        end.saturating_sub(off as usize),
+                        format_args!("{name}:{tn}"),
+                    );
                 }
             }
             _ => line(&mut out, start, size, format_args!("{name}")),
@@ -207,7 +242,10 @@ pub(crate) fn on_compile(program: &Program, key: u128, compiled: &gravity_tpde::
     if m == OFF && !NOTED.load(Ordering::Relaxed) {
         return;
     }
-    let base = compiled.mapper().get_mapped_range().map_or(0, |r| r.address());
+    let base = compiled
+        .mapper()
+        .get_mapped_range()
+        .map_or(0, |r| r.address());
     let (bytes, funcs) = (compiled.code_bytes(), program.funcs.len());
     let (map, side) = {
         let q = NOTES.lock().unwrap_or_else(|e| e.into_inner());
@@ -217,10 +255,21 @@ pub(crate) fn on_compile(program: &Program, key: u128, compiled: &gravity_tpde::
             return;
         }
         let nodes = slot.map_or(&[][..], |s| &s.nodes[..s.n as usize]);
-        let map = lines(program, key, compiled, nodes, slot.and_then(|s| s.tags.as_ref()));
+        let map = lines(
+            program,
+            key,
+            compiled,
+            nodes,
+            slot.and_then(|s| s.tags.as_ref()),
+        );
         let side = match slot {
-            Some(_) => format!("key {key:032x} base {base:x} bytes {bytes} funcs {funcs} mode {m}\n"), // alloc: Cold
-            None => format!("key {key:032x} base {base:x} bytes {bytes} funcs {funcs} mode {m} stmt {}\n", statement()), // alloc: Cold
+            Some(_) => {
+                format!("key {key:032x} base {base:x} bytes {bytes} funcs {funcs} mode {m}\n")
+            } // alloc: Cold
+            None => format!(
+                "key {key:032x} base {base:x} bytes {bytes} funcs {funcs} mode {m} stmt {}\n",
+                statement()
+            ), // alloc: Cold
         };
         (map, side)
     };
@@ -230,7 +279,10 @@ pub(crate) fn on_compile(program: &Program, key: u128, compiled: &gravity_tpde::
 /// The map's path for this process: `/tmp/perf-<pid>.map`; the sidecar's `/tmp/perf-<pid>.gravity`.
 pub fn paths() -> (String, String) {
     let pid = std::process::id();
-    (format!("/tmp/perf-{pid}.map"), format!("/tmp/perf-{pid}.gravity")) // alloc: Cold
+    (
+        format!("/tmp/perf-{pid}.map"),
+        format!("/tmp/perf-{pid}.gravity"),
+    ) // alloc: Cold
 }
 
 struct State {
@@ -241,7 +293,11 @@ struct State {
 }
 
 /// One lock for both files: a module's lines are written whole, and the process's first write truncates them.
-static STATE: pgsync::Mutex<State> = pgsync::Mutex::new(State { pid: 0, written: 0, warned: false });
+static STATE: pgsync::Mutex<State> = pgsync::Mutex::new(State {
+    pid: 0,
+    written: 0,
+    warned: false,
+});
 
 fn write(map: &str, side: &str) {
     let mut st = STATE.lock().unwrap_or_else(|e| e.into_inner());
@@ -253,7 +309,10 @@ fn write(map: &str, side: &str) {
     let n = (map.len() + side.len()) as u64;
     if st.written + n > CAP_BYTES {
         if !core::mem::replace(&mut st.warned, true) {
-            eprintln!("gravity perfmap: {} bytes written, the cap: no more lines this process", st.written);
+            eprintln!(
+                "gravity perfmap: {} bytes written, the cap: no more lines this process",
+                st.written
+            );
         }
         return;
     }

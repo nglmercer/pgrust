@@ -20,7 +20,14 @@ pub struct SinkCalls {
 struct Calls<S>(PhantomData<S>);
 
 impl<S: Sink> Calls<S> {
-    const OF: SinkCalls = SinkCalls { push: Some(crate::hostimpl::sink::push::<S>), batch: Self::batch, leg: Self::leg, ordered: Self::ordered, drain: Self::drain, buffered: Self::buffered };
+    const OF: SinkCalls = SinkCalls {
+        push: Some(crate::hostimpl::sink::push::<S>),
+        batch: Self::batch,
+        leg: Self::leg,
+        ordered: Self::ordered,
+        drain: Self::drain,
+        buffered: Self::buffered,
+    };
 
     unsafe fn buffered(p: *mut u8) -> u64 {
         (*(p as *mut S)).buffered()
@@ -39,7 +46,12 @@ impl<S: Sink> Calls<S> {
     }
 
     unsafe fn leg(p: *mut u8, k: u16) -> Option<LegRef<'static>> {
-        (*(p as *mut S)).leg(k).map(|l| LegRef { ptr: l.ptr, push: l.push, claims: l.claims, _p: PhantomData })
+        (*(p as *mut S)).leg(k).map(|l| LegRef {
+            ptr: l.ptr,
+            push: l.push,
+            claims: l.claims,
+            _p: PhantomData,
+        })
     }
 }
 
@@ -47,7 +59,9 @@ struct NoSink;
 
 impl Sink for NoSink {
     fn push(&mut self, _batch: BorrowedBatch<'_>) -> Result<Flow> {
-        Err(crate::Error::host("gravity: a push from a merge step with no sink (phase 2's layout)"))
+        Err(crate::Error::host(
+            "gravity: a push from a merge step with no sink (phase 2's layout)",
+        ))
     }
 }
 
@@ -61,12 +75,20 @@ pub struct SinkRef<'a> {
 
 impl<'a> SinkRef<'a> {
     pub fn of<S: Sink>(sink: &'a mut S) -> SinkRef<'a> {
-        SinkRef { ptr: sink as *mut S as *mut u8, calls: &Calls::<S>::OF, _p: PhantomData }
+        SinkRef {
+            ptr: sink as *mut S as *mut u8,
+            calls: &Calls::<S>::OF,
+            _p: PhantomData,
+        }
     }
 
     /// A sink that refuses every push (phase 2's layout, where no row may leave: `Merge::prepare_partitions_in`).
     pub(crate) fn none() -> SinkRef<'static> {
-        SinkRef { ptr: core::ptr::NonNull::<NoSink>::dangling().as_ptr() as *mut u8, calls: &Calls::<NoSink>::OF, _p: PhantomData }
+        SinkRef {
+            ptr: core::ptr::NonNull::<NoSink>::dangling().as_ptr() as *mut u8,
+            calls: &Calls::<NoSink>::OF,
+            _p: PhantomData,
+        }
     }
 
     pub fn push(&mut self, batch: BorrowedBatch<'_>) -> Result<Flow> {
@@ -74,7 +96,12 @@ impl<'a> SinkRef<'a> {
     }
 
     pub fn leg(&self, ordinal: u16) -> Option<LegRef<'a>> {
-        unsafe { (self.calls.leg)(self.ptr, ordinal) }.map(|l| LegRef { ptr: l.ptr, push: l.push, claims: l.claims, _p: PhantomData })
+        unsafe { (self.calls.leg)(self.ptr, ordinal) }.map(|l| LegRef {
+            ptr: l.ptr,
+            push: l.push,
+            claims: l.claims,
+            _p: PhantomData,
+        })
     }
 
     pub fn target(&self) -> (PushFn, *mut u8) {
@@ -110,7 +137,10 @@ pub struct LegClaims {
 struct ClaimCalls<L>(PhantomData<L>);
 
 impl<L: SinkLeg> ClaimCalls<L> {
-    const OF: LegClaims = LegClaims { begin: Self::begin, end: Self::end };
+    const OF: LegClaims = LegClaims {
+        begin: Self::begin,
+        end: Self::end,
+    };
 
     unsafe fn begin(p: *const u8, c: gravity_abi::MorselRange) {
         (*(p as *const L)).claim_begin(c)
@@ -123,7 +153,12 @@ impl<L: SinkLeg> ClaimCalls<L> {
 
 impl<'a> LegRef<'a> {
     pub fn of<L: SinkLeg>(leg: &'a L) -> LegRef<'a> {
-        LegRef { ptr: leg as *const L as *const u8, push: Some(crate::hostimpl::sink::push_leg::<L>), claims: &ClaimCalls::<L>::OF, _p: PhantomData }
+        LegRef {
+            ptr: leg as *const L as *const u8,
+            push: Some(crate::hostimpl::sink::push_leg::<L>),
+            claims: &ClaimCalls::<L>::OF,
+            _p: PhantomData,
+        }
     }
 
     pub fn claim_begin(&self, claim: gravity_abi::MorselRange) {

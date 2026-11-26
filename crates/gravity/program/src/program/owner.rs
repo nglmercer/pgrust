@@ -135,21 +135,35 @@ pub const CHECK_NEG: u8 = 5;
 pub const CHECK_CAST: u8 = 6;
 
 impl CheckStep {
-    pub const NONE: CheckStep = CheckStep { key: 0, op: CHECK_NONE, cwidth: 0, word: 0 };
+    pub const NONE: CheckStep = CheckStep {
+        key: 0,
+        op: CHECK_NONE,
+        cwidth: 0,
+        word: 0,
+    };
 }
 
 impl KeyCheck {
-    pub const NONE: KeyCheck = KeyCheck { width: 0, steps: &[] };
+    pub const NONE: KeyCheck = KeyCheck {
+        width: 0,
+        steps: &[],
+    };
 
     /// A check at `width` of `steps`, the slice laid in `arena` (the program's lowering arena, which outlives every copy of
     /// the descriptor, as `Pipeline::consuming_in`'s slices do).
     pub fn in_arena(arena: ArenaRef, width: u8, steps: &[CheckStep]) -> KeyCheck {
-        KeyCheck { width, steps: steps_in(arena, steps) }
+        KeyCheck {
+            width,
+            steps: steps_in(arena, steps),
+        }
     }
 
     /// This check with its steps copied into `arena` (`Program::build`: the program's own arena).
     pub fn copy_in(self, arena: ArenaRef) -> KeyCheck {
-        KeyCheck { steps: steps_in(arena, self.steps), ..self }
+        KeyCheck {
+            steps: steps_in(arena, self.steps),
+            ..self
+        }
     }
 }
 
@@ -165,7 +179,10 @@ fn steps_in(arena: ArenaRef, steps: &[CheckStep]) -> &'static [CheckStep] {
 }
 
 pub use gravity_abi::breaker::MAX_REPS;
-const _: () = assert!(MAX_REPS <= u8::BITS as usize, "tie_fp holds a bit per representative");
+const _: () = assert!(
+    MAX_REPS <= u8::BITS as usize,
+    "tie_fp holds a bit per representative"
+);
 
 pub const REP_NONE: u8 = u8::MAX;
 
@@ -180,53 +197,239 @@ pub const RUNS_TOP_HEAP: u32 = 256;
 
 impl OwnerDesc {
     pub const fn generic(layout: RecordLayout, order_slot: u8, topk: u32) -> OwnerDesc {
-        OwnerDesc { layout, acc: layout, order_slot, topk, floor: 0, ctor: None, ctor_desc: None, bits: None, reps: [(REP_NONE, 0); MAX_REPS], pair: 0, groups: 0, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+        OwnerDesc {
+            layout,
+            acc: layout,
+            order_slot,
+            topk,
+            floor: 0,
+            ctor: None,
+            ctor_desc: None,
+            bits: None,
+            reps: [(REP_NONE, 0); MAX_REPS],
+            pair: 0,
+            groups: 0,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
     /// The count-ordered form (`GROUP BY … ORDER BY count DESC[, keys] LIMIT n`'s owner).
     pub const fn count_topk(layout: RecordLayout, slot: u8, n: u32) -> OwnerDesc {
         assert!(slot < ORDER_KEY && n > 0);
-        OwnerDesc { layout, acc: layout, order_slot: slot, topk: n, floor: 0, ctor: None, ctor_desc: None, bits: None, reps: [(REP_NONE, 0); MAX_REPS], pair: 0, groups: 0, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+        OwnerDesc {
+            layout,
+            acc: layout,
+            order_slot: slot,
+            topk: n,
+            floor: 0,
+            ctor: None,
+            ctor_desc: None,
+            bits: None,
+            reps: [(REP_NONE, 0); MAX_REPS],
+            pair: 0,
+            groups: 0,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
-    pub const fn count_topk_text(layout: RecordLayout, slot: u8, n: u32, reps: [(u8, u8); MAX_REPS]) -> OwnerDesc {
+    pub const fn count_topk_text(
+        layout: RecordLayout,
+        slot: u8,
+        n: u32,
+        reps: [(u8, u8); MAX_REPS],
+    ) -> OwnerDesc {
         assert!(slot < ORDER_KEY && n > 0);
-        OwnerDesc { layout, acc: layout, order_slot: slot, topk: n, floor: 0, ctor: None, ctor_desc: None, bits: None, reps, pair: 0, groups: 0, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+        OwnerDesc {
+            layout,
+            acc: layout,
+            order_slot: slot,
+            topk: n,
+            floor: 0,
+            ctor: None,
+            ctor_desc: None,
+            bits: None,
+            reps,
+            pair: 0,
+            groups: 0,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
     pub const fn named(layout: RecordLayout, ctor: OwnerCtor, bits: Option<(u8, u8)>) -> OwnerDesc {
-        OwnerDesc { layout, acc: layout, order_slot: ORDER_NONE, topk: 0, floor: 0, ctor: Some(ctor), ctor_desc: None, bits, reps: [(REP_NONE, 0); MAX_REPS], pair: 0, groups: 0, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+        OwnerDesc {
+            layout,
+            acc: layout,
+            order_slot: ORDER_NONE,
+            topk: 0,
+            floor: 0,
+            ctor: Some(ctor),
+            ctor_desc: None,
+            bits,
+            reps: [(REP_NONE, 0); MAX_REPS],
+            pair: 0,
+            groups: 0,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
     /// A declared constructor (`OwnerCtorDesc`): the count-ordered form's `order_slot` / `topk` / `reps` on the descriptor, `bits` the word the runner writes the partition bits into.
-    pub const fn declared(layout: RecordLayout, ctor: OwnerCtorDesc, order_slot: u8, topk: u32, reps: [(u8, u8); MAX_REPS], bits: Option<(u8, u8)>) -> OwnerDesc {
-        OwnerDesc { layout, acc: layout, order_slot, topk, floor: 0, ctor: None, ctor_desc: Some(ctor), bits, reps, pair: 0, groups: 0, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+    pub const fn declared(
+        layout: RecordLayout,
+        ctor: OwnerCtorDesc,
+        order_slot: u8,
+        topk: u32,
+        reps: [(u8, u8); MAX_REPS],
+        bits: Option<(u8, u8)>,
+    ) -> OwnerDesc {
+        OwnerDesc {
+            layout,
+            acc: layout,
+            order_slot,
+            topk,
+            floor: 0,
+            ctor: None,
+            ctor_desc: Some(ctor),
+            bits,
+            reps,
+            pair: 0,
+            groups: 0,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
     /// The distinct form: `order_slot` / `topk` as `count_topk_text` over the accumulator (`ORDER_NONE` / 0: every group). The distinct form over `layout` (the pair record: the group keys then `pair` DISTINCT-argument key words)
     /// and its round-2 record `acc` (`accumulator_of` for the 8-key tier, `accumulator_in` for the wide).
-    pub const fn distinct(layout: RecordLayout, acc: RecordLayout, pair: u8, groups: u32, order_slot: u8, topk: u32, reps: [(u8, u8); MAX_REPS]) -> OwnerDesc {
-        assert!(pair != 0 && pair as usize <= layout.nkeys() && (order_slot == ORDER_NONE) == (topk == 0));
-        assert!(acc.nkeys() == layout.nkeys() - pair as usize, "the accumulator's keys are the group keys");
-        OwnerDesc { layout, acc, order_slot, topk, floor: 0, ctor: None, ctor_desc: None, bits: None, reps, pair, groups, dense_attno: 0, tie_fp: 0, null_arg: (NULL_ARG_NONE, 0), arg_fold: [NULL_ARG_NONE; 3], group_flags: false, flag_words: (0, 0), check: KeyCheck::NONE, order: 0, tie_flags: TIE_FLAGS_NONE, observe_key: OBSERVE_NONE, tie_text: 0, tags: NULL_ARG_NONE }
+    pub const fn distinct(
+        layout: RecordLayout,
+        acc: RecordLayout,
+        pair: u8,
+        groups: u32,
+        order_slot: u8,
+        topk: u32,
+        reps: [(u8, u8); MAX_REPS],
+    ) -> OwnerDesc {
+        assert!(
+            pair != 0
+                && pair as usize <= layout.nkeys()
+                && (order_slot == ORDER_NONE) == (topk == 0)
+        );
+        assert!(
+            acc.nkeys() == layout.nkeys() - pair as usize,
+            "the accumulator's keys are the group keys"
+        );
+        OwnerDesc {
+            layout,
+            acc,
+            order_slot,
+            topk,
+            floor: 0,
+            ctor: None,
+            ctor_desc: None,
+            bits: None,
+            reps,
+            pair,
+            groups,
+            dense_attno: 0,
+            tie_fp: 0,
+            null_arg: (NULL_ARG_NONE, 0),
+            arg_fold: [NULL_ARG_NONE; 3],
+            group_flags: false,
+            flag_words: (0, 0),
+            check: KeyCheck::NONE,
+            order: 0,
+            tie_flags: TIE_FLAGS_NONE,
+            observe_key: OBSERVE_NONE,
+            tie_text: 0,
+            tags: NULL_ARG_NONE,
+        }
     }
 
     /// D3153: `floor` for the generic runs form (lowerv4 twopass_having `owner_floor`): a record whose slot `slot` (a
     /// count, or an integer final read whole) is not over (`gt`: strictly) or at least K, or with `below` not under or at
     /// most K, leaves the owner, K the bound word `word` (an int4 when `int4`), read per execution.
     pub const fn runs_floor(word: u16, gt: bool, int4: bool, below: bool, slot: u8) -> i64 {
-        RUNS_GATED | word as i64 | (gt as i64) << 16 | (int4 as i64) << 17 | (below as i64) << 18 | (slot as i64) << 24
+        RUNS_GATED
+            | word as i64
+            | (gt as i64) << 16
+            | (int4 as i64) << 17
+            | (below as i64) << 18
+            | (slot as i64) << 24
     }
 
     /// `runs_floor`'s `(word, gt, int4, below, slot)`, when this descriptor is the generic runs form (no constructor, pair,
     /// top or count order) and carries one.
     pub const fn runs_floor_of(&self) -> Option<(u16, bool, bool, bool, u8)> {
         let f = self.floor;
-        let runs = self.ctor.is_none() && self.ctor_desc.is_none() && self.pair == 0 && self.topk == 0 && self.order_slot >= ORDER_KEY;
+        let runs = self.ctor.is_none()
+            && self.ctor_desc.is_none()
+            && self.pair == 0
+            && self.topk == 0
+            && self.order_slot >= ORDER_KEY;
         if !runs || f & RUNS_GATED == 0 {
             return None;
         }
-        Some((f as u16, f >> 16 & 1 != 0, f >> 17 & 1 != 0, f >> 18 & 1 != 0, (f >> 24) as u8))
+        Some((
+            f as u16,
+            f >> 16 & 1 != 0,
+            f >> 17 & 1 != 0,
+            f >> 18 & 1 != 0,
+            (f >> 24) as u8,
+        ))
     }
 
     /// D-06: `floor` for the generic runs form under a top of `n` (LIMIT + OFFSET, WITH TIES or not) ordered first by the
@@ -242,7 +445,11 @@ impl OwnerDesc {
     /// `runs_top`'s `(n, below, slot)`, when this descriptor is the generic runs form and carries one.
     pub const fn runs_top_of(&self) -> Option<(u32, bool, u8)> {
         let f = self.floor;
-        let runs = self.ctor.is_none() && self.ctor_desc.is_none() && self.pair == 0 && self.topk == 0 && self.order_slot >= ORDER_KEY;
+        let runs = self.ctor.is_none()
+            && self.ctor_desc.is_none()
+            && self.pair == 0
+            && self.topk == 0
+            && self.order_slot >= ORDER_KEY;
         if !runs || f & RUNS_TOP == 0 {
             return None;
         }
@@ -251,7 +458,10 @@ impl OwnerDesc {
 
     /// The text keys the sort leaves unordered (`tie_fp`'s bits), declared by the lowering rung.
     pub const fn tie_fp(mut self, mask: u8) -> OwnerDesc {
-        assert!((mask as u16) >> MAX_REPS == 0, "a tie bit past the text keys");
+        assert!(
+            (mask as u16) >> MAX_REPS == 0,
+            "a tie bit past the text keys"
+        );
         self.tie_fp = mask;
         self
     }
@@ -270,22 +480,40 @@ impl OwnerDesc {
     }
 
     pub const fn null_arg(mut self, word: u8, bit: u8) -> OwnerDesc {
-        assert!(self.pair != 0 && (word as usize) < self.layout.nkeys() && bit < 64, "the NULL flag is a key word of the distinct form's pair");
+        assert!(
+            self.pair != 0 && (word as usize) < self.layout.nkeys() && bit < 64,
+            "the NULL flag is a key word of the distinct form's pair"
+        );
         self.null_arg = (word, bit);
         self
     }
 
     pub const fn arg_fold(mut self, slot: u8) -> OwnerDesc {
-        assert!(self.pair != 0 && (slot as usize) < self.acc.nslots(), "the fold slot is an accumulator slot of the distinct form");
-        let i = if self.arg_fold[0] == NULL_ARG_NONE { 0 } else if self.arg_fold[1] == NULL_ARG_NONE { 1 } else { 2 };
-        assert!(self.arg_fold[i] == NULL_ARG_NONE, "at most three argument folds");
+        assert!(
+            self.pair != 0 && (slot as usize) < self.acc.nslots(),
+            "the fold slot is an accumulator slot of the distinct form"
+        );
+        let i = if self.arg_fold[0] == NULL_ARG_NONE {
+            0
+        } else if self.arg_fold[1] == NULL_ARG_NONE {
+            1
+        } else {
+            2
+        };
+        assert!(
+            self.arg_fold[i] == NULL_ARG_NONE,
+            "at most three argument folds"
+        );
         self.arg_fold[i] = slot;
         self
     }
 
     /// D500: the group-flags form (`OwnerDesc::group_flags`'s field); `null_arg` names the flags word, the pair's last.
     pub const fn group_flags(mut self) -> OwnerDesc {
-        assert!(self.null_arg.0 != NULL_ARG_NONE && self.null_arg.0 as usize + 1 == self.layout.nkeys(), "the group flags are the pair's last word");
+        assert!(
+            self.null_arg.0 != NULL_ARG_NONE && self.null_arg.0 as usize + 1 == self.layout.nkeys(),
+            "the group flags are the pair's last word"
+        );
         self.group_flags = true;
         self.flag_words = (self.null_arg.0, 1);
         self
@@ -297,7 +525,14 @@ impl OwnerDesc {
     pub const fn group_flag_words(self, first: u8, carried: u8) -> OwnerDesc {
         let mut d = self.group_flags();
         let nk = d.layout.nkeys();
-        assert!(first <= d.null_arg.0 && carried >= 1 && (first as usize + carried as usize) <= nk && (carried as usize) < d.acc.nkeys() + 1 && d.null_arg.0 as usize - (first as usize) < carried as usize + 1, "the carried flags words are the pair's, from its first");
+        assert!(
+            first <= d.null_arg.0
+                && carried >= 1
+                && (first as usize + carried as usize) <= nk
+                && (carried as usize) < d.acc.nkeys() + 1
+                && d.null_arg.0 as usize - (first as usize) < carried as usize + 1,
+            "the carried flags words are the pair's, from its first"
+        );
         d.flag_words = (first, carried);
         d
     }
@@ -311,7 +546,10 @@ impl OwnerDesc {
 
     /// The count-ordered form's key check (`KeyCheck`).
     pub const fn key_check(mut self, check: KeyCheck) -> OwnerDesc {
-        assert!(self.pair == 0 && self.order_slot < ORDER_KEY && matches!(check.width, 2 | 4 | 8), "a key check is the count form's, at an integer width");
+        assert!(
+            self.pair == 0 && self.order_slot < ORDER_KEY && matches!(check.width, 2 | 4 | 8),
+            "a key check is the count form's, at an integer width"
+        );
         let (mut keys, mut nkeys, mut i, mut done) = ([0u8; KEY_CHECK_KEYS], 0, 0, false);
         while i < check.steps.len() {
             let s = check.steps[i];
@@ -320,13 +558,25 @@ impl OwnerDesc {
             if s.op == CHECK_NONE {
                 done = true;
             } else {
-                assert!(!done && s.op <= CHECK_CAST && matches!(s.cwidth, 2 | 4 | 8) && s.cwidth <= check.width && (key as usize) <= self.layout.nkeys() && (i > 0 || key > 0) && (key > 0 || s.key == 0), "a step reads a key word or the step before");
+                assert!(
+                    !done
+                        && s.op <= CHECK_CAST
+                        && matches!(s.cwidth, 2 | 4 | 8)
+                        && s.cwidth <= check.width
+                        && (key as usize) <= self.layout.nkeys()
+                        && (i > 0 || key > 0)
+                        && (key > 0 || s.key == 0),
+                    "a step reads a key word or the step before"
+                );
                 let mut j = 0;
                 while j < nkeys && keys[j] != key {
                     j += 1;
                 }
                 if key > 0 && j == nkeys {
-                    assert!(nkeys < KEY_CHECK_KEYS, "a key check's distinct keys fit the owner's words");
+                    assert!(
+                        nkeys < KEY_CHECK_KEYS,
+                        "a key check's distinct keys fit the owner's words"
+                    );
                     keys[nkeys] = key;
                     nkeys += 1;
                 }
@@ -341,7 +591,10 @@ impl OwnerDesc {
     /// The count form ordered by another slot word (`order`): any final the emit orders as a word, either direction; in the
     /// distinct form a slot of the accumulator.
     pub const fn ordered_by(mut self, word: u16) -> OwnerDesc {
-        assert!(self.order_slot < ORDER_KEY && word > 0xff && word as u8 == self.order_slot, "an ordered count form names its own slot");
+        assert!(
+            self.order_slot < ORDER_KEY && word > 0xff && word as u8 == self.order_slot,
+            "an ordered count form names its own slot"
+        );
         self.order = word;
         self
     }
@@ -349,20 +602,29 @@ impl OwnerDesc {
     /// The count form whose tie keys read their NULL flags from key word `first` on (a nullable word tie key, NULLS LAST).
     /// D3080: the count form's int-text tie keys (`tie_text`'s bits).
     pub const fn tie_text(mut self, mask: u32) -> OwnerDesc {
-        assert!(self.pair == 0 && self.order_slot < ORDER_KEY && mask >> 24 == 0, "an int-text tie is the count form's, below key 24");
+        assert!(
+            self.pair == 0 && self.order_slot < ORDER_KEY && mask >> 24 == 0,
+            "an int-text tie is the count form's, below key 24"
+        );
         self.tie_text = mask;
         self
     }
 
     pub const fn tie_flags(mut self, first: u8) -> OwnerDesc {
-        assert!(self.pair == 0 && first != TIE_FLAGS_NONE && (first as usize) < self.layout.nkeys(), "the count form's flags are key words of its record");
+        assert!(
+            self.pair == 0 && first != TIE_FLAGS_NONE && (first as usize) < self.layout.nkeys(),
+            "the count form's flags are key words of its record"
+        );
         self.tie_flags = first;
         self
     }
 
     /// The distinct form's group key attribute (1-based) for the dense domain (exec `owner.rs::distinct_fns_dense`).
     pub const fn dense_key(mut self, attno: i16) -> OwnerDesc {
-        assert!(self.pair != 0 && attno > 0, "the dense key is the distinct form's group key attribute");
+        assert!(
+            self.pair != 0 && attno > 0,
+            "the dense key is the distinct form's group key attribute"
+        );
         self.dense_attno = attno;
         self
     }
@@ -373,9 +635,14 @@ impl OwnerDesc {
         let implicit = pair.flags & LAYOUT_IMPLICIT_COUNT != 0;
         let ns = pair.nslots() - implicit as usize;
         let mut slots = [SlotKind::Count; MAX_RECORD_SLOTS];
-        slots[ACC_SLOT_BASE as usize..ACC_SLOT_BASE as usize + ns].copy_from_slice(&pair.slot_kinds()[..ns]);
+        slots[ACC_SLOT_BASE as usize..ACC_SLOT_BASE as usize + ns]
+            .copy_from_slice(&pair.slot_kinds()[..ns]);
         let slots = &slots[..ACC_SLOT_BASE as usize + ns];
-        if pair.has_validity() { RecordLayout::new(&pair.key_kinds()[..nk], slots) } else { RecordLayout::new_nn(&pair.key_kinds()[..nk], slots) }
+        if pair.has_validity() {
+            RecordLayout::new(&pair.key_kinds()[..nk], slots)
+        } else {
+            RecordLayout::new_nn(&pair.key_kinds()[..nk], slots)
+        }
     }
 
     /// `accumulator_of` for any tier: the wide tier's arrays in `arena`.
@@ -383,7 +650,8 @@ impl OwnerDesc {
         let nk = pair.nkeys() - words as usize;
         let implicit = pair.flags & LAYOUT_IMPLICIT_COUNT != 0;
         let ns = pair.nslots() - implicit as usize;
-        let mut slots: ArenaVec<SlotKind> = ArenaVec::with_capacity_in(ACC_SLOT_BASE as usize + ns, arena);
+        let mut slots: ArenaVec<SlotKind> =
+            ArenaVec::with_capacity_in(ACC_SLOT_BASE as usize + ns, arena);
         slots.extend_from_slice(&[SlotKind::Count; ACC_SLOT_BASE as usize]);
         slots.extend_from_slice(&pair.slot_kinds()[..ns]);
         record_layout(arena, &pair.key_kinds()[..nk], &slots, pair.has_validity())
@@ -393,7 +661,13 @@ impl OwnerDesc {
     /// max(DISTINCT x)`, the kinds `arg_fold` folds), validity on where a fold is (an extremum starts unset; a group of
     /// NULL arguments alone folds nothing, its fold NULL); with the first fold's slot.
     /// `flags` (`group_flags`): `words` counts the argument's words alone, the last key the pair's flags word.
-    pub fn accumulator_folded(arena: ArenaRef, pair: &RecordLayout, words: u8, folds: &[SlotKind], flags: bool) -> (RecordLayout, u8) {
+    pub fn accumulator_folded(
+        arena: ArenaRef,
+        pair: &RecordLayout,
+        words: u8,
+        folds: &[SlotKind],
+        flags: bool,
+    ) -> (RecordLayout, u8) {
         let acc = Self::accumulator_in(arena, pair, words);
         if folds.is_empty() && !flags {
             return (acc, acc.nslots() as u8);
@@ -401,10 +675,19 @@ impl OwnerDesc {
         let mut keys: ArenaVec<KeyKind> = ArenaVec::with_capacity_in(acc.nkeys(), arena);
         keys.extend_from_slice(&acc.key_kinds()[..acc.nkeys() - flags as usize]);
         keys.extend(flags.then(|| pair.key_kinds()[pair.nkeys() - 1]));
-        let mut slots: ArenaVec<SlotKind> = ArenaVec::with_capacity_in(acc.nslots() + folds.len(), arena);
+        let mut slots: ArenaVec<SlotKind> =
+            ArenaVec::with_capacity_in(acc.nslots() + folds.len(), arena);
         slots.extend_from_slice(acc.slot_kinds());
         slots.extend_from_slice(folds);
-        (record_layout(arena, &keys, &slots, acc.has_validity() || !folds.is_empty()), acc.nslots() as u8)
+        (
+            record_layout(
+                arena,
+                &keys,
+                &slots,
+                acc.has_validity() || !folds.is_empty(),
+            ),
+            acc.nslots() as u8,
+        )
     }
 
     pub const fn accumulator(&self) -> RecordLayout {
@@ -439,26 +722,49 @@ pub(crate) fn intern_wide(w: WideLayout) -> &'static WideLayout {
     let keys: &'static [KeyKind] = Box::leak(w.keys.to_vec().into_boxed_slice()); // alloc: Cold
     let slots: &'static [SlotKind] = Box::leak(w.slots.to_vec().into_boxed_slice()); // alloc: Cold
     let slot_off: &'static [u32] = Box::leak(w.slot_off.to_vec().into_boxed_slice()); // alloc: Cold
-    let w = WideLayout { keys, slots, slot_off, ..w };
+    let w = WideLayout {
+        keys,
+        slots,
+        slot_off,
+        ..w
+    };
     let n: &'static WideNode = Box::leak(Box::new(WideNode { w, next: head.0 })); // alloc: Cold
     head.0 = n;
     &n.w
 }
 
 /// A `RecordLayout` of any shape (decompose.md decision 82): the 8-key tier when `keys` / `slots` fit its arrays, else the wide tier — computed in `arena`, the `WideLayout` interned.
-pub fn record_layout(arena: ArenaRef, keys: &[KeyKind], slots: &[SlotKind], validity: bool) -> RecordLayout {
-    record_layout_at(arena, keys, slots, validity, gravity_abi::breaker::first_count(slots))
+pub fn record_layout(
+    arena: ArenaRef,
+    keys: &[KeyKind],
+    slots: &[SlotKind],
+    validity: bool,
+) -> RecordLayout {
+    record_layout_at(
+        arena,
+        keys,
+        slots,
+        validity,
+        gravity_abi::breaker::first_count(slots),
+    )
 }
 
 /// `record_layout` with the sentinel slot named (`RecordLayout::with_sentinel`'s rule; `None` appends the implicit one).
-pub fn record_layout_at(arena: ArenaRef, keys: &[KeyKind], slots: &[SlotKind], validity: bool, sentinel: Option<usize>) -> RecordLayout {
+pub fn record_layout_at(
+    arena: ArenaRef,
+    keys: &[KeyKind],
+    slots: &[SlotKind],
+    validity: bool,
+    sentinel: Option<usize>,
+) -> RecordLayout {
     if gravity_abi::breaker::fits_inline_at(keys, slots, validity, sentinel) {
         return RecordLayout::with_sentinel(keys, slots, validity, sentinel);
     }
     let implicit = sentinel.is_none();
     let mut ks: ArenaVec<KeyKind> = ArenaVec::with_capacity_in(keys.len(), arena);
     ks.extend_from_slice(keys);
-    let mut ss: ArenaVec<SlotKind> = ArenaVec::with_capacity_in(slots.len() + implicit as usize, arena);
+    let mut ss: ArenaVec<SlotKind> =
+        ArenaVec::with_capacity_in(slots.len() + implicit as usize, arena);
     ss.extend_from_slice(slots);
     if implicit {
         ss.push(SlotKind::Count);
@@ -467,8 +773,20 @@ pub fn record_layout_at(arena: ArenaRef, keys: &[KeyKind], slots: &[SlotKind], v
     let mut offs: ArenaVec<u32> = ArenaVec::with_capacity_in(n, arena);
     offs.resize(n, 0);
     // SAFETY: the arena lives through this call; `intern_wide` copies the slices before the layout is returned.
-    let (ks, ss, offs): (&'static [KeyKind], &'static [SlotKind], &'static mut [u32]) = unsafe { (&*(ks.leak() as *const [KeyKind]), &*(ss.leak() as *const [SlotKind]), &mut *(offs.leak() as *mut [u32])) };
-    let w = intern_wide(WideLayout::compute_at(ks, ss, offs, validity, sentinel.unwrap_or(slots.len())));
+    let (ks, ss, offs): (&'static [KeyKind], &'static [SlotKind], &'static mut [u32]) = unsafe {
+        (
+            &*(ks.leak() as *const [KeyKind]),
+            &*(ss.leak() as *const [SlotKind]),
+            &mut *(offs.leak() as *mut [u32]),
+        )
+    };
+    let w = intern_wide(WideLayout::compute_at(
+        ks,
+        ss,
+        offs,
+        validity,
+        sentinel.unwrap_or(slots.len()),
+    ));
     RecordLayout::wide(w, validity, implicit)
 }
 
@@ -476,7 +794,8 @@ pub fn record_layout_at(arena: ArenaRef, keys: &[KeyKind], slots: &[SlotKind], v
 pub type ExportKeys = unsafe fn(*const u8, &[u64], &mut dyn FnMut(u64)) -> Option<usize>;
 
 /// A finished pass-1 region's granule marks `(key, part, bits)` to the closure (`t3::gmark_lists`; `None`: every granule admitted).
-pub type GranuleMarks = unsafe fn(*const u8, &[u64], &mut dyn FnMut(u64, u64, u64)) -> Option<usize>;
+pub type GranuleMarks =
+    unsafe fn(*const u8, &[u64], &mut dyn FnMut(u64, u64, u64)) -> Option<usize>;
 
 /// The two-pass protocol on the admitting pipeline (milestone-2.md §2.6 item 15; ir-probe.md §19): `pass1` the exporting pipeline, its owner phase bound over the `words` parameter words from `base` (its `OwnerDesc.bits` word relative to it);
 /// then the runner lays the keys `export` lists as the admitted set and cuts this pipeline's claims to `marks`' granules.
@@ -509,7 +828,15 @@ pub struct TopKDesc {
 impl TopKDesc {
     /// A bounded run over the source's own claim order.
     pub const fn run(n: u32) -> TopKDesc {
-        TopKDesc { n, walk_attno: 0, codes: 0, secondary: None, code_lanes: 0, walk_desc: false, walk_nulls_first: false }
+        TopKDesc {
+            n,
+            walk_attno: 0,
+            codes: 0,
+            secondary: None,
+            code_lanes: 0,
+            walk_desc: false,
+            walk_nulls_first: false,
+        }
     }
 
     /// The zone walk of a NULLS FIRST run over a nullable key: a granule holding a NULL walks first (its NULL rows lead
@@ -529,14 +856,20 @@ impl TopKDesc {
 
     /// The zone walk over `attno` (1-based, an attribute of the driving site's relation).
     pub const fn walking(mut self, attno: i16) -> TopKDesc {
-        assert!(attno > 0, "the walk's key is an attribute of the driving relation");
+        assert!(
+            attno > 0,
+            "the walk's key is an attribute of the driving relation"
+        );
         self.walk_attno = attno;
         self
     }
 
     /// The run's code columns (a bit per column), their site lanes (a byte per code column, ascending) and the tie key among them.
     pub const fn codes(mut self, codes: u32, code_lanes: u64, secondary: Option<u16>) -> TopKDesc {
-        assert!(codes.count_ones() <= 8, "a declared run names at most eight code columns");
+        assert!(
+            codes.count_ones() <= 8,
+            "a declared run names at most eight code columns"
+        );
         assert!(codes & 1 == 0, "column 0 is the run's order key");
         self.codes = codes;
         self.code_lanes = code_lanes;
@@ -561,11 +894,24 @@ impl WordsDesc {
     pub const NONE: u16 = u16::MAX;
 
     pub const fn bits_only(bits: u16, nparams: u16) -> WordsDesc {
-        WordsDesc { topk: WordsDesc::NONE, dense_lo: WordsDesc::NONE, dense_hi: WordsDesc::NONE, bits, order: WordsDesc::NONE, nparams }
+        WordsDesc {
+            topk: WordsDesc::NONE,
+            dense_lo: WordsDesc::NONE,
+            dense_hi: WordsDesc::NONE,
+            bits,
+            order: WordsDesc::NONE,
+            nparams,
+        }
     }
 
     /// The slots in the runner's fact order: top-k, dense lo, dense hi, bits, order.
     pub const fn slots(&self) -> [u16; 5] {
-        [self.topk, self.dense_lo, self.dense_hi, self.bits, self.order]
+        [
+            self.topk,
+            self.dense_lo,
+            self.dense_hi,
+            self.bits,
+            self.order,
+        ]
     }
 }

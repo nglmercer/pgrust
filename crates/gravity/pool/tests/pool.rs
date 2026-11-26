@@ -6,11 +6,16 @@ use std::sync::{Arc, Mutex};
 
 use common::*;
 use gravity_abi::Datum;
-use gravity_driver::{Binding, BindingParts, BorrowedBatch, CommandId, Entry, Error, Flow, Identity, Merge, PerTuple, Pins, Result, LegRef, Sink, SinkLeg, Snapshot};
+use gravity_driver::{
+    Binding, BindingParts, BorrowedBatch, CommandId, Entry, Error, Flow, Identity, LegRef, Merge,
+    PerTuple, Pins, Result, Sink, SinkLeg, Snapshot,
+};
 use gravity_hosts::{HostRegistry, RangeRecipe};
+use gravity_parallel::{
+    run_program, BlockRange, ClaimSize, Job, MorselSource, PlainAggPartial, Plan, Pool,
+};
 use gravity_pool::{Ambient, RuntimePool};
 use gravity_program::hand as programs;
-use gravity_parallel::{run_program, BlockRange, ClaimSize, Job, MorselSource, Plan, PlainAggPartial, Pool};
 use gravity_program::{Generation, Handle, PlanKey, Program};
 use mcx::MemoryContext;
 use runtime::{Runtime, RuntimeConfig, WorkerPool};
@@ -36,7 +41,10 @@ fn leader_stat() -> Option<std::path::PathBuf> {
 
 /// The thread is blocked (state S): after its interrupt round the leader's only blocking point is the park.
 fn blocked(stat: &std::path::Path) -> bool {
-    std::fs::read_to_string(stat).ok().and_then(|s| s.rsplit_once(')').and_then(|(_, rest)| rest.trim_start().chars().next())) == Some('S')
+    std::fs::read_to_string(stat).ok().and_then(|s| {
+        s.rsplit_once(')')
+            .and_then(|(_, rest)| rest.trim_start().chars().next())
+    }) == Some('S')
 }
 
 struct CountSink {
@@ -87,16 +95,54 @@ impl Plan for RangePlan {
     }
 }
 
-fn run(entry: &mut Entry, program: &Arc<Program>, reg: &mut HostRegistry, pool: &dyn Pool, width: u16, thr: u64, keyed: bool) -> Result<Vec<Vec<Datum>>> {
+fn run(
+    entry: &mut Entry,
+    program: &Arc<Program>,
+    reg: &mut HostRegistry,
+    pool: &dyn Pool,
+    width: u16,
+    thr: u64,
+    keyed: bool,
+) -> Result<Vec<Vec<Datum>>> {
     let snap = static_mvcc_snapshot();
     let params = [thr];
     let nulls = [0u8];
-    let parts = BindingParts { snapshot: Snapshot(&snap as *const _ as u64), command_id: CommandId(0), params: &params, param_nulls: &nulls, abort_flag: &ABORT, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity::default(), resolved: None };
-    let mut sink = CountSink { rows: Mutex::new(Vec::new()), pushes: AtomicU64::new(0) };
+    let parts = BindingParts {
+        snapshot: Snapshot(&snap as *const _ as u64),
+        command_id: CommandId(0),
+        params: &params,
+        param_nulls: &nulls,
+        abort_flag: &ABORT,
+        pins: Pins(0),
+        per_tuple: PerTuple(0),
+        identity: Identity::default(),
+        resolved: None,
+    };
+    let mut sink = CountSink {
+        rows: Mutex::new(Vec::new()),
+        pushes: AtomicU64::new(0),
+    };
     let mut b = Binding::new(parts, &mut sink);
-    let key = keyed.then_some(PlanKey { handle: Handle(7), generation: Generation(1) });
-    let mut exec = entry.start(key, program, reg, &mut b, std::rc::Rc::new(gravity_driver::Reservation::unadmitted(gravity_driver::Grant::of(8 << 20))))?;
-    let plan = RangePlan { width, blocks: [BlockRange::new(nblocks(HEAP_OID), ClaimSize::Fixed(1)), BlockRange::new(0, ClaimSize::Fixed(1))] };
+    let key = keyed.then_some(PlanKey {
+        handle: Handle(7),
+        generation: Generation(1),
+    });
+    let mut exec = entry.start(
+        key,
+        program,
+        reg,
+        &mut b,
+        std::rc::Rc::new(gravity_driver::Reservation::unadmitted(
+            gravity_driver::Grant::of(8 << 20),
+        )),
+    )?;
+    let plan = RangePlan {
+        width,
+        blocks: [
+            BlockRange::new(nblocks(HEAP_OID), ClaimSize::Fixed(1)),
+            BlockRange::new(0, ClaimSize::Fixed(1)),
+        ],
+    };
     let r = run_program(entry, &mut exec, &mut b, reg, pool, &plan);
     entry.end(exec, r.is_ok());
     r?;
@@ -116,7 +162,13 @@ fn sections_over_the_runtime_pool_give_the_serial_count_and_recover_from_errors(
     assert!(total_blocks >= 8, "{total_blocks} blocks");
     let rt = Runtime::new(RuntimeConfig::new(4));
     let threads = WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool threads");
-    let pool = RuntimePool::new(Arc::clone(&rt), Ambient { interrupts: counted_interrupts, ..Ambient::HARNESS });
+    let pool = RuntimePool::new(
+        Arc::clone(&rt),
+        Ambient {
+            interrupts: counted_interrupts,
+            ..Ambient::HARNESS
+        },
+    );
     let heap = Relation::open(heap_relation_data(mcx), None);
     let recipe = RangeRecipe::from_plan(&heap, &[1]).unwrap();
     drop(heap);
@@ -133,33 +185,57 @@ fn sections_over_the_runtime_pool_give_the_serial_count_and_recover_from_errors(
         assert_eq!(pins_held(), 0, "width {width}: pins after the section");
         if *width >= 2 {
             let claims = pool.claims_run() - before;
-            assert!((1..=total_blocks).contains(&claims), "width {width}: {claims} claims over {total_blocks} blocks (adaptive sizing)");
+            assert!(
+                (1..=total_blocks).contains(&claims),
+                "width {width}: {claims} claims over {total_blocks} blocks (adaptive sizing)"
+            );
         } else {
             assert_eq!(pool.claims_run() - before, 0);
         }
-        assert_eq!(entry.stats().built, 1, "run {i}: the node is parked and reused");
+        assert_eq!(
+            entry.stats().built,
+            1,
+            "run {i}: the node is parked and reused"
+        );
     }
     assert_eq!(pool.sections(), 3);
     FAIL_BLOCK.store(3, Ordering::Relaxed);
     reg.rewind();
     let r = run(&mut entry, &program, &mut reg, &pool, 4, thr, true);
     assert_eq!(r, Err(Error::host("pg")));
-    assert_eq!(gravity_hosts::take_error().map(|e| e.message().to_string()), Some("could not read block (fixture)".to_string()));
+    assert_eq!(
+        gravity_hosts::take_error().map(|e| e.message().to_string()),
+        Some("could not read block (fixture)".to_string())
+    );
     assert_eq!(pins_held(), 0, "pins after a failed section");
     FAIL_BLOCK.store(u64::MAX, Ordering::Relaxed);
     ABORT.store(1, Ordering::Release);
     reg.rewind();
     let before = pool.claims_run();
-    assert_eq!(run(&mut entry, &program, &mut reg, &pool, 4, thr, true), Err(Error::Cancelled));
-    assert!(pool.claims_run() - before <= 4, "a byte set before the section: at most one claim per worker observes it");
+    assert_eq!(
+        run(&mut entry, &program, &mut reg, &pool, 4, thr, true),
+        Err(Error::Cancelled)
+    );
+    assert!(
+        pool.claims_run() - before <= 4,
+        "a byte set before the section: at most one claim per worker observes it"
+    );
     ABORT.store(0, Ordering::Release);
     reg.rewind();
-    assert_eq!(run(&mut entry, &program, &mut reg, &pool, 2, thr, true).unwrap(), vec![vec![thr]], "the parked node serves again after a cancel");
+    assert_eq!(
+        run(&mut entry, &program, &mut reg, &pool, 2, thr, true).unwrap(),
+        vec![vec![thr]],
+        "the parked node serves again after a cancel"
+    );
     assert_eq!((entry.stats().built, entry.stats().ended_failed), (1, 2));
     // D2547: no wake count here. These sections hold no claim open, so on a loaded host each can finish before the leader
     // parks (flake#25's ct pool: 0 wakes, 0 quanta) - D221's race without D221's hold. The completion wake is asserted
     // below, where every claim holds its section open until the leader is parked.
-    eprintln!("sections: {} completion wakes, {} quanta", pool.wakes(), pool.quanta());
+    eprintln!(
+        "sections: {} completion wakes, {} quanta",
+        pool.wakes(),
+        pool.quanta()
+    );
 
     // §1.10 increment 3 item 2: a section's completion wakes the leader — the
     // gap between the last claim's end and `run` returning is microseconds,
@@ -173,13 +249,19 @@ fn sections_over_the_runtime_pool_give_the_serial_count_and_recover_from_errors(
     let job = |_ordinal: u16, _range: gravity_abi::MorselRange| -> Result<()> {
         let t0 = std::time::Instant::now();
         while LEADER_ROUNDS.load(Ordering::Acquire) == round0.load(Ordering::Acquire) {
-            assert!(t0.elapsed() < std::time::Duration::from_secs(10), "the leader never ran an interrupt round");
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(10),
+                "the leader never ran an interrupt round"
+            );
             std::hint::spin_loop();
         }
         match &stat {
             Some(stat) => {
                 while !blocked(stat) {
-                    assert!(t0.elapsed() < std::time::Duration::from_secs(10), "the leader never parked");
+                    assert!(
+                        t0.elapsed() < std::time::Duration::from_secs(10),
+                        "the leader never parked"
+                    );
                     std::hint::spin_loop();
                 }
             }
@@ -201,7 +283,12 @@ fn sections_over_the_runtime_pool_give_the_serial_count_and_recover_from_errors(
     gaps.sort();
     let median = gaps[gaps.len() / 2];
     let wakes = pool.wakes() - wakes0;
-    eprintln!("completion wake: median gap {median:?}, min {:?}, max {:?}, wakes {wakes}/40, quanta {}", gaps[0], gaps[gaps.len() - 1], pool.quanta() - quanta0);
+    eprintln!(
+        "completion wake: median gap {median:?}, min {:?}, max {:?}, wakes {wakes}/40, quanta {}",
+        gaps[0],
+        gaps[gaps.len() - 1],
+        pool.quanta() - quanta0
+    );
     assert!(median < std::time::Duration::from_millis(1), "median gap {median:?} is not under the 1 ms park quantum: the completion did not wake the leader");
     assert!(wakes >= 20, "{wakes} of 40 sections ended by a wake");
     quiesced();
@@ -223,10 +310,16 @@ fn pool_workers_carry_the_statement_stamp() {
     let probe = |leader: gravity_hosts::StatementArm| {
         let mine = Arc::clone(&seen);
         let before = seen.lock().unwrap().len();
-        assert!(pool.spawn(Box::new(move || mine.lock().unwrap().push(gravity_hosts::StatementArm::capture()))));
+        assert!(pool.spawn(Box::new(move || mine
+            .lock()
+            .unwrap()
+            .push(gravity_hosts::StatementArm::capture()))));
         let t0 = std::time::Instant::now();
         while seen.lock().unwrap().len() == before {
-            assert!(t0.elapsed() < std::time::Duration::from_secs(10), "the background job never ran");
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(10),
+                "the background job never ran"
+            );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         let worker = seen.lock().unwrap().last().unwrap().clone();
@@ -234,9 +327,15 @@ fn pool_workers_carry_the_statement_stamp() {
         worker
     };
     gravity_hosts::arm_database_encoding(PG_UTF8).unwrap();
-    assert_eq!(probe(gravity_hosts::StatementArm::capture()).encoding(), PG_UTF8);
+    assert_eq!(
+        probe(gravity_hosts::StatementArm::capture()).encoding(),
+        PG_UTF8
+    );
     gravity_hosts::arm_database_encoding(PG_SQL_ASCII).unwrap();
-    assert_eq!(probe(gravity_hosts::StatementArm::capture()).encoding(), PG_SQL_ASCII);
+    assert_eq!(
+        probe(gravity_hosts::StatementArm::capture()).encoding(),
+        PG_SQL_ASCII
+    );
 }
 
 /// D278: an ordered section (R1D's `ClaimOrder`, window 2 x W) on a 16-thread pool at W below 16. Every awake pool thread
@@ -258,9 +357,17 @@ fn ordered_claims_below_the_pool_width_never_wait_out_the_room_timeout() {
     let rt = Runtime::new(RuntimeConfig::new(16));
     let threads = WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool threads");
     let pool = RuntimePool::new(Arc::clone(&rt), Ambient::HARNESS);
-    for (width, narrow) in (1u16..=16).map(|w| (w, false)).chain([(2, true), (8, true)]) {
+    for (width, narrow) in (1u16..=16)
+        .map(|w| (w, false))
+        .chain([(2, true), (8, true)])
+    {
         let claims = BlockRange::new(CLAIMS, ClaimSize::Fixed(1));
-        let order = gravity_driver::ClaimOrder::new(2 * width as usize, width as usize, claims.first_live_at(0)).with_room_wait(ROOM_WAIT);
+        let order = gravity_driver::ClaimOrder::new(
+            2 * width as usize,
+            width as usize,
+            claims.first_live_at(0),
+        )
+        .with_room_wait(ROOM_WAIT);
         let ran: Mutex<Vec<u64>> = Mutex::new(Vec::new());
         // claims started and not yet released by the leader (the finished ones buffer their rows), and its peak
         let (live, peak) = (AtomicU64::new(0), AtomicU64::new(0));
@@ -287,22 +394,47 @@ fn ordered_claims_below_the_pool_width_never_wait_out_the_room_timeout() {
                 }
                 order.ready(&released, &mut emitted)
             };
-            pool.run_leading(width, &claims, &job, &mut lead, &order).unwrap();
+            pool.run_leading(width, &claims, &job, &mut lead, &order)
+                .unwrap();
         }
         let wall = t0.elapsed();
         // the last claims can finish after the leader's last round: the emit's tail is the leader's after the section
         order.ready(&released, &mut emitted);
         let mut ran = ran.into_inner().unwrap();
         ran.sort_unstable();
-        let (waits, overruns, peak) = (order.waits.load(Ordering::Relaxed), order.overruns.load(Ordering::Relaxed), peak.load(Ordering::Relaxed));
+        let (waits, overruns, peak) = (
+            order.waits.load(Ordering::Relaxed),
+            order.overruns.load(Ordering::Relaxed),
+            peak.load(Ordering::Relaxed),
+        );
         eprintln!("D278 W{width}{}: {} claims in {wall:?}, {waits} room waits, {overruns} ROOM_WAIT expiries, peak {peak} buffered", if narrow { " narrowed" } else { "" }, ran.len());
-        assert_eq!(emitted, ran, "W{width}: every claim emitted once, in claim order");
-        assert!(!ran.is_empty() && ran[0] == 0, "W{width}: the claims start at the head");
-        assert_eq!(order.admitted(), 0, "W{width}: every admitted claim settled");
-        assert!(peak <= 3 * width as u64 + 1 + overruns, "W{width}: {peak} claims buffered past the window + W + the head");
+        assert_eq!(
+            emitted, ran,
+            "W{width}: every claim emitted once, in claim order"
+        );
+        assert!(
+            !ran.is_empty() && ran[0] == 0,
+            "W{width}: the claims start at the head"
+        );
+        assert_eq!(
+            order.admitted(),
+            0,
+            "W{width}: every admitted claim settled"
+        );
+        assert!(
+            peak <= 3 * width as u64 + 1 + overruns,
+            "W{width}: {peak} claims buffered past the window + W + the head"
+        );
         if !narrow {
-            assert!(wall < ROOM_WAIT * (CLAIMS as u32) / 16, "W{width}: {wall:?} for {} claims: a stall bound by ROOM_WAIT", ran.len());
-            assert!(overruns <= CLAIMS / 64, "W{width}: {overruns} claims waited out ROOM_WAIT for room ({waits} waited)");
+            assert!(
+                wall < ROOM_WAIT * (CLAIMS as u32) / 16,
+                "W{width}: {wall:?} for {} claims: a stall bound by ROOM_WAIT",
+                ran.len()
+            );
+            assert!(
+                overruns <= CLAIMS / 64,
+                "W{width}: {overruns} claims waited out ROOM_WAIT for room ({waits} waited)"
+            );
         }
     }
     threads.shutdown();
@@ -323,7 +455,10 @@ fn ordered_claims_admitted_before_the_lease_still_stop_and_settle() {
     // slower than ~270 us ends the ramp, so 5-7 large claims covered the 256 units and the LIMIT at 8 emitted claims
     // never fired (W1, 19% under load). t_max = t_min = 1 ns pins one-unit claims, the 256 the sub-cases are written for.
     let mut config = RuntimeConfig::new(16);
-    config.sizing = runtime::SizingParams { t_max_ns: 1, t_min_ns: 1 };
+    config.sizing = runtime::SizingParams {
+        t_max_ns: 1,
+        t_min_ns: 1,
+    };
     let rt = Runtime::new(config);
     let threads = WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool threads");
     let pool = RuntimePool::new(Arc::clone(&rt), Ambient::HARNESS);
@@ -336,7 +471,12 @@ fn ordered_claims_admitted_before_the_lease_still_stop_and_settle() {
     for width in [1u16, 2, 8] {
         // LIMIT: the leader stops once 8 claims are out; unstopped, the claims take >= 256 x 200 us / W
         let claims = BlockRange::new(CLAIMS, ClaimSize::Fixed(1));
-        let order = gravity_driver::ClaimOrder::new(2 * width as usize, width as usize, claims.first_live_at(0)).with_room_wait(ROOM_WAIT);
+        let order = gravity_driver::ClaimOrder::new(
+            2 * width as usize,
+            width as usize,
+            claims.first_live_at(0),
+        )
+        .with_room_wait(ROOM_WAIT);
         let ran = AtomicU64::new(0);
         let job = |_ordinal: u16, _claim: gravity_abi::MorselRange| -> Result<()> {
             spin(200);
@@ -352,25 +492,48 @@ fn ordered_claims_admitted_before_the_lease_still_stop_and_settle() {
                     claims.close();
                 }
             };
-            pool.run_leading(width, &claims, &job, &mut lead, &order).unwrap();
+            pool.run_leading(width, &claims, &job, &mut lead, &order)
+                .unwrap();
         }
         let ran = ran.load(Ordering::Relaxed);
-        assert!(emitted.len() >= 8 && emitted.windows(2).all(|w| w[0] < w[1]), "W{width}: {emitted:?}");
-        assert!(ran < CLAIMS / 2, "W{width}: {ran} of {CLAIMS} claims ran after the LIMIT stopped the stream");
-        assert_eq!(order.admitted(), 0, "W{width}: every admitted claim settled");
-        assert!(!order.admit(gravity_abi::MorselRange::new(CLAIMS - 1, CLAIMS)), "W{width}: no claim is admitted after the stop");
+        assert!(
+            emitted.len() >= 8 && emitted.windows(2).all(|w| w[0] < w[1]),
+            "W{width}: {emitted:?}"
+        );
+        assert!(
+            ran < CLAIMS / 2,
+            "W{width}: {ran} of {CLAIMS} claims ran after the LIMIT stopped the stream"
+        );
+        assert_eq!(
+            order.admitted(),
+            0,
+            "W{width}: every admitted claim settled"
+        );
+        assert!(
+            !order.admit(gravity_abi::MorselRange::new(CLAIMS - 1, CLAIMS)),
+            "W{width}: no claim is admitted after the stop"
+        );
 
         // a failed claim: the section fails, nothing after it is emitted, no claim waits out ROOM_WAIT; once it failed,
         // every claim that runs holds its slot 2 ms, so the admitted claims still waiting for one are refused their lease
         let claims = BlockRange::new(CLAIMS, ClaimSize::Fixed(1));
-        let order = gravity_driver::ClaimOrder::new(2 * width as usize, width as usize, claims.first_live_at(0)).with_room_wait(ROOM_WAIT);
+        let order = gravity_driver::ClaimOrder::new(
+            2 * width as usize,
+            width as usize,
+            claims.first_live_at(0),
+        )
+        .with_room_wait(ROOM_WAIT);
         let failed = std::sync::atomic::AtomicBool::new(false);
         let job = |_ordinal: u16, claim: gravity_abi::MorselRange| -> Result<()> {
             if claim.lo <= 40 && 40 < claim.hi {
                 failed.store(true, Ordering::Release);
                 return Err(Error::host("d278 fixture"));
             }
-            spin(if failed.load(Ordering::Acquire) { 2000 } else { 20 });
+            spin(if failed.load(Ordering::Acquire) {
+                2000
+            } else {
+                20
+            });
             Ok(())
         };
         let mut emitted = Vec::new();
@@ -381,17 +544,43 @@ fn ordered_claims_admitted_before_the_lease_still_stop_and_settle() {
         };
         let wall = t0.elapsed();
         order.ready(&|u| claims.first_live_at(u), &mut emitted);
-        assert_eq!(r.map_err(|e| e.error), Err(Error::host("d278 fixture")), "W{width}");
-        assert!(emitted.windows(2).all(|w| w[0] < w[1]) && emitted.iter().all(|&lo| lo <= 40), "W{width}: {emitted:?}");
-        assert_eq!(order.admitted(), 0, "W{width}: every admitted claim settled (refused leases included)");
-        assert_eq!(order.overruns.load(Ordering::Relaxed), 0, "W{width}: a claim parked for room waited out ROOM_WAIT after the failure");
-        assert!(wall < std::time::Duration::from_millis(500), "W{width}: {wall:?}");
+        assert_eq!(
+            r.map_err(|e| e.error),
+            Err(Error::host("d278 fixture")),
+            "W{width}"
+        );
+        assert!(
+            emitted.windows(2).all(|w| w[0] < w[1]) && emitted.iter().all(|&lo| lo <= 40),
+            "W{width}: {emitted:?}"
+        );
+        assert_eq!(
+            order.admitted(),
+            0,
+            "W{width}: every admitted claim settled (refused leases included)"
+        );
+        assert_eq!(
+            order.overruns.load(Ordering::Relaxed),
+            0,
+            "W{width}: a claim parked for room waited out ROOM_WAIT after the failure"
+        );
+        assert!(
+            wall < std::time::Duration::from_millis(500),
+            "W{width}: {wall:?}"
+        );
 
         // a claim that panics settles as failed on the unwind: the order ends at it
         let claims = BlockRange::new(CLAIMS, ClaimSize::Fixed(1));
-        let order = gravity_driver::ClaimOrder::new(2 * width as usize, width as usize, claims.first_live_at(0)).with_room_wait(ROOM_WAIT);
+        let order = gravity_driver::ClaimOrder::new(
+            2 * width as usize,
+            width as usize,
+            claims.first_live_at(0),
+        )
+        .with_room_wait(ROOM_WAIT);
         let job = |_ordinal: u16, claim: gravity_abi::MorselRange| -> Result<()> {
-            assert!(!(claim.lo <= 40 && 40 < claim.hi), "d278 fixture: a claim panics");
+            assert!(
+                !(claim.lo <= 40 && 40 < claim.hi),
+                "d278 fixture: a claim panics"
+            );
             spin(20);
             Ok(())
         };
@@ -399,13 +588,21 @@ fn ordered_claims_admitted_before_the_lease_still_stop_and_settle() {
         let r = {
             let mut lead = || order.ready(&|u| claims.first_live_at(u), &mut emitted);
             // unwind-ok: test
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pool.run_leading(width, &claims, &job, &mut lead, &order)))
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                pool.run_leading(width, &claims, &job, &mut lead, &order)
+            }))
         };
         order.ready(&|u| claims.first_live_at(u), &mut emitted);
         // D2933: the claim's bug panic is C's abort(): the section completes (failed), then the leader PANICs
         let payload = r.expect_err("a claim's bug panic PANICs the leader");
-        assert!(payload.is::<types_error::PanicExitThread>(), "W{width}: the leader's PANIC, not XX000");
-        assert!(emitted.windows(2).all(|w| w[0] < w[1]) && emitted.iter().all(|&lo| lo <= 40), "W{width}: {emitted:?}");
+        assert!(
+            payload.is::<types_error::PanicExitThread>(),
+            "W{width}: the leader's PANIC, not XX000"
+        );
+        assert!(
+            emitted.windows(2).all(|w| w[0] < w[1]) && emitted.iter().all(|&lo| lo <= 40),
+            "W{width}: {emitted:?}"
+        );
         assert_eq!(order.admitted(), 0, "W{width}: the panicked claim settled");
     }
     threads.shutdown();
@@ -422,7 +619,10 @@ fn no_claim_runs_on_the_ordinal_of_a_failed_claim() {
     install();
     const SECTIONS: usize = 400;
     let mut config = RuntimeConfig::new(16);
-    config.sizing = runtime::SizingParams { t_max_ns: 1, t_min_ns: 1 };
+    config.sizing = runtime::SizingParams {
+        t_max_ns: 1,
+        t_min_ns: 1,
+    };
     let rt = Runtime::new(config);
     let threads = WorkerPool::spawn_std(Arc::clone(&rt)).expect("pool threads");
     let pool = RuntimePool::new(Arc::clone(&rt), Ambient::HARNESS);
@@ -430,7 +630,9 @@ fn no_claim_runs_on_the_ordinal_of_a_failed_claim() {
     for s in 0..SECTIONS {
         let width = [2u16, 4, 8][s % 3];
         let claims = BlockRange::new(256, ClaimSize::Fixed(1));
-        let poisoned: Vec<std::sync::atomic::AtomicBool> = (0..width).map(|_| std::sync::atomic::AtomicBool::new(false)).collect();
+        let poisoned: Vec<std::sync::atomic::AtomicBool> = (0..width)
+            .map(|_| std::sync::atomic::AtomicBool::new(false))
+            .collect();
         let ran_after = AtomicU64::new(0);
         let job = |ordinal: u16, _claim: gravity_abi::MorselRange| -> Result<()> {
             if poisoned[ordinal as usize].load(Ordering::Acquire) {
@@ -441,11 +643,16 @@ fn no_claim_runs_on_the_ordinal_of_a_failed_claim() {
                 std::hint::spin_loop();
             }
             poisoned[ordinal as usize].store(true, Ordering::Release);
-            Err(gravity_hosts::stash(Box::new(types_error::PgError::error("d2566 fixture: a claim fails"))))
+            Err(gravity_hosts::stash(Box::new(types_error::PgError::error(
+                "d2566 fixture: a claim fails",
+            ))))
         };
         assert!(pool.run(width, &claims, &job).is_err(), "section {s}");
         after += ran_after.load(Ordering::Relaxed);
     }
     threads.shutdown();
-    assert_eq!(after, 0, "{after} claims ran on an ordinal whose claim had failed ({SECTIONS} sections)");
+    assert_eq!(
+        after, 0,
+        "{after} claims ran on an ordinal whose claim had failed ({SECTIONS} sections)"
+    );
 }

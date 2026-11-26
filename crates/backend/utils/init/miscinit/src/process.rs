@@ -4,8 +4,8 @@ use elog::{ereport, PCT_M};
 use init_small::globals as g;
 use types_core::INVALID_PROC_NUMBER;
 use types_error::{
-    ErrorLocation, PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_TOO_MANY_CONNECTIONS,
-    FATAL,
+    ErrorLocation, PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE,
+    ERRCODE_TOO_MANY_CONNECTIONS, FATAL,
 };
 use types_storage::latch::LatchHandle;
 
@@ -255,7 +255,9 @@ pub fn ChangeToDataDir() -> PgResult<()> {
         ereport(FATAL)
             .with_saved_errno(e.raw_os_error().unwrap_or(0))
             .errcode_for_file_access()
-            .errmsg(format!("could not change directory to \"{data_dir}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not change directory to \"{data_dir}\": {PCT_M}"
+            ))
             .finish(loc(465, "ChangeToDataDir"))?;
     }
     Ok(())
@@ -338,7 +340,9 @@ pub(crate) fn leading_i64(s: &str) -> i64 {
     }
     let mut val = 0i64;
     while i < bytes.len() && bytes[i].is_ascii_digit() {
-        val = val.saturating_mul(10).saturating_add((bytes[i] - b'0') as i64);
+        val = val
+            .saturating_mul(10)
+            .saturating_add((bytes[i] - b'0') as i64);
         i += 1;
     }
     sign.saturating_mul(val)

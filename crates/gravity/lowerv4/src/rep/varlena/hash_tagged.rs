@@ -24,7 +24,10 @@ crate::strategies! {
     KEY_TAGGED = 82, "key.tagged", VarlenaKeyHeap;
 }
 
-pub(crate) const ROWS: Table = Table { strategies: &[(KEY_TAGGED, &IMPL)], ..crate::ops::NONE };
+pub(crate) const ROWS: Table = Table {
+    strategies: &[(KEY_TAGGED, &IMPL)],
+    ..crate::ops::NONE
+};
 
 const IMPL: VarKeyImpl = VarKeyImpl(&Tagged);
 
@@ -34,13 +37,23 @@ pub(crate) const INLINE: i64 = 15;
 struct Tagged;
 
 impl VarKeyMech for Tagged {
-    fn hash(&self, lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, _: KeyColl, _: Scope) -> Option<Words> {
+    fn hash(
+        &self,
+        lx: &mut Lx<'_, '_, '_>,
+        c: CellRef<'_>,
+        tf: &TypeFacts,
+        _: KeyColl,
+        _: Scope,
+    ) -> Option<Words> {
         if !lx.strategies.has(KEY_TAGGED) || !tf.image.is_bytes() {
             return None;
         }
         let (p, null) = rep::datum(lx, c, tf);
         let zero = lx.b.iconst(Type::I64, 0);
-        let (l_val, l_out) = (lx.b.create_block(&[]), lx.b.create_block(&[Type::I64, Type::I64]));
+        let (l_val, l_out) = (
+            lx.b.create_block(&[]),
+            lx.b.create_block(&[Type::I64, Type::I64]),
+        );
         lx.b.cond_br(null, (l_out, &[zero, zero]), (l_val, &[]));
         lx.b.switch_to(l_val);
         let p = crate::rep::varlena::hash::ptr(lx.b, p);
@@ -50,10 +63,19 @@ impl VarKeyMech for Tagged {
         lx.b.br(l_out, &[w0, w1]);
         lx.b.switch_to(l_out);
         let o = lx.b.block_params(l_out);
-        Some(Words { w: [Some(o[0]), Some(o[1])], exact: true })
+        Some(Words {
+            w: [Some(o[0]), Some(o[1])],
+            exact: true,
+        })
     }
 
-    fn order(&self, _: &mut Lx<'_, '_, '_>, _: CellRef<'_>, _: &TypeFacts, _: KeyColl) -> Option<(Value, TailForm)> {
+    fn order(
+        &self,
+        _: &mut Lx<'_, '_, '_>,
+        _: CellRef<'_>,
+        _: &TypeFacts,
+        _: KeyColl,
+    ) -> Option<(Value, TailForm)> {
         None
     }
 }
@@ -72,12 +94,21 @@ pub(super) enum Hashed {
 }
 
 /// `image` under `form`: the inline form is the same two words either way (bit 63 clear: the length is at most 15).
-pub(super) fn image_as(lx: &mut Lx<'_, '_, '_>, bytes: Value, len: Value, form: Hashed) -> (Value, Value) {
+pub(super) fn image_as(
+    lx: &mut Lx<'_, '_, '_>,
+    bytes: Value,
+    len: Value,
+    form: Hashed,
+) -> (Value, Value) {
     let b = &mut *lx.b;
     let (zero, s56) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, 56));
     let lim = b.iconst(Type::I64, INLINE);
     let long = b.icmp(IntCond::Ugt, len, lim);
-    let (l_short, l_long, l_out) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::I64, Type::I64]));
+    let (l_short, l_long, l_out) = (
+        b.create_block(&[]),
+        b.create_block(&[]),
+        b.create_block(&[Type::I64, Type::I64]),
+    );
     b.cond_br(long, (l_long, &[]), (l_short, &[]));
     b.switch_to(l_short);
     let tag = b.int_bin(IntBinOp::Shl, len, s56);
@@ -102,7 +133,10 @@ pub(super) fn image_as(lx: &mut Lx<'_, '_, '_>, bytes: Value, len: Value, form: 
         Hashed::Tagged => (u64::MAX >> 8, 0xFFu64 << 56),
         Hashed::Canon => (!gravity_dict::fp::HASHED, gravity_dict::fp::HASHED),
     };
-    let (keep, top) = (b.iconst(Type::I64, keep as i64), b.iconst(Type::I64, top as i64));
+    let (keep, top) = (
+        b.iconst(Type::I64, keep as i64),
+        b.iconst(Type::I64, top as i64),
+    );
     let hi = b.int_bin(IntBinOp::And, hi, keep);
     let hi = b.int_bin(IntBinOp::Or, hi, top);
     b.br(l_out, &[lo, hi]);
@@ -116,7 +150,11 @@ pub(super) fn image_as(lx: &mut Lx<'_, '_, '_>, bytes: Value, len: Value, form: 
 /// else the 8 bytes from `q` masked to `k` (the last byte is then among a page's first 7, so the read ends on its page).
 pub(super) fn tail(b: &mut FunctionBuilder<'_>, q: Value, k: Value) -> Value {
     let qi = b.conv(gravity_ir::ConvOp::PtrToInt, Type::I64, q);
-    let (one, eight, page) = (b.iconst(Type::I64, 1), b.iconst(Type::I64, 8), b.iconst(Type::I64, 4095));
+    let (one, eight, page) = (
+        b.iconst(Type::I64, 1),
+        b.iconst(Type::I64, 8),
+        b.iconst(Type::I64, 4095),
+    );
     let last = b.int_bin(IntBinOp::Add, qi, k);
     let last = b.int_bin(IntBinOp::Sub, last, one);
     let off = b.int_bin(IntBinOp::And, last, page);
@@ -171,7 +209,12 @@ mod tests {
             for k in 1..=8usize {
                 let q = at as *const u8;
                 let want = (0..k).fold(0u64, |w, i| w | (u64::from(buf[at - base + i]) << (8 * i)));
-                assert_eq!(run_tail(q, k as u64), want, "k {k} at page offset {}", at & 4095);
+                assert_eq!(
+                    run_tail(q, k as u64),
+                    want,
+                    "k {k} at page offset {}",
+                    at & 4095
+                );
             }
         }
     }

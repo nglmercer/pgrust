@@ -46,4 +46,3 @@ pub fn init_seams() {
         set: set_max_stack_depth,
     });
 }
-

@@ -12,10 +12,9 @@ use types_core::instrument::{instr_time, BufferUsage, WalUsage};
 use types_error::{PgResult, ERRCODE_INVALID_PARAMETER_VALUE, LOG};
 
 use crate::{
-    gucs, nesting_level, Counters, PgssEntry, PgssHashKey, PgssShared,
-    ASSUMED_LENGTH_INIT, PGSS, PGSS_DUMP_FILE, PGSS_EXEC, PGSS_FILE_HEADER, PGSS_NUMKIND,
-    PGSS_PG_MAJOR_VERSION, PGSS_PLAN, STICKY_DECREASE_FACTOR, USAGE_DEALLOC_PERCENT,
-    USAGE_DECREASE_FACTOR, USAGE_EXEC, USAGE_INIT,
+    gucs, nesting_level, Counters, PgssEntry, PgssHashKey, PgssShared, ASSUMED_LENGTH_INIT, PGSS,
+    PGSS_DUMP_FILE, PGSS_EXEC, PGSS_FILE_HEADER, PGSS_NUMKIND, PGSS_PG_MAJOR_VERSION, PGSS_PLAN,
+    STICKY_DECREASE_FACTOR, USAGE_DEALLOC_PERCENT, USAGE_DECREASE_FACTOR, USAGE_EXEC, USAGE_INIT,
 };
 
 // pg_stat_statements.c:1428-1431 Welford update. On aarch64 GCC fuses
@@ -68,18 +67,22 @@ pub(crate) fn pgss_store(
     // allocate under the exclusive lock.
     let absent = {
         let guard = PGSS.lock().unwrap();
-        let Some(shared) = guard.as_ref() else { return Ok(()) };
+        let Some(shared) = guard.as_ref() else {
+            return Ok(());
+        };
         !shared.hash.contains_key(&key)
     };
     let norm_query: Option<String> = match jstate {
-        Some(js) if absent => {
-            Some(crate::normalize::generate_normalized_query(js, query, location)?)
-        }
+        Some(js) if absent => Some(crate::normalize::generate_normalized_query(
+            js, query, location,
+        )?),
         _ => None,
     };
 
     let mut guard = PGSS.lock().unwrap();
-    let Some(shared) = guard.as_mut() else { return Ok(()) };
+    let Some(shared) = guard.as_mut() else {
+        return Ok(());
+    };
 
     if !shared.hash.contains_key(&key) {
         let text: &str = norm_query.as_deref().unwrap_or(query);
@@ -103,8 +106,12 @@ pub(crate) fn pgss_store(
         c.mean_time[kind] = total_time;
     } else {
         // Welford's method, as in C.
-        (c.mean_time[kind], c.sum_var_time[kind]) =
-            welford_step(c.mean_time[kind], c.sum_var_time[kind], c.calls[kind], total_time);
+        (c.mean_time[kind], c.sum_var_time[kind]) = welford_step(
+            c.mean_time[kind],
+            c.sum_var_time[kind],
+            c.calls[kind],
+            total_time,
+        );
         // min==0 && max==0 means the min/max stats were reset.
         if c.min_time[kind] == 0.0 && c.max_time[kind] == 0.0 {
             c.min_time[kind] = total_time;
@@ -162,11 +169,18 @@ pub(crate) fn entry_alloc(
         return Ok(());
     }
     let now = adt_timestamp::GetCurrentTimestamp();
-    let usage = if sticky { shared.cur_median_usage } else { USAGE_INIT };
+    let usage = if sticky {
+        shared.cur_median_usage
+    } else {
+        USAGE_INIT
+    };
     shared.hash.insert(
         key,
         PgssEntry {
-            counters: Counters { usage, ..Counters::default() },
+            counters: Counters {
+                usage,
+                ..Counters::default()
+            },
             query_text: query_text.to_owned(),
             encoding,
             stats_since: now,
@@ -201,8 +215,11 @@ pub(crate) fn entry_dealloc(shared: &mut PgssShared) -> types_error::PgResult<()
     if n > 0 {
         shared.cur_median_usage = usages[n / 2].1;
     }
-    shared.mean_query_len =
-        if nvalidtexts > 0 { tottextlen / nvalidtexts } else { ASSUMED_LENGTH_INIT };
+    shared.mean_query_len = if nvalidtexts > 0 {
+        tottextlen / nvalidtexts
+    } else {
+        ASSUMED_LENGTH_INIT
+    };
 
     let nvictims = std::cmp::min(std::cmp::max(10, n * USAGE_DEALLOC_PERCENT / 100), n);
     for (k, _) in usages.iter().take(nvictims) {
@@ -246,7 +263,12 @@ pub(crate) fn entry_reset(
     if userid != 0 && dbid != 0 && queryid != 0 {
         // All parameters given: probe the two (toplevel) slots directly.
         for toplevel in [false, true] {
-            let key = PgssHashKey { userid, dbid, queryid, toplevel };
+            let key = PgssHashKey {
+                userid,
+                dbid,
+                queryid,
+                toplevel,
+            };
             if shared.hash.contains_key(&key) {
                 reset_one(shared, &key);
             }
@@ -324,7 +346,13 @@ pub(crate) fn counters_to_words(c: &Counters) -> Vec<u64> {
     for k in 0..PGSS_NUMKIND {
         w.push(c.calls[k] as u64);
     }
-    for arr in [&c.total_time, &c.min_time, &c.max_time, &c.mean_time, &c.sum_var_time] {
+    for arr in [
+        &c.total_time,
+        &c.min_time,
+        &c.max_time,
+        &c.mean_time,
+        &c.sum_var_time,
+    ] {
         #[allow(clippy::needless_range_loop)]
         for k in 0..PGSS_NUMKIND {
             w.push(arr[k].to_bits());
@@ -536,12 +564,9 @@ pub(crate) fn read_dump<R: Read>(r: &mut R, shared: &mut PgssShared) -> std::io:
             return Ok(false);
         }
         // C reads query_len + 1 bytes and forces the trailing NUL.
-        let mut query_text = ::mcx::std_vec_from_elem(
-            "pg_stat_statements",
-            0u8,
-            query_len as usize + 1,
-        )
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::OutOfMemory, e.to_string()))?;
+        let mut query_text =
+            ::mcx::std_vec_from_elem("pg_stat_statements", 0u8, query_len as usize + 1)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::OutOfMemory, e.to_string()))?;
         r.read_exact(&mut query_text)?;
         query_text.pop();
 
@@ -595,7 +620,9 @@ pub(crate) fn load_dump_file(shared: &mut PgssShared) {
         Ok(false) => {
             let _ = ereport(LOG)
                 .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                .errmsg(format!("ignoring invalid data in file \"{PGSS_DUMP_FILE}\""))
+                .errmsg(format!(
+                    "ignoring invalid data in file \"{PGSS_DUMP_FILE}\""
+                ))
                 .finish(here("pgss_shmem_startup"));
         }
         Err(e) => log_file_error("read", PGSS_DUMP_FILE, &e, "pgss_shmem_startup"),
@@ -653,6 +680,13 @@ mod d400_tests {
     fn welford_step_fmadd() {
         let (m, v) = super::welford_step(1.397, 4.582, 26, 0.798);
         assert_eq!(m, 1.3739615384615385);
-        assert_eq!(v, if cfg!(target_arch = "aarch64") { 4.927000961538462 } else { 4.927000961538461 });
+        assert_eq!(
+            v,
+            if cfg!(target_arch = "aarch64") {
+                4.927000961538462
+            } else {
+                4.927000961538461
+            }
+        );
     }
 }

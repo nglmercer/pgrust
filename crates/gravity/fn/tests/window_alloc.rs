@@ -43,7 +43,10 @@ const ROWS: usize = 1024;
 const WINDOWS: usize = 1000;
 
 fn text_image(s: &str) -> Vec<u8> {
-    let mut v = ((4 + s.len()) as u32).wrapping_shl(2).to_le_bytes().to_vec();
+    let mut v = ((4 + s.len()) as u32)
+        .wrapping_shl(2)
+        .to_le_bytes()
+        .to_vec();
     v.extend_from_slice(s.as_bytes());
     v
 }
@@ -52,9 +55,19 @@ fn text_image(s: &str) -> Vec<u8> {
 fn filter_allocs(rows_hint: usize, width_hint: usize) -> (usize, usize) {
     common::install_seams();
     let parent = MemoryContext::new("statement");
-    let mut lower = FmgrCall::bind_under_window(F_LOWER, 1, C_COLLATION, &parent, -1, rows_hint, width_hint).unwrap();
-    let mut like = FmgrCall::bind_under_window(F_TEXTLIKE, 2, C_COLLATION, &parent, 1, rows_hint, 8).unwrap();
-    let rows: Vec<Vec<u8>> = (0..ROWS).map(|i| text_image(&format!("Row {i:05} OF THE WINDOW, MIXED Case AB text {}", i * 7919))).collect();
+    let mut lower =
+        FmgrCall::bind_under_window(F_LOWER, 1, C_COLLATION, &parent, -1, rows_hint, width_hint)
+            .unwrap();
+    let mut like =
+        FmgrCall::bind_under_window(F_TEXTLIKE, 2, C_COLLATION, &parent, 1, rows_hint, 8).unwrap();
+    let rows: Vec<Vec<u8>> = (0..ROWS)
+        .map(|i| {
+            text_image(&format!(
+                "Row {i:05} OF THE WINDOW, MIXED Case AB text {}",
+                i * 7919
+            ))
+        })
+        .collect();
     let pat = text_image("%ab%");
     let mut hits = 0usize;
     let mut before = 0;
@@ -63,8 +76,15 @@ fn filter_allocs(rows_hint: usize, width_hint: usize) -> (usize, usize) {
             before = allocs_here();
         }
         for r in &rows {
-            let l = lower.call_site(&[Datum::from_usize(r.as_ptr() as usize)], &[false]).unwrap();
-            let m = like.call_site(&[l.value, Datum::from_usize(pat.as_ptr() as usize)], &[false, false]).unwrap();
+            let l = lower
+                .call_site(&[Datum::from_usize(r.as_ptr() as usize)], &[false])
+                .unwrap();
+            let m = like
+                .call_site(
+                    &[l.value, Datum::from_usize(pat.as_ptr() as usize)],
+                    &[false, false],
+                )
+                .unwrap();
             hits += m.value.as_bool() as usize;
         }
         lower.reset_window();
@@ -81,5 +101,8 @@ fn a_window_site_allocates_nothing_in_steady_state() {
     assert_eq!(hits, hits2);
     assert_eq!(hits, (WINDOWS * ROWS));
     assert_eq!(sized, 0, "a sized window site mallocs in steady state");
-    assert_eq!(kept, 0, "an undersized window site mallocs in steady state despite its kept blocks");
+    assert_eq!(
+        kept, 0,
+        "an undersized window site mallocs in steady state despite its kept blocks"
+    );
 }

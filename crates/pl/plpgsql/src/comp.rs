@@ -9,7 +9,9 @@ use types_error::{
 };
 
 use crate::ast::*;
-use crate::scanner::{CwordRes, IdentifierLookup, PLcword, PLwdatum, PLword, WordRes, WordResolver};
+use crate::scanner::{
+    CwordRes, IdentifierLookup, PLcword, PLwdatum, PLword, WordRes, WordResolver,
+};
 
 // plpgsql.h PLPGSQL_RESOLVE_*; the plpgsql.variable_conflict GUC row
 // (guc_tables) stores the same values.
@@ -55,7 +57,12 @@ pub fn release_expr_ids(ids: &[u32]) {
 /// D4312: the thread's exit drain (exec.rs release_plpgsql_state_at_exit) dropped everything an id keys, so the pool
 /// starts over: a retained standby's next task reissues ids from 1 instead of counting on toward the plan slab's bound.
 pub(crate) fn reset_expr_ids() {
-    EXPR_IDS.with(|p| *p.borrow_mut() = ExprIdPool { next: 1, free: Vec::new() });
+    EXPR_IDS.with(|p| {
+        *p.borrow_mut() = ExprIdPool {
+            next: 1,
+            free: Vec::new(),
+        }
+    });
 }
 
 impl Drop for CompState {
@@ -192,9 +199,7 @@ impl CompState {
                 if item.itemtype == NsType::Label {
                     break;
                 }
-                if item.name == name1
-                    && (name2.is_none() || item.itemtype != NsType::Var)
-                {
+                if item.name == name1 && (name2.is_none() || item.itemtype != NsType::Var) {
                     return Some((i, 1));
                 }
                 i = item.prev;
@@ -208,9 +213,7 @@ impl CompState {
                         if item.itemtype == NsType::Label {
                             break;
                         }
-                        if item.name == n2
-                            && (name3.is_none() || item.itemtype != NsType::Var)
-                        {
+                        if item.name == n2 && (name3.is_none() || item.itemtype != NsType::Var) {
                             return Some((j, 2));
                         }
                         j = item.prev;
@@ -318,7 +321,13 @@ impl CompState {
     ) -> PgResult<Dno> {
         if datatype.ttype == TypeKind::Rec {
             let rectypeid = datatype.typoid;
-            return Ok(self.build_rec_typed(refname, lineno, rectypeid, Some(datatype), add2namespace));
+            return Ok(self.build_rec_typed(
+                refname,
+                lineno,
+                rectypeid,
+                Some(datatype),
+                add2namespace,
+            ));
         }
         if datatype.ttype == TypeKind::Pseudo {
             return Err(comp_err(
@@ -460,7 +469,11 @@ impl CompState {
                 format!("relation \"{ident}\" does not exist"),
             ));
         }
-        Self::rowtype_of(class_oid, ident, OrigTypeName::Names(vec![ident.to_string()]))
+        Self::rowtype_of(
+            class_oid,
+            ident,
+            OrigTypeName::Names(vec![ident.to_string()]),
+        )
     }
 
     // plpgsql_parse_cwordrowtype (pl_comp.c:1704): the RangeVar is built as
@@ -488,7 +501,11 @@ impl CompState {
             location: -1,
         };
         let class_oid = catalog_namespace::RangeVarGetRelid(&rv, types_rel::NoLock, false)?;
-        Self::rowtype_of(class_oid, relname, OrigTypeName::Names(::mcx::std_vec_from_slice("plpgsql",idents)?))
+        Self::rowtype_of(
+            class_oid,
+            relname,
+            OrigTypeName::Names(::mcx::std_vec_from_slice("plpgsql", idents)?),
+        )
     }
 
     fn rowtype_of(class_oid: Oid, relname: &str, origtypname: OrigTypeName) -> PgResult<PlType> {
@@ -527,11 +544,18 @@ impl CompState {
                 }
                 (None, idents[0].as_str(), idents[1].as_str())
             }
-            3 => (Some(idents[0].as_str()), idents[1].as_str(), idents[2].as_str()),
+            3 => (
+                Some(idents[0].as_str()),
+                idents[1].as_str(),
+                idents[2].as_str(),
+            ),
             _ => {
                 return Err(comp_err(
                     types_error::ERRCODE_SYNTAX_ERROR,
-                    format!("improper qualified name (too many dotted names): {}", idents.join(".")),
+                    format!(
+                        "improper qualified name (too many dotted names): {}",
+                        idents.join(".")
+                    ),
                 ));
             }
         };
@@ -583,7 +607,9 @@ impl Default for CompState {
 
 #[cold]
 // A domain over a composite resolves to its base type's entry.
-pub(crate) fn composite_typcache_entry(typoid: Oid) -> PgResult<std::rc::Rc<typcache::TypeCacheEntry>> {
+pub(crate) fn composite_typcache_entry(
+    typoid: Oid,
+) -> PgResult<std::rc::Rc<typcache::TypeCacheEntry>> {
     let mut entry = typcache::lookup_type_cache(
         typoid,
         typcache::TYPECACHE_TUPDESC | typcache::TYPECACHE_DOMAIN_BASE_INFO,
@@ -595,19 +621,17 @@ pub(crate) fn composite_typcache_entry(typoid: Oid) -> PgResult<std::rc::Rc<typc
     if entry.tupdesc().is_none() {
         return Err(comp_err(
             types_error::ERRCODE_WRONG_OBJECT_TYPE,
-            format!("type {} is not composite", format_type::format_type_be(typoid)?),
+            format!(
+                "type {} is not composite",
+                format_type::format_type_be(typoid)?
+            ),
         ));
     }
     Ok(entry)
 }
 
 pub fn comp_err(code: types_error::SqlState, msg: String) -> Box<PgError> {
-    Box::new(
-        elog::ereport(ERROR)
-            .errcode(code)
-            .errmsg(msg)
-            .into_error(),
-    )
+    Box::new(elog::ereport(ERROR).errcode(code).errmsg(msg).into_error())
 }
 
 impl WordResolver for CompState {
@@ -637,7 +661,8 @@ impl WordResolver for CompState {
     fn parse_dblword(&mut self, word1: &str, word2: &str) -> PgResult<CwordRes> {
         let idents = vec![word1.to_string(), word2.to_string()];
         if self.identifier_lookup != IdentifierLookup::Declare {
-            if let Some((idx, nnames)) = self.ns_lookup(self.ns_top, false, word1, Some(word2), None)
+            if let Some((idx, nnames)) =
+                self.ns_lookup(self.ns_top, false, word1, Some(word2), None)
             {
                 let item = &self.ns[idx as usize];
                 match item.itemtype {
@@ -812,7 +837,12 @@ fn stmts_have_exceptions(stmts: &[PlStmt]) -> bool {
 
 fn for_each_child_body(s: &PlStmt, f: &mut dyn FnMut(&[PlStmt])) {
     match s {
-        PlStmt::If { then_body, elsifs, else_body, .. } => {
+        PlStmt::If {
+            then_body,
+            elsifs,
+            else_body,
+            ..
+        } => {
             f(then_body);
             for (_, b) in elsifs {
                 f(b);
@@ -821,7 +851,9 @@ fn for_each_child_body(s: &PlStmt, f: &mut dyn FnMut(&[PlStmt])) {
                 f(b);
             }
         }
-        PlStmt::Case { whens, else_stmts, .. } => {
+        PlStmt::Case {
+            whens, else_stmts, ..
+        } => {
             for (_, b) in whens {
                 f(b);
             }
@@ -870,7 +902,12 @@ fn mark_stmts(stmts: &mut [PlStmt], local: &[Dno]) -> PgResult<()> {
                     expr.target_is_local = local.contains(&expr.target_param);
                 }
             }
-            PlStmt::If { then_body, elsifs, else_body, .. } => {
+            PlStmt::If {
+                then_body,
+                elsifs,
+                else_body,
+                ..
+            } => {
                 mark_stmts(then_body, local)?;
                 for (_, b) in elsifs {
                     mark_stmts(b, local)?;
@@ -879,7 +916,9 @@ fn mark_stmts(stmts: &mut [PlStmt], local: &[Dno]) -> PgResult<()> {
                     mark_stmts(b, local)?;
                 }
             }
-            PlStmt::Case { whens, else_stmts, .. } => {
+            PlStmt::Case {
+                whens, else_stmts, ..
+            } => {
                 for (_, b) in whens {
                     mark_stmts(b, local)?;
                 }
@@ -926,7 +965,11 @@ mod local_target_tests {
             exceptions: handler.map(|action| ExceptionBlock {
                 sqlstate_varno: -1,
                 sqlerrm_varno: -1,
-                exc_list: vec![PlException { lineno: 1, conditions: Vec::new(), action }],
+                exc_list: vec![PlException {
+                    lineno: 1,
+                    conditions: Vec::new(),
+                    action,
+                }],
             }),
         }
     }
@@ -961,7 +1004,16 @@ mod local_target_tests {
         );
         let mut action = block(
             vec![1],
-            vec![assign(0), assign(1), PlStmt::Loop { lineno: 1, label: None, body: vec![assign(1)] }, PlStmt::Block(guarded)],
+            vec![
+                assign(0),
+                assign(1),
+                PlStmt::Loop {
+                    lineno: 1,
+                    label: None,
+                    body: vec![assign(1)],
+                },
+                PlStmt::Block(guarded),
+            ],
             None,
         );
         assert!(block_has_exceptions(&action));

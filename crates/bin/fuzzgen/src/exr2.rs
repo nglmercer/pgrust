@@ -359,7 +359,9 @@ fn gen_recursive(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("exr2:recursive");
     let n = g.exr2.suites[si].n;
     let o = format!("fz_x2o{n}");
-    let shape = g.weights.pick(g.rng, &["exr2:rec:lateral", "exr2:rec:plain"]);
+    let shape = g
+        .weights
+        .pick(g.rng, &["exr2:rec:lateral", "exr2:rec:plain"]);
     g.fire(shape);
     if shape == "exr2:rec:plain" {
         // UNION (distinct) drives the recursive-union dedup hashtable; the
@@ -449,7 +451,10 @@ fn gen_nt_rescan(g: &mut Gen) -> Vec<StmtKind> {
     let tt = format!("fz_x2t{n}");
     let l = format!("fz_x2l{n}");
     let k = 1 + g.rng.below(200);
-    let shape = g.weights.pick(g.rng, &["exr2:nt:ins", "exr2:nt:upd", "exr2:nt:del", "exr2:nt:mix"]);
+    let shape = g.weights.pick(
+        g.rng,
+        &["exr2:nt:ins", "exr2:nt:upd", "exr2:nt:del", "exr2:nt:mix"],
+    );
     g.fire(shape);
     let dml: Vec<StmtKind> = match shape {
         "exr2:nt:ins" => vec![raw(format!(
@@ -468,7 +473,10 @@ fn gen_nt_rescan(g: &mut Gen) -> Vec<StmtKind> {
             raw(format!(
                 "INSERT INTO {tt} SELECT 2000 + i, i % 7 FROM generate_series(1, 20) i;"
             )),
-            raw(format!("UPDATE {tt} SET v = -v WHERE k BETWEEN {k} AND {};", k + 25)),
+            raw(format!(
+                "UPDATE {tt} SET v = -v WHERE k BETWEEN {k} AND {};",
+                k + 25
+            )),
             raw(format!("DELETE FROM {tt} WHERE k % 19 = {};", k % 19)),
         ],
     };
@@ -495,7 +503,9 @@ fn gen_serial(g: &mut Gen) -> Vec<StmtKind> {
     let n = g.exr2.suites[si].n;
     let t = format!("fz_x2{n}");
     let o = format!("fz_x2o{n}");
-    let toggle = g.weights.pick(g.rng, &["exr2:ser:print", "exr2:ser:parallel"]);
+    let toggle = g
+        .weights
+        .pick(g.rng, &["exr2:ser:print", "exr2:ser:parallel"]);
     g.fire(toggle);
     let set = if toggle == "exr2:ser:parallel" {
         "SET LOCAL debug_parallel_query = regress;"

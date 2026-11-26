@@ -69,11 +69,18 @@ const RUNS: usize = 7;
 /// longer judged) 633,718 / 2,136,016 / 4,115,765 against its last budgets 614,000 / 2,078,000 / 4,042,000; release 291,818 /
 /// 834,627 / 1,726,517. The gate's own fast leg read 314,180 / 894,060 / 1,839,601 where this build read 313,648 / 894,235 /
 /// 1,839,451 (one trunk, +0.17 / -0.02 / +0.01 %); oltp-018 moves up to 0.4 % between runs of one tree.
-const GUARDS: [(&str, u64); 3] = [("oltp-001", 315_000), ("oltp-016", 895_000), ("oltp-018", 1_833_000)];
+const GUARDS: [(&str, u64); 3] = [
+    ("oltp-001", 315_000),
+    ("oltp-016", 895_000),
+    ("oltp-018", 1_833_000),
+];
 /// The profile the budgets are judged in (the shipped one).
 const GATE: &str = "fast-profile";
 
-#[cfg(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "x86_64")
+))]
 mod counter {
     /// `struct perf_event_attr` up to PERF_ATTR_SIZE_VER5 (112 bytes).
     #[repr(C)]
@@ -124,10 +131,25 @@ mod counter {
 
     impl Insns {
         pub fn open() -> Option<Insns> {
-            let attr = Attr { type_: PERF_TYPE_HARDWARE, size: core::mem::size_of::<Attr>() as u32, config: PERF_COUNT_HW_INSTRUCTIONS, flags: FLAGS, ..Attr::default() };
+            let attr = Attr {
+                type_: PERF_TYPE_HARDWARE,
+                size: core::mem::size_of::<Attr>() as u32,
+                config: PERF_COUNT_HW_INSTRUCTIONS,
+                flags: FLAGS,
+                ..Attr::default()
+            };
             // SAFETY: perf_event_open(2) over a live, fully initialised attr of the size it states; this thread (pid 0),
             // any cpu (-1), no group (-1), no flags.
-            let fd = unsafe { syscall(SYS_PERF_EVENT_OPEN, &attr as *const Attr, 0i64, -1i64, -1i64, 0u64) };
+            let fd = unsafe {
+                syscall(
+                    SYS_PERF_EVENT_OPEN,
+                    &attr as *const Attr,
+                    0i64,
+                    -1i64,
+                    -1i64,
+                    0u64,
+                )
+            };
             (fd >= 0).then_some(Insns(fd as i32))
         }
         pub fn start(&self) {
@@ -157,7 +179,10 @@ mod counter {
     }
 }
 
-#[cfg(not(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "x86_64"))))]
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "x86_64")
+)))]
 mod counter {
     pub struct Insns;
     impl Insns {
@@ -175,7 +200,12 @@ mod counter {
 /// and ct both start the binary by its full path). The file only reads the path; it never re-runs itself (registered.rs).
 fn profile() -> String {
     let exe = std::path::PathBuf::from(std::env::args_os().next().unwrap_or_default());
-    exe.parent().and_then(|d| d.parent()).and_then(|d| d.file_name()).and_then(|d| d.to_str()).unwrap_or_default().to_owned()
+    exe.parent()
+        .and_then(|d| d.parent())
+        .and_then(|d| d.file_name())
+        .and_then(|d| d.to_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 #[test]
@@ -187,7 +217,8 @@ fn lowering_instructions_stay_within_their_budgets() {
     let profile = profile();
     let mut over = Vec::new();
     for (name, budget) in GUARDS {
-        let text = std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan"))).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let text = std::fs::read_to_string(common::plans_dir().join(format!("{name}.plan")))
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
         let mut counts = Vec::new();
         match common::lower_n(&text, RUNS, || c.start(), || counts.push(c.stop())) {
             Some(Ok(())) => {}

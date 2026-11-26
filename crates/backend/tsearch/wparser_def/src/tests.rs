@@ -265,13 +265,15 @@ fn nondefault_parser_via_ts_cache_fmgr_drive() {
     });
     // Fake pg_ts_parser row pointing at the default parser's method OIDs.
     syscache_seams::lookup_pg_ts_parser_shape::set(|prsid| {
-        Ok((prsid == CUSTOM_PRS).then_some(syscache_seams::PgTsParserShape {
-            prsstart: 3717,
-            prstoken: 3718,
-            prsend: 3719,
-            prsheadline: 0,
-            prslextype: 3721,
-        }))
+        Ok(
+            (prsid == CUSTOM_PRS).then_some(syscache_seams::PgTsParserShape {
+                prsstart: 3717,
+                prstoken: 3718,
+                prsend: 3719,
+                prsheadline: 0,
+                prslextype: 3721,
+            }),
+        )
     });
     fmgr_seams::fmgr_info::set(|oid| {
         let (func, nargs): (types_fmgr::PGFunction, i16) = match oid {
@@ -293,9 +295,7 @@ fn nondefault_parser_via_ts_cache_fmgr_drive() {
     let mut fcinfo = types_fmgr::LocalFcinfo::<2>::new(0);
     // SAFETY: `mcx` outlives every use of this fcinfo in this test.
     unsafe { fcinfo.set_result_mcx(mcx) };
-    let input = types_fmgr::varlena_result(
-        varlena::cstring_to_text(mcx, b"The Fat Rats").unwrap(),
-    );
+    let input = types_fmgr::varlena_result(varlena::cstring_to_text(mcx, b"The Fat Rats").unwrap());
     fcinfo.set_arg(0, datum::Datum::from_oid(CUSTOM_PRS));
     fcinfo.set_arg(1, input);
 
@@ -317,7 +317,11 @@ fn nondefault_parser_via_ts_cache_fmgr_drive() {
     assert_eq!(custom_tt, default_tt);
     assert_eq!(
         custom_tt[0],
-        vec![b"1".to_vec(), b"asciiword".to_vec(), b"Word, all ASCII".to_vec()]
+        vec![
+            b"1".to_vec(),
+            b"asciiword".to_vec(),
+            b"Word, all ASCII".to_vec()
+        ]
     );
 }
 
@@ -364,9 +368,16 @@ fn parser_lookup_miss_raw_matches_c_arms() {
     );
     let e = parser_lookup_miss_raw(&[b"\xab".to_vec(), b"default".to_vec()]).unwrap();
     assert_eq!(e.sqlstate(), ERRCODE_UNDEFINED_SCHEMA);
-    assert_eq!(e.message_raw.as_deref(), Some(&b"schema \"\xab\" does not exist"[..]));
-    let e = parser_lookup_miss_raw(&[b"\xab".to_vec(), b"pg_catalog".to_vec(), b"default".to_vec()])
-        .unwrap();
+    assert_eq!(
+        e.message_raw.as_deref(),
+        Some(&b"schema \"\xab\" does not exist"[..])
+    );
+    let e = parser_lookup_miss_raw(&[
+        b"\xab".to_vec(),
+        b"pg_catalog".to_vec(),
+        b"default".to_vec(),
+    ])
+    .unwrap();
     assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(
         e.message_raw.as_deref(),
